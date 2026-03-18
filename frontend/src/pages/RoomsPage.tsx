@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, DoorOpen, Users } from 'lucide-react'
+import { Plus, Pencil, Trash2, DoorOpen, Users, Upload } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -9,6 +9,7 @@ import { useTable } from '@/hooks/useTable'
 import { DataTable } from '@/components/common/DataTable'
 import { Modal, ConfirmModal } from '@/components/ui/Modal'
 import { PageLoader, ErrorState } from '@/components/ui/Loading'
+import { BulkImportModal } from '@/components/common/BulkImportModal'
 import { getErrorMessage } from '@/lib/utils'
 import type { Room, Department } from '@/types'
 
@@ -28,7 +29,7 @@ export function RoomsPage() {
     const [editItem, setEditItem] = useState<Room | null>(null)
     const [deleteItem, setDeleteItem] = useState<Room | null>(null)
     const [saving, setSaving] = useState(false)
-    const [importing, setImporting] = useState(false)
+    const [importModalOpen, setImportModalOpen] = useState(false)
     const { toast } = useToast()
 
     const table = useTable({ data: rooms as any, searchFields: ['name', 'room_type'], defaultSortKey: 'name' })
@@ -102,21 +103,6 @@ export function RoomsPage() {
         }
     }
 
-    const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        setImporting(true)
-        try {
-            const res = await roomService.bulkImport(file)
-            toast('success', res.message)
-            load()
-        } catch (err) {
-            toast('error', 'Import failed', getErrorMessage(err))
-        } finally {
-            setImporting(false)
-        }
-    }
-
     if (loading) return <PageLoader />
     if (error) return <ErrorState message={error} onRetry={load} />
 
@@ -127,12 +113,10 @@ export function RoomsPage() {
                     <h1 className="page-title">Rooms</h1>
                     <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Manage classroom and lab facilities</p>
                 </div>
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <label className={`btn btn-secondary ${importing ? 'opacity-50 pointer-events-none' : ''}`} style={{ cursor: 'pointer' }}>
-                        {importing ? <span className="spinner" style={{ width: '1rem', height: '1rem', marginRight: '0.5rem' }} /> : null}
-                        {importing ? 'Importing...' : 'Bulk Import'}
-                        <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleImport} disabled={importing} style={{ display: 'none' }} />
-                    </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <button className="btn btn-secondary" onClick={() => setImportModalOpen(true)}>
+                        <Upload size={14} /> Bulk Import
+                    </button>
                     <button className="btn btn-primary" onClick={openCreate}><Plus size={16} /> Add Room</button>
                 </div>
             </div>
@@ -228,8 +212,17 @@ export function RoomsPage() {
                 onClose={() => setDeleteItem(null)}
                 onConfirm={handleDelete}
                 title="Delete Room"
-                message={`Delete room "${deleteItem?.name}"?`}
+                message={`Are you sure you want to delete "${deleteItem?.name}"? All associated lectures will also be removed.`}
                 isLoading={saving}
+            />
+
+            <BulkImportModal
+                isOpen={importModalOpen}
+                onClose={() => setImportModalOpen(false)}
+                resourceName="Rooms"
+                headers={['Name', 'Capacity', 'Type']}
+                onImport={(f) => roomService.bulkImport(f)}
+                onSuccess={load}
             />
         </div>
     )

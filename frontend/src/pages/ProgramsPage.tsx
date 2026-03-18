@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, Layers } from 'lucide-react'
+import { Plus, Pencil, Trash2, Layers, Upload } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -9,6 +9,7 @@ import { useTable } from '@/hooks/useTable'
 import { DataTable } from '@/components/common/DataTable'
 import { Modal, ConfirmModal } from '@/components/ui/Modal'
 import { PageLoader, ErrorState } from '@/components/ui/Loading'
+import { BulkImportModal } from '@/components/common/BulkImportModal'
 import { getErrorMessage } from '@/lib/utils'
 import type { Program, Department } from '@/types'
 
@@ -28,7 +29,7 @@ export function ProgramsPage() {
     const [editItem, setEditItem] = useState<Program | null>(null)
     const [deleteItem, setDeleteItem] = useState<Program | null>(null)
     const [saving, setSaving] = useState(false)
-    const [importing, setImporting] = useState(false)
+    const [importModalOpen, setImportModalOpen] = useState(false)
     const { toast } = useToast()
 
     const table = useTable({ data: programs as any, searchFields: ['name', 'code'] as any, defaultSortKey: 'name' })
@@ -105,21 +106,6 @@ export function ProgramsPage() {
         }
     }
 
-    const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        setImporting(true)
-        try {
-            const res = await programService.bulkImport(file)
-            toast('success', res.message)
-            load()
-        } catch (err) {
-            toast('error', 'Import failed', getErrorMessage(err))
-        } finally {
-            setImporting(false)
-        }
-    }
-
     if (loading) return <PageLoader />
     if (error) return <ErrorState message={error} onRetry={load} />
 
@@ -132,12 +118,10 @@ export function ProgramsPage() {
                         Manage academic programs under departments
                     </p>
                 </div>
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <label className={`btn btn-secondary ${importing ? 'opacity-50 pointer-events-none' : ''}`} style={{ cursor: 'pointer' }}>
-                        {importing ? <span className="spinner" style={{ width: '1rem', height: '1rem', marginRight: '0.5rem' }} /> : null}
-                        {importing ? 'Importing...' : 'Bulk Import'}
-                        <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleImport} disabled={importing} style={{ display: 'none' }} />
-                    </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <button className="btn btn-secondary" onClick={() => setImportModalOpen(true)}>
+                        <Upload size={14} /> Bulk Import
+                    </button>
                     <button className="btn btn-primary" onClick={openCreate}>
                         <Plus size={16} /> Add Program
                     </button>
@@ -205,7 +189,7 @@ export function ProgramsPage() {
                         <label className="label">Department</label>
                         <select {...register('department_id')} className={`input select ${errors.department_id ? 'input-error' : ''}`}>
                             <option value={0}>Select department...</option>
-                            {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                            {departments.map(d => <option key={d.id} value={d.id}>[{d.code}] {d.name}</option>)}
                         </select>
                         {errors.department_id && <p className="error-msg">{errors.department_id.message}</p>}
                     </div>
@@ -219,6 +203,15 @@ export function ProgramsPage() {
                 title="Delete Program"
                 message={`Delete "${deleteItem?.name}"? All batches and sections inside will also be removed.`}
                 isLoading={saving}
+            />
+
+            <BulkImportModal
+                isOpen={importModalOpen}
+                onClose={() => setImportModalOpen(false)}
+                resourceName="Programs"
+                headers={['Name', 'Code', 'DeptCode']}
+                onImport={(f) => programService.bulkImport(f)}
+                onSuccess={load}
             />
         </div>
     )

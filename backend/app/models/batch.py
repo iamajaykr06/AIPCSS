@@ -4,7 +4,8 @@ class Batch(db.Model):
     __tablename__ = 'batches'
     
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False) # e.g., "Batch 2023-2026"
+    name = db.Column(db.String(100), nullable=False) # e.g., "Batch 2023-26"
+    code = db.Column(db.String(50), nullable=False, unique=True) # e.g., "B23"
     academic_year = db.Column(db.String(20), nullable=False) # e.g., "2023-2024"
     program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=False)
     current_semester = db.Column(db.Integer, nullable=False, default=1)  # 1-8

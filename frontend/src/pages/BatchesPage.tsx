@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, GraduationCap } from 'lucide-react'
+import { Plus, Pencil, Trash2, GraduationCap, Upload } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -9,11 +9,13 @@ import { useTable } from '@/hooks/useTable'
 import { DataTable } from '@/components/common/DataTable'
 import { Modal, ConfirmModal } from '@/components/ui/Modal'
 import { PageLoader, ErrorState } from '@/components/ui/Loading'
+import { BulkImportModal } from '@/components/common/BulkImportModal'
 import { getErrorMessage } from '@/lib/utils'
 import type { Batch, Program, Department } from '@/types'
 
 const schema = z.object({
     name: z.string().min(1, 'Name is required'),
+    code: z.string().min(1, 'Code is required'),
     academic_year: z.string().min(4, 'Academic year required'),
     program_id: z.coerce.number().min(1, 'Select a program'),
 })
@@ -29,7 +31,7 @@ export function BatchesPage() {
     const [editItem, setEditItem] = useState<Batch | null>(null)
     const [deleteItem, setDeleteItem] = useState<Batch | null>(null)
     const [saving, setSaving] = useState(false)
-    const [importing, setImporting] = useState(false)
+    const [importModalOpen, setImportModalOpen] = useState(false)
     const { toast } = useToast()
 
     const table = useTable({ data: batches as any, searchFields: ['name', 'academic_year'], defaultSortKey: 'name' })
@@ -68,13 +70,14 @@ export function BatchesPage() {
 
     const openCreate = () => {
         setEditItem(null)
-        reset({ name: '', academic_year: '', program_id: 0 })
+        reset({ name: '', code: '', academic_year: '', program_id: 0 })
         setModalOpen(true)
     }
 
     const openEdit = (b: Batch) => {
         setEditItem(b)
         setValue('name', b.name)
+        setValue('code', b.code)
         setValue('academic_year', b.academic_year)
         setValue('program_id', b.program_id)
         setModalOpen(true)
@@ -114,21 +117,6 @@ export function BatchesPage() {
         }
     }
 
-    const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        setImporting(true)
-        try {
-            const res = await batchService.bulkImport(file)
-            toast('success', res.message)
-            load()
-        } catch (err) {
-            toast('error', 'Import failed', getErrorMessage(err))
-        } finally {
-            setImporting(false)
-        }
-    }
-
     if (loading) return <PageLoader />
     if (error) return <ErrorState message={error} onRetry={load} />
 
@@ -141,12 +129,10 @@ export function BatchesPage() {
                         Manage academic year batches under programs
                     </p>
                 </div>
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <label className={`btn btn-secondary ${importing ? 'opacity-50 pointer-events-none' : ''}`} style={{ cursor: 'pointer' }}>
-                        {importing ? <span className="spinner" style={{ width: '1rem', height: '1rem', marginRight: '0.5rem' }} /> : null}
-                        {importing ? 'Importing...' : 'Bulk Import'}
-                        <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleImport} disabled={importing} style={{ display: 'none' }} />
-                    </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <button className="btn btn-secondary" onClick={() => setImportModalOpen(true)}>
+                        <Upload size={14} /> Bulk Import
+                    </button>
                     <button className="btn btn-primary" onClick={openCreate}>
                         <Plus size={16} /> Add Batch
                     </button>
@@ -157,6 +143,7 @@ export function BatchesPage() {
                 <DataTable
                     columns={[
                         { key: 'name', label: 'Batch Name', sortable: true },
+                        { key: 'code', label: 'Code', sortable: true, render: row => <span className="badge badge-blue">{String(row.code)}</span> },
                         {
                             key: 'academic_year', label: 'Academic Year', sortable: true, render: row => (
                                 <span className="badge badge-amber">{String(row.academic_year)}</span>
@@ -216,6 +203,12 @@ export function BatchesPage() {
                         {errors.name && <p className="error-msg">{errors.name.message}</p>}
                     </div>
                     <div className="form-group">
+                        <label className="label">Batch Code</label>
+                        <input {...register('code')} className={`input ${errors.code ? 'input-error' : ''}`}
+                            placeholder="e.g. B24" />
+                        {errors.code && <p className="error-msg">{errors.code.message}</p>}
+                    </div>
+                    <div className="form-group">
                         <label className="label">Academic Year</label>
                         <input {...register('academic_year')} className={`input ${errors.academic_year ? 'input-error' : ''}`}
                             placeholder="e.g. 2024-2025" />
@@ -225,7 +218,7 @@ export function BatchesPage() {
                         <label className="label">Program</label>
                         <select {...register('program_id')} className={`input select ${errors.program_id ? 'input-error' : ''}`}>
                             <option value={0}>Select program...</option>
-                            {programs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            {programs.map(p => <option key={p.id} value={p.id}>[{p.code}] {p.name}</option>)}
                         </select>
                         {errors.program_id && <p className="error-msg">{errors.program_id.message}</p>}
                     </div>
@@ -239,6 +232,15 @@ export function BatchesPage() {
                 title="Delete Batch"
                 message={`Delete batch "${deleteItem?.name}"? All sections inside will also be removed.`}
                 isLoading={saving}
+            />
+
+            <BulkImportModal
+                isOpen={importModalOpen}
+                onClose={() => setImportModalOpen(false)}
+                resourceName="Batches"
+                headers={['Name', 'Code', 'Year', 'ProgramCode']}
+                onImport={(f) => batchService.bulkImport(f)}
+                onSuccess={load}
             />
         </div>
     )

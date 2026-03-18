@@ -203,7 +203,7 @@ def get_batches():
     if prog_id:
         query = query.filter_by(program_id=prog_id)
     result = paginate(query.order_by(Batch.name))
-    items = [{'id': b.id, 'name': b.name, 'academic_year': b.academic_year, 'program_id': b.program_id} for b in result.items]
+    items = [{'id': b.id, 'name': b.name, 'code': b.code, 'academic_year': b.academic_year, 'program_id': b.program_id} for b in result.items]
     return jsonify({"data": items, "meta": pagination_meta(result)}), 200
 
 
@@ -213,7 +213,7 @@ def get_batch(batch_id):
     b = db.session.get(Batch, batch_id)
     if not b:
         return jsonify({'error': 'Batch not found'}), 404
-    return jsonify({'id': b.id, 'name': b.name, 'academic_year': b.academic_year, 'program_id': b.program_id}), 200
+    return jsonify({'id': b.id, 'name': b.name, 'code': b.code, 'academic_year': b.academic_year, 'program_id': b.program_id}), 200
 
 
 @resources_bp.route('/batches', methods=['POST'])
@@ -230,13 +230,23 @@ def add_batch():
         errors.append("academic_year is required")
     if not data.get('program_id'):
         errors.append("program_id is required")
+    if not data.get('code'):
+        errors.append("code is required")
     if errors:
         return jsonify({'error': 'Validation failed', 'details': errors}), 422
+
+    if Batch.query.filter_by(code=data['code'].strip()).first():
+        return jsonify({'error': f"Batch code '{data['code']}' already exists"}), 409
 
     if not db.session.get(Program, data['program_id']):
         return jsonify({'error': 'Program not found'}), 404
 
-    b = Batch(name=data['name'].strip(), academic_year=data['academic_year'].strip(), program_id=data['program_id'])
+    b = Batch(
+        name=data['name'].strip(), 
+        code=data['code'].strip(),
+        academic_year=data['academic_year'].strip(), 
+        program_id=data['program_id']
+    )
     db.session.add(b)
     db.session.commit()
     return jsonify({'message': 'Batch added', 'id': b.id}), 201
@@ -252,6 +262,11 @@ def update_batch(batch_id):
     data = request.get_json() or {}
     if 'name' in data:
         b.name = data['name'].strip()
+    if 'code' in data:
+        existing = Batch.query.filter_by(code=data['code'].strip()).first()
+        if existing and existing.id != batch_id:
+            return jsonify({'error': 'Batch code already in use'}), 409
+        b.code = data['code'].strip()
     if 'academic_year' in data:
         b.academic_year = data['academic_year'].strip()
     if 'program_id' in data:
@@ -714,7 +729,7 @@ def delete_room(room_id):
 # BULK IMPORT ROUTES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _bulk_import_logic(file, model_class, field_mapping, unique_field=None):
+def _bulk_import_logic(file, model_class, field_mapping, unique_field=None, lookup_configs=None):
     if not file:
         return {"error": "No file uploaded"}, 400
     
@@ -726,17 +741,31 @@ def _bulk_import_logic(file, model_class, field_mapping, unique_field=None):
         for index, row in df.iterrows():
             try:
                 data = {}
+                # Handle standard field mapping
                 for model_field, excel_field in field_mapping.items():
                     val = row.get(excel_field)
                     if pd.isna(val):
                         val = None
                     data[model_field] = val
                 
+                # Handle lookup configs (e.g., ProgramCode -> program_id)
+                if lookup_configs:
+                    for model_field, (ref_model, ref_field, excel_field) in lookup_configs.items():
+                        lookup_val = row.get(excel_field)
+                        if pd.isna(lookup_val):
+                            raise Exception(f"Missing required field '{excel_field}'")
+                        
+                        ref_obj = ref_model.query.filter(getattr(ref_model, ref_field) == str(lookup_val).strip()).first()
+                        if not ref_obj:
+                            raise Exception(f"{ref_model.__name__} was not found with {ref_field}='{lookup_val}'")
+                        
+                        data[model_field] = ref_obj.id
+                
                 # Check for uniqueness if required
                 if unique_field and data.get(unique_field):
                     existing = model_class.query.filter_by(**{unique_field: data[unique_field]}).first()
                     if existing:
-                        success += 1 # Count as success/skip
+                        success += 1 # Count as skip/update? For now just skip
                         continue
                 
                 obj = model_class(**data)
@@ -746,10 +775,10 @@ def _bulk_import_logic(file, model_class, field_mapping, unique_field=None):
                 errors.append(f"Row {index+2}: {str(e)}")
         
         db.session.commit()
-        return {"message": f"Imported {success} items", "errors": errors}, 200
+        return {"message": f"Successfully processed {success} items", "errors": errors}, 200
     except Exception as e:
         db.session.rollback()
-        return {"error": str(e)}, 500
+        return {"error": f"Failed to process file: {str(e)}"}, 500
 
 @resources_bp.route('/departments/import', methods=['POST'])
 @roles_required('admin')
@@ -760,39 +789,106 @@ def import_departments():
 
 @resources_bp.route('/programs/import', methods=['POST'])
 @roles_required('admin')
-def import_programs():
+def bulk_import_programs():
     file = request.files.get('file')
-    # For programs, we might need department_id. Simple logic: assume it's in the excel or use a default one
-    result, status = _bulk_import_logic(file, Program, {'name': 'Name', 'code': 'Code', 'department_id': 'DepartmentID'}, 'code')
-    return jsonify(result), status
+    res, status = _bulk_import_logic(
+        file, 
+        Program, 
+        {'name': 'Name', 'code': 'Code'}, 
+        'code',
+        lookup_configs={'department_id': (Department, 'code', 'DeptCode')}
+    )
+    return jsonify(res), status
 
 @resources_bp.route('/batches/import', methods=['POST'])
 @roles_required('admin')
-def import_batches():
+def bulk_import_batches():
     file = request.files.get('file')
-    result, status = _bulk_import_logic(file, Batch, {'name': 'Name', 'academic_year': 'Year', 'program_id': 'ProgramID'})
-    return jsonify(result), status
+    res, status = _bulk_import_logic(
+        file, 
+        Batch, 
+        {'name': 'Name', 'code': 'Code', 'academic_year': 'Year'}, 
+        'code',
+        lookup_configs={'program_id': (Program, 'code', 'ProgramCode')}
+    )
+    return jsonify(res), status
 
 @resources_bp.route('/sections/import', methods=['POST'])
 @roles_required('admin')
-def import_sections():
+def bulk_import_sections():
     file = request.files.get('file')
-    result, status = _bulk_import_logic(file, Section, {'name': 'Name', 'student_count': 'Count', 'batch_id': 'BatchID'})
-    return jsonify(result), status
+    res, status = _bulk_import_logic(
+        file, 
+        Section, 
+        {'name': 'Name', 'student_count': 'Count'}, 
+        None,
+        lookup_configs={'batch_id': (Batch, 'code', 'BatchCode')}
+    )
+    return jsonify(res), status
 
 @resources_bp.route('/teachers/import', methods=['POST'])
 @roles_required('admin')
-def import_teachers():
+def bulk_import_teachers():
     file = request.files.get('file')
-    result, status = _bulk_import_logic(file, Teacher, {'name': 'Name', 'email': 'Email'}, 'email')
-    return jsonify(result), status
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
+    
+    try:
+        df = pd.read_excel(BytesIO(file.read()))
+        # Normalize column names to lowercase to be more flexible
+        df.columns = [c.lower().strip() for c in df.columns]
+        
+        success = 0
+        errors = []
+        
+        for index, row in df.iterrows():
+            try:
+                name = row.get('name')
+                email = row.get('email')
+                phone = row.get('phone')
+                
+                if pd.isna(name) or pd.isna(email):
+                    continue
+                
+                t = Teacher.query.filter_by(email=str(email).strip()).first()
+                if not t:
+                    t = Teacher(name=str(name).strip(), email=str(email).strip(), phone=str(phone).strip() if pd.notna(phone) else None)
+                    db.session.add(t)
+                else:
+                    if pd.notna(phone):
+                        t.phone = str(phone).strip()
+                
+                # Resolve Departments by codes (e.g., "CS, ME, MATH")
+                dept_codes_val = row.get('department_codes')
+                if pd.notna(dept_codes_val):
+                    codes = [c.strip() for c in str(dept_codes_val).split(',') if c.strip()]
+                    for code in codes:
+                        dept = Department.query.filter_by(code=code).first()
+                        if dept and dept not in t.departments:
+                            t.departments.append(dept)
+                
+                success += 1
+            except Exception as e:
+                errors.append(f"Row {index+2}: {str(e)}")
+        
+        db.session.commit()
+        return jsonify({"message": f"Successfully processed {success} teachers", "errors": errors}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
 
 @resources_bp.route('/courses/import', methods=['POST'])
 @roles_required('admin')
-def import_courses():
+def bulk_import_courses():
     file = request.files.get('file')
-    result, status = _bulk_import_logic(file, Course, {'name': 'Name', 'code': 'Code', 'credits': 'Credits', 'course_type': 'Type', 'department_id': 'DepartmentID'}, 'code')
-    return jsonify(result), status
+    res, status = _bulk_import_logic(
+        file, 
+        Course, 
+        {'name': 'Name', 'code': 'Code', 'credits': 'Credits', 'course_type': 'Type'}, 
+        'code',
+        lookup_configs={'department_id': (Department, 'code', 'DeptCode')}
+    )
+    return jsonify(res), status
 
 @resources_bp.route('/rooms/import', methods=['POST'])
 @roles_required('admin')

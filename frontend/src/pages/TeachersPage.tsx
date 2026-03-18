@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, Briefcase, BookOpen, X, Tag } from 'lucide-react'
+import { Plus, Pencil, Trash2, Briefcase, BookOpen, X, Tag, Upload } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -9,6 +9,7 @@ import { useTable } from '@/hooks/useTable'
 import { DataTable } from '@/components/common/DataTable'
 import { Modal, ConfirmModal } from '@/components/ui/Modal'
 import { PageLoader, ErrorState } from '@/components/ui/Loading'
+import { BulkImportModal } from '@/components/common/BulkImportModal'
 import { getErrorMessage } from '@/lib/utils'
 import type { Teacher, Department, Course } from '@/types'
 
@@ -16,9 +17,10 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 const SLOTS = ['09:00-10:00', '10:00-11:00', '11:00-12:00', '01:00-02:00', '02:00-03:00']
 
 const schema = z.object({
-    name: z.string().min(2, 'Name required'),
-    email: z.string().email('Valid email required'),
-    department_ids: z.array(z.number()).optional(),
+    name: z.string().min(1, 'Name is required'),
+    email: z.string().email('Invalid email address'),
+    phone: z.string().optional(),
+    department_ids: z.array(z.coerce.number()).optional(),
 })
 type FormData = z.infer<typeof schema>
 
@@ -33,7 +35,7 @@ export function TeachersPage() {
     const [deleteItem, setDeleteItem] = useState<Teacher | null>(null)
     const [qualModal, setQualModal] = useState<Teacher | null>(null)
     const [saving, setSaving] = useState(false)
-    const [importing, setImporting] = useState(false)
+    const [importModalOpen, setImportModalOpen] = useState(false)
     // Availability: day -> slots[]
     const [availability, setAvailability] = useState<Record<string, string[]>>({})
     const [selectedDepts, setSelectedDepts] = useState<number[]>([])
@@ -42,7 +44,7 @@ export function TeachersPage() {
     const table = useTable({ data: teachers as any, searchFields: ['name', 'email'] as any, defaultSortKey: 'name' })
 
     const { register, handleSubmit, reset, formState: { errors }, setValue } = useForm<FormData>({
-        resolver: zodResolver(schema),
+        resolver: zodResolver(schema) as any,
     })
 
     async function load() {
@@ -67,7 +69,7 @@ export function TeachersPage() {
 
     const openCreate = () => {
         setEditItem(null)
-        reset({ name: '', email: '' })
+        reset({ name: '', email: '', phone: '', department_ids: [] })
         setAvailability({})
         setSelectedDepts([])
         setModalOpen(true)
@@ -77,6 +79,8 @@ export function TeachersPage() {
         setEditItem(t)
         setValue('name', t.name)
         setValue('email', t.email)
+        setValue('phone', t.phone || '')
+        setValue('department_ids', (t.departments || []).map(d => d.id))
         setAvailability(t.availability || {})
         setSelectedDepts(t.departments.map(d => d.id))
         setModalOpen(true)
@@ -155,21 +159,6 @@ export function TeachersPage() {
         }
     }
 
-    const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        setImporting(true)
-        try {
-            const res = await teacherService.bulkImport(file)
-            toast('success', res.message)
-            load()
-        } catch (err) {
-            toast('error', 'Import failed', getErrorMessage(err))
-        } finally {
-            setImporting(false)
-        }
-    }
-
     if (loading) return <PageLoader />
     if (error) return <ErrorState message={error} onRetry={load} />
 
@@ -184,12 +173,10 @@ export function TeachersPage() {
                         Manage teaching staff, qualifications, and availability
                     </p>
                 </div>
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <label className={`btn btn-secondary ${importing ? 'opacity-50 pointer-events-none' : ''}`} style={{ cursor: 'pointer' }}>
-                        {importing ? <span className="spinner" style={{ width: '1rem', height: '1rem', marginRight: '0.5rem' }} /> : null}
-                        {importing ? 'Importing...' : 'Bulk Import'}
-                        <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleImport} disabled={importing} style={{ display: 'none' }} />
-                    </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <button className="btn btn-secondary" onClick={() => setImportModalOpen(true)}>
+                        <Upload size={14} /> Bulk Import
+                    </button>
                     <button className="btn btn-primary" onClick={openCreate}><Plus size={16} /> Add Teacher</button>
                 </div>
             </div>
@@ -205,7 +192,11 @@ export function TeachersPage() {
                                         <div className="avatar" style={{ width: '2rem', height: '2rem', fontSize: '0.75rem' }}>
                                             {t.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
                                         </div>
-                                        <span style={{ fontWeight: 500 }}>{t.name}</span>
+                                        <div>
+                                            <span style={{ fontWeight: 500 }}>{t.name}</span>
+                                            <p style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>{String(row.email)}</p>
+                                            {row.phone && <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{String(row.phone)}</p>}
+                                        </div>
                                     </div>
                                 )
                             }
@@ -281,13 +272,21 @@ export function TeachersPage() {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                         <div className="form-group">
                             <label className="label">Full Name</label>
-                            <input {...register('name')} className={`input ${errors.name ? 'input-error' : ''}`} placeholder="Dr. John Smith" />
+                            <input {...register('name')} className={`input ${errors.name ? 'input-error' : ''}`} placeholder="e.g. Dr. Jane Smith" />
                             {errors.name && <p className="error-msg">{errors.name.message}</p>}
                         </div>
                         <div className="form-group">
-                            <label className="label">Email</label>
-                            <input {...register('email')} type="email" className={`input ${errors.email ? 'input-error' : ''}`} placeholder="teacher@uni.edu" />
+                            <label className="label">Email Address</label>
+                            <input {...register('email')} type="email" className={`input ${errors.email ? 'input-error' : ''}`} placeholder="jane@university.edu" />
                             {errors.email && <p className="error-msg">{errors.email.message}</p>}
+                        </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div className="form-group">
+                            <label className="label">Phone Number</label>
+                            <input {...register('phone')} className={`input ${errors.phone ? 'input-error' : ''}`}
+                                placeholder="e.g. +1 234 567 890" />
+                            {errors.phone && <p className="error-msg">{errors.phone.message}</p>}
                         </div>
                     </div>
 
@@ -422,6 +421,15 @@ export function TeachersPage() {
                 title="Delete Teacher"
                 message={`Delete teacher "${deleteItem?.name}"? All their workloads will also be removed.`}
                 isLoading={saving}
+            />
+
+            <BulkImportModal
+                isOpen={importModalOpen}
+                onClose={() => setImportModalOpen(false)}
+                resourceName="Teachers"
+                headers={['name', 'email', 'phone', 'department_codes']}
+                onImport={(f) => teacherService.bulkImport(f)}
+                onSuccess={load}
             />
         </div>
     )

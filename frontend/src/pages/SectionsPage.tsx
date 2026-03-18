@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, Users } from 'lucide-react'
+import { Plus, Pencil, Trash2, Users, Upload } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -9,6 +9,7 @@ import { useTable } from '@/hooks/useTable'
 import { DataTable } from '@/components/common/DataTable'
 import { Modal, ConfirmModal } from '@/components/ui/Modal'
 import { PageLoader, ErrorState } from '@/components/ui/Loading'
+import { BulkImportModal } from '@/components/common/BulkImportModal'
 import { getErrorMessage } from '@/lib/utils'
 import type { Section, Batch, Program } from '@/types'
 
@@ -29,7 +30,7 @@ export function SectionsPage() {
     const [editItem, setEditItem] = useState<Section | null>(null)
     const [deleteItem, setDeleteItem] = useState<Section | null>(null)
     const [saving, setSaving] = useState(false)
-    const [importing, setImporting] = useState(false)
+    const [importModalOpen, setImportModalOpen] = useState(false)
     const { toast } = useToast()
 
     const table = useTable({ data: sections as any, searchFields: ['name'], defaultSortKey: 'name' })
@@ -108,21 +109,6 @@ export function SectionsPage() {
         }
     }
 
-    const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        setImporting(true)
-        try {
-            const res = await sectionService.bulkImport(file)
-            toast('success', res.message)
-            load()
-        } catch (err) {
-            toast('error', 'Import failed', getErrorMessage(err))
-        } finally {
-            setImporting(false)
-        }
-    }
-
     if (loading) return <PageLoader />
     if (error) return <ErrorState message={error} onRetry={load} />
 
@@ -135,12 +121,10 @@ export function SectionsPage() {
                         Manage class sections within batches
                     </p>
                 </div>
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <label className={`btn btn-secondary ${importing ? 'opacity-50 pointer-events-none' : ''}`} style={{ cursor: 'pointer' }}>
-                        {importing ? <span className="spinner" style={{ width: '1rem', height: '1rem', marginRight: '0.5rem' }} /> : null}
-                        {importing ? 'Importing...' : 'Bulk Import'}
-                        <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleImport} disabled={importing} style={{ display: 'none' }} />
-                    </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <button className="btn btn-secondary" onClick={() => setImportModalOpen(true)}>
+                        <Upload size={14} /> Bulk Import
+                    </button>
                     <button className="btn btn-primary" onClick={openCreate}><Plus size={16} /> Add Section</button>
                 </div>
             </div>
@@ -219,7 +203,7 @@ export function SectionsPage() {
                         <label className="label">Batch</label>
                         <select {...register('batch_id')} className={`input select ${errors.batch_id ? 'input-error' : ''}`}>
                             <option value={0}>Select batch...</option>
-                            {batches.map(b => <option key={b.id} value={b.id}>{b.name} ({b.academic_year})</option>)}
+                            {batches.map(b => <option key={b.id} value={b.id}>[{b.code}] {b.name} ({b.academic_year})</option>)}
                         </select>
                         {errors.batch_id && <p className="error-msg">{errors.batch_id.message}</p>}
                     </div>
@@ -233,6 +217,15 @@ export function SectionsPage() {
                 title="Delete Section"
                 message={`Delete section "${deleteItem?.name}"?`}
                 isLoading={saving}
+            />
+
+            <BulkImportModal
+                isOpen={importModalOpen}
+                onClose={() => setImportModalOpen(false)}
+                resourceName="Sections"
+                headers={['Name', 'Count', 'BatchCode']}
+                onImport={(f) => sectionService.bulkImport(f)}
+                onSuccess={load}
             />
         </div>
     )

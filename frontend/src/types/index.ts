@@ -75,12 +75,14 @@ export interface ProgramPayload {
 export interface Batch {
     id: number;
     name: string;
+    code: string;
     academic_year: string;
     program_id: number;
 }
 
 export interface BatchPayload {
     name: string;
+    code: string;
     academic_year: string;
     program_id: number;
 }
@@ -121,6 +123,7 @@ export interface Teacher {
     id: number;
     name: string;
     email: string;
+    phone?: string;
     availability: Availability | null;
     departments: TeacherDept[];
     qualified_courses: TeacherCourse[];
@@ -129,6 +132,7 @@ export interface Teacher {
 export interface TeacherPayload {
     name: string;
     email: string;
+    phone?: string;
     availability?: Availability | null;
     department_ids?: number[];
 }

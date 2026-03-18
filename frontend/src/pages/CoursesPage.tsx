@@ -31,6 +31,7 @@ export function CoursesPage() {
     const [editItem, setEditItem] = useState<Course | null>(null)
     const [deleteItem, setDeleteItem] = useState<Course | null>(null)
     const [saving, setSaving] = useState(false)
+    const [importing, setImporting] = useState(false)
     const { toast } = useToast()
 
     const table = useTable({ data: courses as any, searchFields: ['name', 'code'] as any, defaultSortKey: 'name' })
@@ -108,6 +109,21 @@ export function CoursesPage() {
         }
     }
 
+    const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        setImporting(true)
+        try {
+            const res = await courseService.bulkImport(file)
+            toast('success', res.message)
+            load()
+        } catch (err) {
+            toast('error', 'Import failed', getErrorMessage(err))
+        } finally {
+            setImporting(false)
+        }
+    }
+
     if (loading) return <PageLoader />
     if (error) return <ErrorState message={error} onRetry={load} />
 
@@ -118,7 +134,14 @@ export function CoursesPage() {
                     <h1 className="page-title">Courses</h1>
                     <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Manage subjects and courses</p>
                 </div>
-                <button className="btn btn-primary" onClick={openCreate}><Plus size={16} /> Add Course</button>
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <label className={`btn btn-secondary ${importing ? 'opacity-50 pointer-events-none' : ''}`} style={{ cursor: 'pointer' }}>
+                        {importing ? <span className="spinner" style={{ width: '1rem', height: '1rem', marginRight: '0.5rem' }} /> : null}
+                        {importing ? 'Importing...' : 'Bulk Import'}
+                        <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleImport} disabled={importing} style={{ display: 'none' }} />
+                    </label>
+                    <button className="btn btn-primary" onClick={openCreate}><Plus size={16} /> Add Course</button>
+                </div>
             </div>
 
             <div className="card" style={{ padding: '1.25rem' }}>

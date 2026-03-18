@@ -1,8 +1,8 @@
-"""initial migration with mega lectures and block scheduling
+"""create users table
 
-Revision ID: df78bea27efb
+Revision ID: 02e918c88eee
 Revises: 
-Create Date: 2026-02-27 14:04:12.869644
+Create Date: 2026-03-18 12:02:06.101338
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'df78bea27efb'
+revision = '02e918c88eee'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -86,9 +86,23 @@ def upgrade():
     sa.Column('name', sa.String(length=100), nullable=False),
     sa.Column('academic_year', sa.String(length=20), nullable=False),
     sa.Column('program_id', sa.Integer(), nullable=False),
+    sa.Column('current_semester', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['program_id'], ['programs.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_table('program_courses',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('program_id', sa.Integer(), nullable=False),
+    sa.Column('course_id', sa.Integer(), nullable=False),
+    sa.Column('semester_number', sa.Integer(), nullable=False),
+    sa.ForeignKeyConstraint(['course_id'], ['course.id'], ),
+    sa.ForeignKeyConstraint(['program_id'], ['programs.id'], ),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('program_id', 'semester_number', 'course_id')
+    )
+    with op.batch_alter_table('program_courses', schema=None) as batch_op:
+        batch_op.create_index('idx_program_semester', ['program_id', 'semester_number'], unique=False)
+
     op.create_table('teacher_qualifications',
     sa.Column('teacher_id', sa.Integer(), nullable=False),
     sa.Column('course_id', sa.Integer(), nullable=False),
@@ -147,6 +161,10 @@ def downgrade():
     op.drop_table('sections')
     op.drop_table('timetable_entries')
     op.drop_table('teacher_qualifications')
+    with op.batch_alter_table('program_courses', schema=None) as batch_op:
+        batch_op.drop_index('idx_program_semester')
+
+    op.drop_table('program_courses')
     op.drop_table('batches')
     op.drop_table('teacher_departments')
     op.drop_table('programs')

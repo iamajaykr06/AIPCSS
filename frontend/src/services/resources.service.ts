@@ -31,6 +31,14 @@ export const departmentService = {
     async delete(id: number): Promise<void> {
         await api.delete(`/resources/departments/${id}`)
     },
+    async bulkImport(file: File) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.post('/resources/departments/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        return res.data
+    }
 }
 
 // ── Programs ────────────────────────────────────────────────────────────────
@@ -57,6 +65,14 @@ export const programService = {
     async delete(id: number): Promise<void> {
         await api.delete(`/resources/programs/${id}`)
     },
+    async bulkImport(file: File) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.post('/resources/programs/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        return res.data
+    }
 }
 
 // ── Batches ─────────────────────────────────────────────────────────────────
@@ -83,6 +99,14 @@ export const batchService = {
     async delete(id: number): Promise<void> {
         await api.delete(`/resources/batches/${id}`)
     },
+    async bulkImport(file: File) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.post('/resources/batches/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        return res.data
+    }
 }
 
 // ── Sections ────────────────────────────────────────────────────────────────
@@ -109,6 +133,14 @@ export const sectionService = {
     async delete(id: number): Promise<void> {
         await api.delete(`/resources/sections/${id}`)
     },
+    async bulkImport(file: File) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.post('/resources/sections/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        return res.data
+    }
 }
 
 // ── Teachers ────────────────────────────────────────────────────────────────
@@ -143,6 +175,14 @@ export const teacherService = {
         const res = await api.delete(`/resources/teachers/${teacherId}/qualifications/${courseId}`)
         return res.data
     },
+    async bulkImport(file: File) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.post('/resources/teachers/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        return res.data
+    }
 }
 
 // ── Courses ─────────────────────────────────────────────────────────────────
@@ -169,6 +209,14 @@ export const courseService = {
     async delete(id: number): Promise<void> {
         await api.delete(`/resources/courses/${id}`)
     },
+    async bulkImport(file: File) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.post('/resources/courses/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        return res.data
+    }
 }
 
 // ── Rooms ────────────────────────────────────────────────────────────────────
@@ -195,4 +243,12 @@ export const roomService = {
     async delete(id: number): Promise<void> {
         await api.delete(`/resources/rooms/${id}`)
     },
+    async bulkImport(file: File) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.post('/resources/rooms/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        return res.data
+    }
 }

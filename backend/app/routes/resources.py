@@ -1,6 +1,8 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 
+from io import BytesIO
+import pandas as pd
 from ..models import Department, Program, Batch, Section, Teacher, Course, Room
 from .. import db
 from .auth import roles_required
@@ -706,3 +708,95 @@ def delete_room(room_id):
     db.session.delete(r)
     db.session.commit()
     return jsonify({'message': 'Room deleted'}), 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BULK IMPORT ROUTES
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _bulk_import_logic(file, model_class, field_mapping, unique_field=None):
+    if not file:
+        return {"error": "No file uploaded"}, 400
+    
+    try:
+        df = pd.read_excel(BytesIO(file.read()))
+        success = 0
+        errors = []
+        
+        for index, row in df.iterrows():
+            try:
+                data = {}
+                for model_field, excel_field in field_mapping.items():
+                    val = row.get(excel_field)
+                    if pd.isna(val):
+                        val = None
+                    data[model_field] = val
+                
+                # Check for uniqueness if required
+                if unique_field and data.get(unique_field):
+                    existing = model_class.query.filter_by(**{unique_field: data[unique_field]}).first()
+                    if existing:
+                        success += 1 # Count as success/skip
+                        continue
+                
+                obj = model_class(**data)
+                db.session.add(obj)
+                success += 1
+            except Exception as e:
+                errors.append(f"Row {index+2}: {str(e)}")
+        
+        db.session.commit()
+        return {"message": f"Imported {success} items", "errors": errors}, 200
+    except Exception as e:
+        db.session.rollback()
+        return {"error": str(e)}, 500
+
+@resources_bp.route('/departments/import', methods=['POST'])
+@roles_required('admin')
+def import_departments():
+    file = request.files.get('file')
+    result, status = _bulk_import_logic(file, Department, {'name': 'Name', 'code': 'Code'}, 'code')
+    return jsonify(result), status
+
+@resources_bp.route('/programs/import', methods=['POST'])
+@roles_required('admin')
+def import_programs():
+    file = request.files.get('file')
+    # For programs, we might need department_id. Simple logic: assume it's in the excel or use a default one
+    result, status = _bulk_import_logic(file, Program, {'name': 'Name', 'code': 'Code', 'department_id': 'DepartmentID'}, 'code')
+    return jsonify(result), status
+
+@resources_bp.route('/batches/import', methods=['POST'])
+@roles_required('admin')
+def import_batches():
+    file = request.files.get('file')
+    result, status = _bulk_import_logic(file, Batch, {'name': 'Name', 'academic_year': 'Year', 'program_id': 'ProgramID'})
+    return jsonify(result), status
+
+@resources_bp.route('/sections/import', methods=['POST'])
+@roles_required('admin')
+def import_sections():
+    file = request.files.get('file')
+    result, status = _bulk_import_logic(file, Section, {'name': 'Name', 'student_count': 'Count', 'batch_id': 'BatchID'})
+    return jsonify(result), status
+
+@resources_bp.route('/teachers/import', methods=['POST'])
+@roles_required('admin')
+def import_teachers():
+    file = request.files.get('file')
+    result, status = _bulk_import_logic(file, Teacher, {'name': 'Name', 'email': 'Email'}, 'email')
+    return jsonify(result), status
+
+@resources_bp.route('/courses/import', methods=['POST'])
+@roles_required('admin')
+def import_courses():
+    file = request.files.get('file')
+    result, status = _bulk_import_logic(file, Course, {'name': 'Name', 'code': 'Code', 'credits': 'Credits', 'course_type': 'Type', 'department_id': 'DepartmentID'}, 'code')
+    return jsonify(result), status
+
+@resources_bp.route('/rooms/import', methods=['POST'])
+@roles_required('admin')
+def import_rooms():
+    file = request.files.get('file')
+    result, status = _bulk_import_logic(file, Room, {'name': 'Name', 'capacity': 'Capacity', 'room_type': 'Type'}, 'name')
+    return jsonify(result), status

@@ -33,6 +33,7 @@ export function TeachersPage() {
     const [deleteItem, setDeleteItem] = useState<Teacher | null>(null)
     const [qualModal, setQualModal] = useState<Teacher | null>(null)
     const [saving, setSaving] = useState(false)
+    const [importing, setImporting] = useState(false)
     // Availability: day -> slots[]
     const [availability, setAvailability] = useState<Record<string, string[]>>({})
     const [selectedDepts, setSelectedDepts] = useState<number[]>([])
@@ -154,6 +155,21 @@ export function TeachersPage() {
         }
     }
 
+    const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        setImporting(true)
+        try {
+            const res = await teacherService.bulkImport(file)
+            toast('success', res.message)
+            load()
+        } catch (err) {
+            toast('error', 'Import failed', getErrorMessage(err))
+        } finally {
+            setImporting(false)
+        }
+    }
+
     if (loading) return <PageLoader />
     if (error) return <ErrorState message={error} onRetry={load} />
 
@@ -168,7 +184,14 @@ export function TeachersPage() {
                         Manage teaching staff, qualifications, and availability
                     </p>
                 </div>
-                <button className="btn btn-primary" onClick={openCreate}><Plus size={16} /> Add Teacher</button>
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <label className={`btn btn-secondary ${importing ? 'opacity-50 pointer-events-none' : ''}`} style={{ cursor: 'pointer' }}>
+                        {importing ? <span className="spinner" style={{ width: '1rem', height: '1rem', marginRight: '0.5rem' }} /> : null}
+                        {importing ? 'Importing...' : 'Bulk Import'}
+                        <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleImport} disabled={importing} style={{ display: 'none' }} />
+                    </label>
+                    <button className="btn btn-primary" onClick={openCreate}><Plus size={16} /> Add Teacher</button>
+                </div>
             </div>
 
             <div className="card" style={{ padding: '1.25rem' }}>

@@ -145,7 +145,7 @@ export interface Course {
     id: number;
     name: string;
     code: string;
-    credits: number;
+    semester: number;
     course_type: CourseType;
     department_id: number;
 }
@@ -153,7 +153,7 @@ export interface Course {
 export interface CoursePayload {
     name: string;
     code: string;
-    credits: number;
+    semester: number;
     course_type: CourseType;
     department_id: number;
 }

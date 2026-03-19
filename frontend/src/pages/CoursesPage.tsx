@@ -16,7 +16,7 @@ import type { Course, Department } from '@/types'
 const schema = z.object({
     name: z.string().min(1, 'Name is required'),
     code: z.string().min(1, 'Code is required'),
-    credits: z.coerce.number().min(1).max(10),
+    semester: z.coerce.number().min(1).max(8),
     course_type: z.enum(['Theory', 'Lab']),
     department_id: z.coerce.number().min(1, 'Select a department'),
 })
@@ -38,15 +38,15 @@ export function CoursesPage() {
     const table = useTable({ data: courses as any, searchFields: ['name', 'code'] as any, defaultSortKey: 'name' })
     const { register, handleSubmit, reset, formState: { errors }, setValue } = useForm<FormData>({
         resolver: zodResolver(schema) as any,
-        defaultValues: { course_type: 'Theory', credits: 3 },
+        defaultValues: { course_type: 'Theory', semester: 1 },
     })
 
     async function load() {
         try {
             setError(null)
             const [c, d] = await Promise.all([
-                courseService.list(undefined, 1, 200),
-                departmentService.list(1, 200),
+                courseService.list(undefined, 1, 2000),
+                departmentService.list(1, 2000),
             ])
             setCourses(c.data)
             setDepartments(d.data)
@@ -62,7 +62,7 @@ export function CoursesPage() {
 
     const openCreate = () => {
         setEditItem(null)
-        reset({ name: '', code: '', credits: 3, course_type: 'Theory', department_id: 0 })
+        reset({ name: '', code: '', semester: 1, course_type: 'Theory', department_id: 0 })
         setModalOpen(true)
     }
 
@@ -70,7 +70,7 @@ export function CoursesPage() {
         setEditItem(c)
         setValue('name', c.name)
         setValue('code', c.code)
-        setValue('credits', c.credits)
+        setValue('semester', c.semester)
         setValue('course_type', c.course_type)
         setValue('department_id', c.department_id)
         setModalOpen(true)
@@ -139,8 +139,8 @@ export function CoursesPage() {
                             )
                         },
                         {
-                            key: 'credits', label: 'Credits', sortable: true, render: row => (
-                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{String(row.credits)} cr</span>
+                            key: 'semester', label: 'Semester', sortable: true, render: row => (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Sem {String(row.semester)}</span>
                             )
                         },
                         {
@@ -195,9 +195,9 @@ export function CoursesPage() {
                             {errors.code && <p className="error-msg">{errors.code.message}</p>}
                         </div>
                         <div className="form-group">
-                            <label className="label">Credits</label>
-                            <input {...register('credits')} type="number" className={`input ${errors.credits ? 'input-error' : ''}`} min={1} max={10} />
-                            {errors.credits && <p className="error-msg">{errors.credits.message}</p>}
+                            <label className="label">Semester</label>
+                            <input {...register('semester')} type="number" className={`input ${errors.semester ? 'input-error' : ''}`} min={1} max={8} />
+                            {errors.semester && <p className="error-msg">{errors.semester.message}</p>}
                         </div>
                         <div className="form-group">
                             <label className="label">Type</label>
@@ -234,7 +234,7 @@ export function CoursesPage() {
                 isOpen={importModalOpen}
                 onClose={() => setImportModalOpen(false)}
                 resourceName="Courses"
-                headers={['Name', 'Code', 'Credits', 'Type', 'DeptCode']}
+                headers={['Name', 'Code', 'Semester', 'Type', 'DeptCode']}
                 onImport={(f) => courseService.bulkImport(f)}
                 onSuccess={load}
             />

@@ -152,7 +152,6 @@ def get_courses():
             'code': c.code,
             'name': c.name,
             'course_type': c.course_type,
-            'credits': c.credits,
             'department': c.department.name if c.department else None
         } for c in courses]
     }), 200
@@ -178,7 +177,6 @@ def create_course():
         code=data['code'],
         name=data['name'],
         course_type=data['course_type'],
-        credits=data.get('credits', 4),
         department_id=data['department_id']
     )
     db.session.add(course)
@@ -191,7 +189,6 @@ def create_course():
             'code': course.code,
             'name': course.name,
             'course_type': course.course_type,
-            'credits': course.credits,
             'department_id': course.department_id
         }
     }), 201
@@ -222,9 +219,6 @@ def update_course(course_id):
     if 'course_type' in data:
         course.course_type = data['course_type']
     
-    if 'credits' in data:
-        course.credits = data['credits']
-    
     if 'department_id' in data:
         course.department_id = data['department_id']
 
@@ -237,7 +231,6 @@ def update_course(course_id):
             'code': course.code,
             'name': course.name,
             'course_type': course.course_type,
-            'credits': course.credits,
             'department_id': course.department_id
         }
     }), 200
@@ -289,8 +282,7 @@ def get_curriculum():
             'course_id': pc.course.id,
             'course_code': pc.course.code,
             'course_name': pc.course.name,
-            'course_type': pc.course.course_type,
-            'credits': pc.course.credits
+            'course_type': pc.course.course_type
         })
     
     return jsonify({"curriculum": curriculum}), 200
@@ -440,8 +432,7 @@ def get_batch_current_courses(batch_id):
         'id': pc.course.id,
         'code': pc.course.code,
         'name': pc.course.name,
-        'type': pc.course.course_type,
-        'credits': pc.course.credits
+        'type': pc.course.course_type
     } for pc in program_courses]
 
     return jsonify({

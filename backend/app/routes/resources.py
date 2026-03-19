@@ -14,7 +14,7 @@ resources_bp = Blueprint('resources', __name__)
 def paginate(query):
     """Apply ?page=1&per_page=20 pagination from request args."""
     page = request.args.get('page', 1, type=int)
-    per_page = min(request.args.get('per_page', 20, type=int), 100)  # cap at 100
+    per_page = min(request.args.get('per_page', 20, type=int), 1000)  # capped at 1000 instead of 100
     result = query.paginate(page=page, per_page=per_page, error_out=False)
     return result
 
@@ -533,7 +533,7 @@ def _course_dict(c):
         'id': c.id,
         'name': c.name,
         'code': c.code,
-        'credits': c.credits,
+        'semester': c.semester,
         'course_type': c.course_type,
         'department_id': c.department_id,
     }
@@ -586,7 +586,7 @@ def add_course():
     c = Course(
         name=data['name'].strip(),
         code=data['code'].strip(),
-        credits=data.get('credits', 3),
+        semester=data.get('semester', 1),
         course_type=data.get('course_type', 'Theory'),
         department_id=data['department_id']
     )
@@ -610,8 +610,8 @@ def update_course(course_id):
         if existing and existing.id != course_id:
             return jsonify({'error': 'Course code already in use'}), 409
         c.code = data['code'].strip()
-    if 'credits' in data:
-        c.credits = data['credits']
+    if 'semester' in data:
+        c.semester = data['semester']
     if 'course_type' in data:
         if data['course_type'] not in ('Theory', 'Lab'):
             return jsonify({'error': "course_type must be 'Theory' or 'Lab'"}), 422
@@ -881,11 +881,19 @@ def bulk_import_teachers():
 @roles_required('admin')
 def bulk_import_courses():
     file = request.files.get('file')
+    # Update mapping to including semester string and department code from excel file
     res, status = _bulk_import_logic(
         file, 
         Course, 
-        {'name': 'Name', 'code': 'Code', 'credits': 'Credits', 'course_type': 'Type'}, 
-        'code',
+        {
+            'name': 'Name', 
+            'code': 'code', 
+            'semester_name': 'Semester', 
+            'course_type': 'Type', 
+            'program_code': 'Program', 
+            'department_code': 'DeptCode'
+        }, 
+        None, # allow duplicates during import
         lookup_configs={'department_id': (Department, 'code', 'DeptCode')}
     )
     return jsonify(res), status
@@ -896,3 +904,4 @@ def import_rooms():
     file = request.files.get('file')
     result, status = _bulk_import_logic(file, Room, {'name': 'Name', 'capacity': 'Capacity', 'room_type': 'Type'}, 'name')
     return jsonify(result), status
+

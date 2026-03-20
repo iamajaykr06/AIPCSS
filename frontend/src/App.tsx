@@ -13,13 +13,11 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { DepartmentsPage } from '@/pages/DepartmentsPage'
 import { ProgramsPage } from '@/pages/ProgramsPage'
 import { BatchesPage } from '@/pages/BatchesPage'
-import { SectionsPage } from '@/pages/SectionsPage'
 import { TeachersPage } from '@/pages/TeachersPage'
 import { CoursesPage } from '@/pages/CoursesPage'
 import { RoomsPage } from '@/pages/RoomsPage'
 import { WorkloadsPage } from '@/pages/WorkloadsPage'
 import { TimetablePage } from '@/pages/TimetablePage'
-import { CurriculumManagement } from '@/pages/admin/CurriculumManagement'
 
 export default function App() {
   return (
@@ -41,13 +39,11 @@ export default function App() {
                   <Route path="/departments" element={<DepartmentsPage />} />
                   <Route path="/programs" element={<ProgramsPage />} />
                   <Route path="/batches" element={<BatchesPage />} />
-                  <Route path="/sections" element={<SectionsPage />} />
                   <Route path="/teachers" element={<TeachersPage />} />
                   <Route path="/courses" element={<CoursesPage />} />
                   <Route path="/rooms" element={<RoomsPage />} />
                   <Route path="/workloads" element={<WorkloadsPage />} />
                   <Route path="/timetable" element={<TimetablePage />} />
-                  <Route path="/curriculum" element={<CurriculumManagement />} />
                 </Route>
               </Route>
 

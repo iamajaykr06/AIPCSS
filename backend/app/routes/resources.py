@@ -203,7 +203,18 @@ def get_batches():
     if prog_id:
         query = query.filter_by(program_id=prog_id)
     result = paginate(query.order_by(Batch.name))
-    items = [{'id': b.id, 'name': b.name, 'code': b.code, 'academic_year': b.academic_year, 'program_id': b.program_id} for b in result.items]
+    items = [
+        {
+            'id': b.id,
+            'name': b.name,
+            'code': b.code,
+            'academic_year': b.academic_year,
+            'program_id': b.program_id,
+            'program_code': b.program.code if b.program else None,
+            'section_count': len(b.sections),
+        }
+        for b in result.items
+    ]
     return jsonify({"data": items, "meta": pagination_meta(result)}), 200
 
 
@@ -213,7 +224,12 @@ def get_batch(batch_id):
     b = db.session.get(Batch, batch_id)
     if not b:
         return jsonify({'error': 'Batch not found'}), 404
-    return jsonify({'id': b.id, 'name': b.name, 'code': b.code, 'academic_year': b.academic_year, 'program_id': b.program_id}), 200
+    return jsonify({
+        'id': b.id, 'name': b.name, 'code': b.code,
+        'academic_year': b.academic_year, 'program_id': b.program_id,
+        'program_code': b.program.code if b.program else None,
+        'section_count': len(b.sections),
+    }), 200
 
 
 @resources_bp.route('/batches', methods=['POST'])
@@ -536,6 +552,8 @@ def _course_dict(c):
         'semester': c.semester,
         'course_type': c.course_type,
         'department_id': c.department_id,
+        'program_code': c.program_code,
+        'department_code': c.department_code,
     }
 
 

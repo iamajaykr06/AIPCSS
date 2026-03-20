@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { Plus, Pencil, Trash2, Briefcase, BookOpen, X, Tag, Upload } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -39,9 +39,15 @@ export function TeachersPage() {
     // Availability: day -> slots[]
     const [availability, setAvailability] = useState<Record<string, string[]>>({})
     const [selectedDepts, setSelectedDepts] = useState<number[]>([])
+    const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>('')
     const { toast } = useToast()
 
-    const table = useTable({ data: teachers as any, searchFields: ['name', 'email'] as any, defaultSortKey: 'name' })
+    const filteredTeachers = useMemo(() => {
+        if (!selectedDeptFilter) return teachers
+        return teachers.filter(t => t.departments.some(d => d.name === selectedDeptFilter))
+    }, [teachers, selectedDeptFilter])
+
+    const table = useTable({ data: filteredTeachers as any, searchFields: ['name', 'email'] as any, defaultSortKey: 'name' })
 
     const { register, handleSubmit, reset, formState: { errors }, setValue } = useForm<FormData>({
         resolver: zodResolver(schema) as any,
@@ -183,6 +189,21 @@ export function TeachersPage() {
 
             <div className="card" style={{ padding: '1.25rem' }}>
                 <DataTable
+                    headerRight={
+                        departments.length > 0 && (
+                            <select
+                                className="input select select-sm"
+                                value={selectedDeptFilter}
+                                onChange={(e) => setSelectedDeptFilter(e.target.value)}
+                                style={{ minWidth: '150px' }}
+                            >
+                                <option value="">All Departments</option>
+                                {departments.map(d => (
+                                    <option key={d.id} value={d.name}>{d.name}</option>
+                                ))}
+                            </select>
+                        )
+                    }
                     columns={[
                         {
                             key: 'name', label: 'Name', sortable: true, render: row => {

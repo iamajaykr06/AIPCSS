@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { Plus, Pencil, Trash2, BookOpen, Upload } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -33,9 +33,20 @@ export function CoursesPage() {
     const [deleteItem, setDeleteItem] = useState<Course | null>(null)
     const [saving, setSaving] = useState(false)
     const [importModalOpen, setImportModalOpen] = useState(false)
+    const [selectedProgram, setSelectedProgram] = useState<string>('')
     const { toast } = useToast()
 
-    const table = useTable({ data: courses as any, searchFields: ['name', 'code'] as any, defaultSortKey: 'name' })
+    const uniquePrograms = useMemo(() => {
+        const progs = new Set(courses.map(c => c.program_code).filter(Boolean))
+        return Array.from(progs).sort()
+    }, [courses])
+
+    const filteredCourses = useMemo(() => {
+        if (!selectedProgram) return courses
+        return courses.filter(c => c.program_code === selectedProgram)
+    }, [courses, selectedProgram])
+
+    const table = useTable({ data: filteredCourses as any, searchFields: ['name', 'code'] as any, defaultSortKey: 'name' })
     const { register, handleSubmit, reset, formState: { errors }, setValue } = useForm<FormData>({
         resolver: zodResolver(schema) as any,
         defaultValues: { course_type: 'Theory', semester: 1 },
@@ -130,6 +141,21 @@ export function CoursesPage() {
 
             <div className="card" style={{ padding: '1.25rem' }}>
                 <DataTable
+                    headerRight={
+                        uniquePrograms.length > 0 && (
+                            <select
+                                className="input select select-sm"
+                                value={selectedProgram}
+                                onChange={(e) => setSelectedProgram(e.target.value)}
+                                style={{ minWidth: '150px' }}
+                            >
+                                <option value="">All Programs</option>
+                                {uniquePrograms.map(p => (
+                                    <option key={p as string} value={p as string}>{p as string}</option>
+                                ))}
+                            </select>
+                        )
+                    }
                     columns={[
                         { key: 'code', label: 'Code', sortable: true, render: row => <span className="badge badge-blue">{String(row.code)}</span> },
                         { key: 'name', label: 'Name', sortable: true },

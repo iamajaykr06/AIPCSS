@@ -126,19 +126,27 @@ export function DataTable<T extends Record<string, unknown>>({
                     >
                         <ChevronLeft size={16} />
                     </button>
-                    {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                        const p = i + 1
-                        return (
-                            <button
-                                key={p}
-                                className={`btn btn-sm ${p === page ? 'btn-primary' : 'btn-secondary'}`}
-                                style={{ minWidth: '2rem', padding: '0.25rem 0.5rem' }}
-                                onClick={() => onPageChange(p)}
-                            >
-                                {p}
-                            </button>
-                        )
-                    })}
+                    {(() => {
+                        let startP = Math.max(1, page - 2);
+                        let endP = Math.min(totalPages, startP + 4);
+                        if (endP - startP < 4) {
+                            startP = Math.max(1, endP - 4);
+                        }
+                        
+                        return Array.from({ length: endP - startP + 1 }, (_, i) => {
+                            const p = startP + i;
+                            return (
+                                <button
+                                    key={p}
+                                    className={`btn btn-sm ${p === page ? 'btn-primary' : 'btn-secondary'}`}
+                                    style={{ minWidth: '2rem', padding: '0.25rem 0.5rem' }}
+                                    onClick={() => onPageChange(p)}
+                                >
+                                    {p}
+                                </button>
+                            );
+                        });
+                    })()}
                     <button
                         className="btn btn-secondary btn-sm btn-icon"
                         onClick={() => onPageChange(page + 1)}

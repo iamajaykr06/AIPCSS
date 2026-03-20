@@ -12,7 +12,7 @@ import type {
 // ── Departments ─────────────────────────────────────────────────────────────
 
 export const departmentService = {
-    async list(page = 1, perPage = 50): Promise<PaginatedResponse<Department>> {
+    async list(page = 1, perPage = 2000): Promise<PaginatedResponse<Department>> {
         const res = await api.get('/resources/departments', { params: { page, per_page: perPage } })
         return res.data
     },
@@ -44,7 +44,7 @@ export const departmentService = {
 // ── Programs ────────────────────────────────────────────────────────────────
 
 export const programService = {
-    async list(departmentId?: number, page = 1, perPage = 50): Promise<PaginatedResponse<Program>> {
+    async list(departmentId?: number, page = 1, perPage = 2000): Promise<PaginatedResponse<Program>> {
         const params: Record<string, unknown> = { page, per_page: perPage }
         if (departmentId) params.department_id = departmentId
         const res = await api.get('/resources/programs', { params })
@@ -78,7 +78,7 @@ export const programService = {
 // ── Batches ─────────────────────────────────────────────────────────────────
 
 export const batchService = {
-    async list(programId?: number, page = 1, perPage = 50): Promise<PaginatedResponse<Batch>> {
+    async list(programId?: number, page = 1, perPage = 2000): Promise<PaginatedResponse<Batch>> {
         const params: Record<string, unknown> = { page, per_page: perPage }
         if (programId) params.program_id = programId
         const res = await api.get('/resources/batches', { params })
@@ -112,7 +112,7 @@ export const batchService = {
 // ── Sections ────────────────────────────────────────────────────────────────
 
 export const sectionService = {
-    async list(batchId?: number, page = 1, perPage = 50): Promise<PaginatedResponse<Section>> {
+    async list(batchId?: number, page = 1, perPage = 2000): Promise<PaginatedResponse<Section>> {
         const params: Record<string, unknown> = { page, per_page: perPage }
         if (batchId) params.batch_id = batchId
         const res = await api.get('/resources/sections', { params })
@@ -146,7 +146,7 @@ export const sectionService = {
 // ── Teachers ────────────────────────────────────────────────────────────────
 
 export const teacherService = {
-    async list(departmentId?: number, page = 1, perPage = 50): Promise<PaginatedResponse<Teacher>> {
+    async list(departmentId?: number, page = 1, perPage = 2000): Promise<PaginatedResponse<Teacher>> {
         const params: Record<string, unknown> = { page, per_page: perPage }
         if (departmentId) params.department_id = departmentId
         const res = await api.get('/resources/teachers', { params })
@@ -188,7 +188,7 @@ export const teacherService = {
 // ── Courses ─────────────────────────────────────────────────────────────────
 
 export const courseService = {
-    async list(departmentId?: number, page = 1, perPage = 50): Promise<PaginatedResponse<Course>> {
+    async list(departmentId?: number, page = 1, perPage = 2000): Promise<PaginatedResponse<Course>> {
         const params: Record<string, unknown> = { page, per_page: perPage }
         if (departmentId) params.department_id = departmentId
         const res = await api.get('/resources/courses', { params })
@@ -222,7 +222,7 @@ export const courseService = {
 // ── Rooms ────────────────────────────────────────────────────────────────────
 
 export const roomService = {
-    async list(roomType?: string, page = 1, perPage = 50): Promise<PaginatedResponse<Room>> {
+    async list(roomType?: string, page = 1, perPage = 2000): Promise<PaginatedResponse<Room>> {
         const params: Record<string, unknown> = { page, per_page: perPage }
         if (roomType) params.room_type = roomType
         const res = await api.get('/resources/rooms', { params })

@@ -78,6 +78,8 @@ export interface Batch {
     code: string;
     academic_year: string;
     program_id: number;
+    program_code?: string;
+    section_count?: number;
 }
 
 export interface BatchPayload {
@@ -148,6 +150,8 @@ export interface Course {
     semester: number;
     course_type: CourseType;
     department_id: number;
+    program_code?: string;
+    department_code?: string;
 }
 
 export interface CoursePayload {

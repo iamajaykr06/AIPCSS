@@ -17,6 +17,10 @@ const schema = z.object({
     name: z.string().min(1, 'Name is required'),
     capacity: z.coerce.number().min(1, 'Capacity must be at least 1'),
     room_type: z.enum(['Classroom', 'Lecture Hall', 'Lab', 'Seminar Room', 'Auditorium']),
+    department_id: z.union([z.string(), z.number(), z.null()]).optional().transform((val) => {
+        if (val === '' || val === null || val === undefined) return null;
+        return typeof val === 'string' ? Number(val) : val;
+    }),
 })
 type FormData = z.infer<typeof schema>
 
@@ -35,7 +39,7 @@ export function RoomsPage() {
     const table = useTable({ data: rooms as any, searchFields: ['name', 'room_type'], defaultSortKey: 'name' })
     const { register, handleSubmit, reset, formState: { errors }, setValue } = useForm<FormData>({
         resolver: zodResolver(schema) as any,
-        defaultValues: { room_type: 'Classroom', capacity: 40 },
+        defaultValues: { room_type: 'Classroom', capacity: 40, department_id: null },
     })
 
     async function load() {
@@ -49,11 +53,23 @@ export function RoomsPage() {
             setLoading(false)
         }
     }
-    useEffect(() => { load() }, [])
+
+    async function loadDepartments() {
+        try {
+            const d = await departmentService.list(1, 100)
+            setDepartments(d.data)
+        } catch (err) {
+            console.error('Failed to load departments:', err)
+        }
+    }
+    useEffect(() => { 
+        load()
+        loadDepartments()
+    }, [])
 
     const openCreate = () => {
         setEditItem(null)
-        reset({ name: '', capacity: 40, room_type: 'Classroom' })
+        reset({ name: '', capacity: 40, room_type: 'Classroom', department_id: null })
         setModalOpen(true)
     }
 
@@ -62,6 +78,7 @@ export function RoomsPage() {
         setValue('name', r.name)
         setValue('capacity', r.capacity)
         setValue('room_type', r.room_type)
+        setValue('department_id', r.department_id || null)
         setModalOpen(true)
     }
 
@@ -146,6 +163,20 @@ export function RoomsPage() {
                                 )
                             }
                         },
+                        {
+                            key: 'department_id', label: 'Department', sortable: true, render: row => {
+                                const r = row as unknown as Room
+                                if (!r.department_id) {
+                                    return <span className="badge badge-gray">General Purpose</span>
+                                }
+                                const dept = departments.find(d => d.id === r.department_id)
+                                return (
+                                    <span className="badge badge-green">
+                                        {dept?.name || 'Unknown'}
+                                    </span>
+                                )
+                            }
+                        },
                     ]}
                     data={table.paginated as any}
                     search={table.search}
@@ -204,6 +235,21 @@ export function RoomsPage() {
                             {errors.room_type && <p className="error-msg">{errors.room_type.message}</p>}
                         </div>
                     </div>
+                    <div className="form-group">
+                        <label className="label">Department (Optional)</label>
+                        <select {...register('department_id')} className={`input select ${errors.department_id ? 'input-error' : ''}`}>
+                            <option value="">General Purpose (Available to all departments)</option>
+                            {departments.map(dept => (
+                                <option key={dept.id} value={dept.id.toString()}>
+                                    {dept.name} ({dept.code})
+                                </option>
+                            ))}
+                        </select>
+                        {errors.department_id && <p className="error-msg">{errors.department_id.message}</p>}
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                            Leave empty for general purpose rooms available to all departments
+                        </p>
+                    </div>
                 </form>
             </Modal>
 
@@ -220,7 +266,7 @@ export function RoomsPage() {
                 isOpen={importModalOpen}
                 onClose={() => setImportModalOpen(false)}
                 resourceName="Rooms"
-                headers={['Name', 'Capacity', 'Type']}
+                headers={['Name', 'Capacity', 'Type', 'Department Code']}
                 onImport={(f) => roomService.bulkImport(f)}
                 onSuccess={load}
             />

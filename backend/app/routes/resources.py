@@ -659,7 +659,13 @@ def delete_course(course_id):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _room_dict(r):
-    return {'id': r.id, 'name': r.name, 'capacity': r.capacity, 'room_type': r.room_type}
+    return {
+        'id': r.id, 
+        'name': r.name, 
+        'capacity': r.capacity, 
+        'room_type': r.room_type,
+        'department_id': r.department_id
+    }
 
 
 @resources_bp.route('/rooms', methods=['GET'])
@@ -703,7 +709,8 @@ def add_room():
     r = Room(
         name=data['name'].strip(),
         capacity=data['capacity'],
-        room_type=data.get('room_type', 'Classroom')
+        room_type=data.get('room_type', 'Classroom'),
+        department_id=data.get('department_id')
     )
     db.session.add(r)
     db.session.commit()
@@ -727,6 +734,8 @@ def update_room(room_id):
         r.capacity = data['capacity']
     if 'room_type' in data:
         r.room_type = data['room_type']
+    if 'department_id' in data:
+        r.department_id = data['department_id']
 
     db.session.commit()
     return jsonify({'message': 'Room updated', 'room': _room_dict(r)}), 200
@@ -920,6 +929,13 @@ def bulk_import_courses():
 @roles_required('admin')
 def import_rooms():
     file = request.files.get('file')
-    result, status = _bulk_import_logic(file, Room, {'name': 'Name', 'capacity': 'Capacity', 'room_type': 'Type'}, 'name')
+    result, status = _bulk_import_logic(file, Room, {
+        'name': 'Name', 
+        'capacity': 'Capacity', 
+        'room_type': 'Type',
+        'department_id': 'Department Code'
+    }, 'name', 
+    None, # allow duplicates during import
+    lookup_configs={'department_id': (Department, 'code', 'Department Code')})
     return jsonify(result), status
 

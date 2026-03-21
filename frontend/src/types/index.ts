@@ -171,13 +171,16 @@ export interface Room {
     name: string;
     capacity: number;
     room_type: RoomType;
+    department_id?: number | null;
 }
 
 export interface RoomPayload {
     name: string;
     capacity: number;
     room_type: RoomType;
+    department_id?: number | null;
 }
+
 
 // ── Workload ───────────────────────────────────────────────────────────────
 

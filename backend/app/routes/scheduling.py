@@ -257,7 +257,10 @@ def generate_timetable():
     TimetableEntry.query.filter_by(department_id=dept_id).delete()
 
     # Pre-load all rooms once (avoid repeated queries per slot)
-    all_rooms = Room.query.all()
+    # Filter rooms by department: department-specific rooms + general rooms (department_id is None)
+    all_rooms = Room.query.filter(
+        (Room.department_id == dept_id) | (Room.department_id.is_(None))
+    ).all()
 
     total_sections = sum(len(b.sections) for p in dept.programs for b in p.batches)
     processed_sections = 0
@@ -527,6 +530,16 @@ def create_timetable_entry():
     )
     if conflicts:
         return jsonify({'error': 'Conflict detected', 'details': conflicts}), 409
+
+    # Check department-room compatibility
+    room = db.session.get(Room, data['room_id'])
+    if room and room.department_id and room.department_id != data['department_id']:
+        room_dept = db.session.get(Department, room.department_id)
+        target_dept = db.session.get(Department, data['department_id'])
+        return jsonify({
+            'error': 'Room department mismatch',
+            'message': f'Room {room.name} belongs to {room_dept.name} department but scheduling for {target_dept.name} department'
+        }), 422
 
     entry = TimetableEntry(
         day=data['day'],

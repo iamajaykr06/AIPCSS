@@ -49,7 +49,7 @@ def sample_data(app):
         teacher.qualified_courses.append(course)
         db.session.add(teacher)
         
-        room = Room(name="101", capacity=50, room_type="Classroom")
+        room = Room(name="101", capacity=50, room_type="Classroom", department_id=it_dept.id)
         db.session.add(room)
         db.session.commit()
         

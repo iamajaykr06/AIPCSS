@@ -5,3 +5,4 @@ class Room(db.Model):
     name = db.Column(db.String(50), unique=True, nullable=False)
     capacity = db.Column(db.Integer, nullable=False)
     room_type = db.Column(db.String(20), default='Classroom')
+    department_id = db.Column(db.Integer, db.ForeignKey('department.id'), nullable=True)  # Nullable for general purpose rooms

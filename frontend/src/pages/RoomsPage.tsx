@@ -267,6 +267,12 @@ export function RoomsPage() {
                 onClose={() => setImportModalOpen(false)}
                 resourceName="Rooms"
                 headers={['Name', 'Capacity', 'Type', 'Department Code']}
+                formatExamples={{
+                    'Name': 'Computer Lab 101',
+                    'Capacity': '30',
+                    'Type': 'Lab',
+                    'Department Code': 'CSEIT'
+                }}
                 onImport={(f) => roomService.bulkImport(f)}
                 onSuccess={load}
             />

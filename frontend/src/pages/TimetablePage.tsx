@@ -57,9 +57,10 @@ export function TimetablePage() {
         async function fetchDepts() {
             try {
                 const res = await departmentService.list(1, 100)
-                setDepartments(res.data)
-                if (res.data.length > 0) {
-                    setSelectedDeptId(res.data[0].id)
+                const depts = res.data || []
+                setDepartments(depts)
+                if (depts.length > 0) {
+                    setSelectedDeptId(depts[0].id)
                 }
             } catch (err) {
                 toast('error', 'Failed to load departments', getErrorMessage(err))
@@ -80,7 +81,7 @@ export function TimetablePage() {
         setLoading(true)
         try {
             const res = await schedulingService.viewTimetable(deptId)
-            setTimetable(res.data)
+            setTimetable(res.data || [])
         } catch (err) {
             // Don't toast 404s, just show empty state
             setTimetable([])
@@ -98,12 +99,16 @@ export function TimetablePage() {
         })
 
         return () => {
+            socket.off('generation_progress')
             socket.disconnect()
         }
     }, [])
 
     const handleGenerate = async () => {
-        if (!selectedDeptId) return
+        if (!selectedDeptId) {
+            toast('error', 'No department selected', 'Please select a department first.')
+            return
+        }
         setGenerating(true)
         setGenProgress(0)
         setGenStatus('Initializing AI engine...')
@@ -123,7 +128,10 @@ export function TimetablePage() {
 
     // Group timetable data for grid display: day -> slot -> entry
     const handleExport = () => {
-        if (!timetable.length) return
+        if (!timetable.length || !selectedDeptId) {
+            toast('error', 'No data to export', 'Please generate a timetable first.')
+            return
+        }
         const headers = ['Day', 'Time', 'Course', 'Section', 'Teacher', 'Room']
         const rows = timetable.map(entry => [
             entry.day,
@@ -142,10 +150,15 @@ export function TimetablePage() {
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
+        URL.revokeObjectURL(url) // Clean up
     }
 
     const handleClear = async () => {
-        if (!selectedDeptId || !window.confirm('Are you sure you want to clear the entire timetable for this department?')) return
+        if (!selectedDeptId) {
+            toast('error', 'No department selected', 'Please select a department first.')
+            return
+        }
+        if (!window.confirm('Are you sure you want to clear the entire timetable for this department?')) return
         try {
             await schedulingService.clearTimetable(selectedDeptId)
             toast('success', 'Cleared', 'Timetable has been removed.')
@@ -174,10 +187,10 @@ export function TimetablePage() {
                 courseService.list(undefined, 1, 500),
                 sectionService.list(undefined, 1, 500)
             ])
-            setTeachers(t.data)
-            setRooms(r.data)
-            setCourses(c.data)
-            setSections(s.data)
+            setTeachers(t.data || [])
+            setRooms(r.data || [])
+            setCourses(c.data || [])
+            setSections(s.data || [])
         } catch (err) {
             toast('error', 'Failed to load resources', getErrorMessage(err))
         }
@@ -190,7 +203,10 @@ export function TimetablePage() {
     }
 
     const handleManualSubmit = async () => {
-        if (!selectedSlot || !selectedDeptId) return
+        if (!selectedSlot || !selectedDeptId) {
+            toast('error', 'Missing information', 'Please select a time slot and department.')
+            return
+        }
         if (!formData.teacher_id || !formData.course_id || !formData.room_id || !formData.section_id) {
             toast('error', 'Missing fields', 'All fields are required for manual entry.')
             return
@@ -227,7 +243,7 @@ export function TimetablePage() {
         const { active, over } = event
         setActiveId(null)
 
-        if (!over) return
+        if (!over || !selectedDeptId) return
 
         const entryId = active.id as number
         const dropData = over.id as string // format: "day|slot"
@@ -283,29 +299,91 @@ export function TimetablePage() {
         return conflictIds
     }, [timetable])
 
+    // Detect multi-hour sessions and group them
+    const multiHourSessions = useMemo(() => {
+        const sessions: Array<{
+            entry: TimetableEntry,
+            duration: number,
+            slots: string[]
+        }> = []
+        
+        filteredTimetable.forEach(entry => {
+            // Check if this is part of an already processed multi-hour session
+            const existing = sessions.find(s => s.entry.id === entry.id)
+            if (existing) return
+            
+            // Find consecutive slots for this course/teacher/room combination
+            const daySlots = SLOTS
+            const entrySlotIndex = daySlots.indexOf(entry.timeslot)
+            if (entrySlotIndex === -1) return
+            
+            let duration = 1
+            let slots = [entry.timeslot]
+            
+            // Look for consecutive slots with same course/teacher/room
+            for (let i = entrySlotIndex + 1; i < daySlots.length; i++) {
+                const nextSlot = daySlots[i]
+                const nextEntry = filteredTimetable.find(e => 
+                    e.day === entry.day && 
+                    e.timeslot === nextSlot &&
+                    e.course?.id === entry.course?.id &&
+                    e.teacher?.id === entry.teacher?.id &&
+                    e.room?.id === entry.room?.id
+                )
+                
+                if (nextEntry) {
+                    duration++
+                    slots.push(nextSlot)
+                } else {
+                    break
+                }
+            }
+            
+            // If it spans multiple hours, mark it as a multi-hour session
+            if (duration > 1) {
+                sessions.push({ entry, duration, slots })
+            }
+        })
+        
+        return sessions
+    }, [filteredTimetable])
+
     const scheduleGrid = useMemo(() => {
         const grid: Record<string, Record<string, TimetableEntry[]>> = {}
         DAYS.forEach(day => {
             grid[day] = {}
             SLOTS.forEach(slot => {
-                grid[day][slot] = filteredTimetable.filter(entry => entry.day === day && entry.timeslot === slot)
+                // Filter out entries that are part of multi-hour sessions (they'll be handled separately)
+                grid[day][slot] = filteredTimetable.filter(entry => 
+                    entry.day === day && 
+                    entry.timeslot === slot &&
+                    !multiHourSessions.some(session => session.entry.id === entry.id)
+                )
             })
         })
         return grid
-    }, [filteredTimetable])
+    }, [filteredTimetable, multiHourSessions])
 
     const uniqueTeachers = useMemo(() => {
-        const seen = new Set()
+        const seen = new Set<number>()
         return timetable
             .map(e => e.teacher)
-            .filter(t => t && !seen.has(t.id) && seen.add(t.id))
+            .filter((t): t is NonNullable<typeof t> => {
+                if (!t || seen.has(t.id)) return false
+                seen.add(t.id)
+                return true
+            })
     }, [timetable])
 
     const uniqueRooms = useMemo(() => {
-        const seen = new Set()
+        const seen = new Set<number>()
         return timetable
             .map(e => e.room)
-            .filter(r => r && !seen.has(r.id) && seen.add(r.id))
+            .filter((r): r is NonNullable<typeof r> => {
+                if (!r || seen.has(r.id)) return false
+                seen.add(r.id)
+                return true
+            })
     }, [timetable])
 
     if (loading && departments.length === 0) return <PageLoader />
@@ -479,44 +557,70 @@ export function TimetablePage() {
                                 onDragEnd={handleDragEnd}
                                 modifiers={[restrictToFirstScrollableAncestor]}
                             >
-                                <table style={{ minWidth: '800px', borderCollapse: 'separate', borderSpacing: '8px', width: '100%' }}>
-                                    <thead>
-                                        <tr>
-                                            <th style={{ width: '100px' }}></th>
-                                            {SLOTS.map((slot: string) => (
-                                                <th key={slot} style={{ textAlign: 'center', paddingBottom: '0.5rem' }}>
-                                                    <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem' }}>Time Slot</div>
-                                                    <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)' }}>{slot}</div>
-                                                </th>
-                                            ))}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {DAYS.map(day => (
-                                            <tr key={day}>
-                                                <td style={{ verticalAlign: 'middle' }}>
-                                                    <div style={{
-                                                        height: '100px',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        background: 'var(--bg-glass)',
-                                                        backdropFilter: 'blur(8px)',
-                                                        borderRadius: '0.75rem',
-                                                        fontWeight: 800,
-                                                        fontSize: '0.8125rem',
-                                                        color: 'var(--text-primary)',
-                                                        border: '1px solid var(--border)',
-                                                        transform: 'rotate(-90deg)',
-                                                        whiteSpace: 'nowrap',
-                                                        width: '100px',
-                                                        margin: '0 -40px',
-                                                        boxShadow: 'var(--glass-shadow)',
-                                                    }}>
-                                                        {day}
-                                                    </div>
-                                                </td>
-                                                {SLOTS.map((slot: string) => {
+                                <table style={{ 
+    width: '100%', 
+    borderCollapse: 'separate', 
+    borderSpacing: '4px', 
+    backgroundColor: 'var(--bg-main)',
+    borderRadius: '0.75rem',
+    overflow: 'hidden'
+}}>
+    <thead>
+        <tr style={{ backgroundColor: 'var(--bg-card)' }}>
+            <th style={{ 
+                width: '120px', 
+                padding: '1rem', 
+                textAlign: 'left', 
+                fontWeight: 700, 
+                color: 'var(--text-primary)',
+                borderBottom: '2px solid var(--border)',
+                fontSize: '0.875rem'
+            }}>
+                Day
+            </th>
+            {SLOTS.map((slot: string) => (
+                <th key={slot} style={{ 
+                    padding: '0.75rem 0.5rem', 
+                    textAlign: 'center',
+                    borderBottom: '2px solid var(--border)',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: 'var(--text-muted)',
+                    minWidth: '140px'
+                }}>
+                    <div style={{ fontSize: '0.625rem', textTransform: 'uppercase', marginBottom: '0.25rem', opacity: 0.7 }}>
+                        Time
+                    </div>
+                    <div style={{ fontSize: '0.812rem', color: 'var(--text-primary)', fontWeight: 600 }}>
+                        {slot}
+                    </div>
+                </th>
+            ))}
+        </tr>
+    </thead>
+    <tbody>
+        {DAYS.map(day => (
+            <tr key={day}>
+                <td style={{ 
+                    padding: '1rem',
+                    verticalAlign: 'middle',
+                    fontWeight: 700,
+                    color: 'var(--text-primary)',
+                    backgroundColor: 'var(--bg-card)',
+                    borderRight: '1px solid var(--border)',
+                    fontSize: '0.875rem',
+                    textAlign: 'center'
+                }}>
+                    {day}
+                </td>
+                {SLOTS.map((slot: string, slotIndex) => {
+                    // Check if this slot should be skipped due to multi-hour session
+                                                    const multiHourSession = multiHourSessions.find(session => 
+                                                        session.entry.day === day && 
+                                                        session.slots.includes(slot) &&
+                                                        session.slots[0] === slot // Only show card on first slot
+                                                    )
+                                                    
                                                     const isConflict = activeId ? (() => {
                                                         const activeEntry = timetable.find(e => e.id === activeId)
                                                         if (!activeEntry) return false
@@ -530,26 +634,50 @@ export function TimetablePage() {
                                                         )
                                                     })() : false
 
+                                                    // Skip cells that are part of multi-hour sessions (except the first one)
+                                                    const skipCell = multiHourSessions.some(session => 
+                                                        session.entry.day === day && 
+                                                        session.slots.includes(slot) && 
+                                                        session.slots[0] !== slot
+                                                    )
+
+                                                    if (skipCell) return null
+
                                                     return (
-                                                        <DroppableCell key={slot} id={`${day}|${slot}`} onAdd={() => openAddModal(day, slot)} isConflict={isConflict}>
-                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '100px' }}>
-                                                                {scheduleGrid[day][slot].map((entry) => (
-                                                                    <DraggableCard
-                                                                        key={entry.id}
-                                                                        entry={entry}
-                                                                        onDelete={() => handleDeleteEntry(entry.id)}
-                                                                        hasConflict={entriesWithConflicts.has(entry.id)}
-                                                                        onResolve={() => { setSuggestingEntry(entry); setResolutionModalOpen(true) }}
+                                                        <DroppableCell 
+                                                            key={slot} 
+                                                            id={`${day}|${slot}`} 
+                                                            onAdd={() => openAddModal(day, slot)} 
+                                                            isConflict={isConflict}
+                                                            multiHourSession={multiHourSession}
+                                                        >
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minHeight: '80px', padding: '0.5rem' }}>
+                                                                {multiHourSession ? (
+                                                                    <MultiHourCard
+                                                                        session={multiHourSession}
+                                                                        onDelete={() => handleDeleteEntry(multiHourSession.entry.id)}
+                                                                        hasConflict={entriesWithConflicts.has(multiHourSession.entry.id)}
+                                                                        onResolve={() => { setSuggestingEntry(multiHourSession.entry); setResolutionModalOpen(true) }}
                                                                     />
-                                                                ))}
+                                                                ) : (
+                                                                    scheduleGrid[day][slot].map((entry) => (
+                                                                        <DraggableCard
+                                                                            key={entry.id}
+                                                                            entry={entry}
+                                                                            onDelete={() => handleDeleteEntry(entry.id)}
+                                                                            hasConflict={entriesWithConflicts.has(entry.id)}
+                                                                            onResolve={() => { setSuggestingEntry(entry); setResolutionModalOpen(true) }}
+                                                                        />
+                                                                    ))
+                                                                )}
                                                             </div>
                                                         </DroppableCell>
                                                     )
                                                 })}
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+            </tr>
+        ))}
+    </tbody>
+</table>
 
                                 <DragOverlay>
                                     {activeId ? (
@@ -815,30 +943,33 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve }: { entry: Tim
             className={`card ${hasConflict ? 'border-danger' : ''}`}
         >
             <div style={{
-                minHeight: '100px',
+                minHeight: '70px',
                 padding: '0.75rem',
-                borderLeft: `4px solid ${hasConflict ? '#ef4444' : '#3b82f6'}`,
-                background: hasConflict ? 'rgba(239, 68, 68, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                borderLeft: `3px solid ${hasConflict ? '#ef4444' : '#3b82f6'}`,
+                background: hasConflict ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between',
                 position: 'relative',
-                borderRadius: 'inherit'
+                borderRadius: '0.5rem',
+                border: '1px solid var(--border)',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
             }}>
                 <div
                     {...listeners}
                     {...attributes}
                     style={{
                         position: 'absolute',
-                        top: '0.5rem',
-                        right: '1.5rem',
+                        top: '0.25rem',
+                        right: '0.25rem',
                         cursor: 'grab',
                         color: 'var(--text-muted)',
                         padding: '2px',
-                        zIndex: 10
+                        zIndex: 10,
+                        opacity: 0.6
                     }}
                 >
-                    <GripVertical size={14} />
+                    <GripVertical size={12} />
                 </div>
 
                 {hasConflict && (
@@ -846,55 +977,81 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve }: { entry: Tim
                         onClick={(e) => { e.stopPropagation(); onResolve?.() }}
                         style={{
                             position: 'absolute',
-                            bottom: '0.5rem',
-                            right: '2.5rem',
-                            background: '#fbbf24',
+                            bottom: '0.25rem',
+                            right: '1.5rem',
+                            background: '#f59e0b',
                             border: 'none',
-                            borderRadius: '4px',
-                            padding: '2px',
+                            borderRadius: '3px',
+                            padding: '1px 4px',
                             color: 'white',
                             cursor: 'pointer',
                             zIndex: 10,
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '4px',
-                            fontSize: '0.625rem',
-                            fontWeight: 700
+                            gap: '2px',
+                            fontSize: '0.5625rem',
+                            fontWeight: 600
                         }}
                         title="Find conflict-free slot"
                     >
-                        <Zap size={10} /> Resolve
+                        <Zap size={8} /> Fix
                     </button>
                 )}
 
-                <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: hasConflict ? '#b91c1c' : 'var(--text-primary)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', maxWidth: '80%' }}>
+                <div style={{ paddingRight: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
+                        <div style={{ 
+                            fontSize: '0.6875rem', 
+                            fontWeight: 600, 
+                            color: hasConflict ? '#dc2626' : 'var(--text-primary)', 
+                            overflow: 'hidden', 
+                            whiteSpace: 'nowrap', 
+                            textOverflow: 'ellipsis', 
+                            maxWidth: '70%',
+                            lineHeight: '1.2'
+                        }}>
                             {entry.course?.name}
                         </div>
-                        <div style={{ display: 'flex', gap: '4px' }}>
+                        <div style={{ display: 'flex', gap: '2px' }}>
                             <button
                                 onClick={(e) => { e.stopPropagation(); onDelete() }}
-                                style={{ background: 'none', border: 'none', padding: 0, color: '#ef4444', cursor: 'pointer', opacity: 0.6 }}
+                                style={{ 
+                                    background: 'none', 
+                                    border: 'none', 
+                                    padding: '0', 
+                                    color: '#ef4444', 
+                                    cursor: 'pointer', 
+                                    opacity: 0.6,
+                                    fontSize: '0.75rem'
+                                }}
+                                title="Delete entry"
                             >
-                                <Trash2 size={12} />
+                                <Trash2 size={10} />
                             </button>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px', marginTop: '0.25rem' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
                         {entry.sections?.map(s => (
-                            <span key={s.id} style={{ fontSize: '0.625rem', padding: '1px 5px', background: 'rgba(255, 255, 255, 0.05)', border: '1px solid var(--border-subtle)', borderRadius: '4px', color: 'var(--text-secondary)' }}>
+                            <span key={s.id} style={{ 
+                                fontSize: '0.5625rem', 
+                                padding: '1px 4px', 
+                                background: 'rgba(255, 255, 255, 0.8)', 
+                                border: '1px solid var(--border)', 
+                                borderRadius: '3px', 
+                                color: 'var(--text-secondary)',
+                                fontWeight: 500
+                            }}>
                                 {s.name}
                             </span>
                         ))}
                     </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.625rem', color: 'var(--text-secondary)' }}>
-                        <User size={10} /> {entry.teacher?.name}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', fontSize: '0.5625rem', color: 'var(--text-secondary)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <User size={8} /> {entry.teacher?.name?.split(' ').map(n => n[0]).join('').toUpperCase()}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.625rem', color: 'var(--text-secondary)' }}>
-                        <MapPin size={10} /> {entry.room?.name}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <MapPin size={8} /> {entry.room?.name}
                     </div>
                 </div>
             </div>
@@ -902,69 +1059,242 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve }: { entry: Tim
     )
 }
 
-function DroppableCell({ id, children, onAdd, isConflict }: { id: string, children: React.ReactNode, onAdd: () => void, isConflict?: boolean }) {
+function MultiHourCard({ session, onDelete, hasConflict, onResolve }: { 
+    session: { entry: TimetableEntry, duration: number, slots: string[] }, 
+    onDelete: () => void, 
+    hasConflict?: boolean, 
+    onResolve?: () => void 
+}) {
+    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+        id: session.entry.id,
+    })
+
+    const style = {
+        transform: CSS.Translate.toString(transform),
+        opacity: isDragging ? 0 : 1,
+        cursor: 'default'
+    }
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            className={`card ${hasConflict ? 'border-danger' : ''}`}
+        >
+            <div style={{
+                minHeight: '70px',
+                padding: '0.75rem',
+                borderLeft: `3px solid ${hasConflict ? '#ef4444' : '#10b981'}`, // Green for lab courses
+                background: hasConflict ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                position: 'relative',
+                borderRadius: '0.5rem',
+                border: '1px solid var(--border)',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+            }}>
+                <div
+                    {...listeners}
+                    {...attributes}
+                    style={{
+                        position: 'absolute',
+                        top: '0.25rem',
+                        right: '0.25rem',
+                        cursor: 'grab',
+                        color: 'var(--text-muted)',
+                        padding: '2px',
+                        zIndex: 10,
+                        opacity: 0.6
+                    }}
+                >
+                    <GripVertical size={12} />
+                </div>
+
+                {hasConflict && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onResolve?.() }}
+                        style={{
+                            position: 'absolute',
+                            bottom: '0.25rem',
+                            right: '1.5rem',
+                            background: '#f59e0b',
+                            border: 'none',
+                            borderRadius: '3px',
+                            padding: '1px 4px',
+                            color: 'white',
+                            cursor: 'pointer',
+                            zIndex: 10,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            fontSize: '0.5625rem',
+                            fontWeight: 600
+                        }}
+                        title="Find conflict-free slot"
+                    >
+                        <Zap size={8} /> Fix
+                    </button>
+                )}
+
+                <div style={{ paddingRight: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
+                        <div style={{ 
+                            fontSize: '0.6875rem', 
+                            fontWeight: 600, 
+                            color: hasConflict ? '#dc2626' : '#059669', // Green for lab
+                            overflow: 'hidden', 
+                            whiteSpace: 'nowrap', 
+                            textOverflow: 'ellipsis', 
+                            maxWidth: '70%',
+                            lineHeight: '1.2',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.25rem'
+                        }}>
+                            {session.entry.course?.name}
+                            <span style={{
+                                fontSize: '0.5625rem',
+                                padding: '1px 3px',
+                                background: '#10b981',
+                                color: 'white',
+                                borderRadius: '3px',
+                                fontWeight: 500
+                            }}>
+                                {session.duration}h
+                            </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '2px' }}>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onDelete() }}
+                                style={{ 
+                                    background: 'none', 
+                                    border: 'none', 
+                                    padding: '0', 
+                                    color: '#ef4444', 
+                                    cursor: 'pointer', 
+                                    opacity: 0.6,
+                                    fontSize: '0.75rem'
+                                }}
+                                title="Delete entry"
+                            >
+                                <Trash2 size={10} />
+                            </button>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
+                        {session.entry.sections?.map(s => (
+                            <span key={s.id} style={{ 
+                                fontSize: '0.5625rem', 
+                                padding: '1px 4px', 
+                                background: 'rgba(255, 255, 255, 0.8)', 
+                                border: '1px solid var(--border)', 
+                                borderRadius: '3px', 
+                                color: 'var(--text-secondary)',
+                                fontWeight: 500
+                            }}>
+                                {s.name}
+                            </span>
+                        ))}
+                    </div>
+                    <div style={{ fontSize: '0.5625rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
+                        {session.slots.join(' - ')}
+                    </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', fontSize: '0.5625rem', color: 'var(--text-secondary)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <User size={8} /> {session.entry.teacher?.name?.split(' ').map(n => n[0]).join('').toUpperCase()}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <MapPin size={8} /> {session.entry.room?.name}
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function DroppableCell({ id, children, onAdd, isConflict, multiHourSession }: { 
+    id: string, 
+    children: React.ReactNode, 
+    onAdd: () => void, 
+    isConflict?: boolean,
+    multiHourSession?: { entry: TimetableEntry, duration: number, slots: string[] }
+}) {
     const { isOver, setNodeRef } = useDroppable({
         id: id,
     })
 
     const style = {
-        width: 'calc(100% / 5)',
+        width: '100%',
+        height: '100%',
+        minHeight: '80px',
         background: isOver
             ? (isConflict ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)')
-            : 'transparent',
-        borderRadius: '0.75rem',
+            : 'var(--bg)',
+        borderRadius: '0.5rem',
         transition: 'all 0.2s ease',
-        borderRight: '1px solid var(--border-subtle)',
-        borderBottom: '1px solid var(--border-subtle)',
-        position: 'relative' as const
+        border: '1px solid var(--border)',
+        position: 'relative' as const,
+        padding: '0.5rem'
     }
 
     const hasEntries = React.Children.count((children as any).props.children) > 0
 
     return (
-        <td ref={setNodeRef} style={style}>
-            {isOver && isConflict && (
-                <div style={{
-                    position: 'absolute',
-                    top: '-1.5rem',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    background: '#ef4444',
-                    color: 'white',
-                    fontSize: '0.625rem',
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    whiteSpace: 'nowrap',
-                    zIndex: 20,
-                    fontWeight: 700,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                }}>
-                    <AlertCircle size={10} /> Conflict Detected
-                </div>
-            )}
-            {children}
-            {!hasEntries && !isOver && (
-                <div
-                    onClick={onAdd}
-                    style={{
-                        height: '100px',
-                        border: '1px dashed var(--border)',
-                        borderRadius: '0.75rem',
-                        opacity: 0.3,
+        <td 
+            ref={setNodeRef} 
+            style={{ 
+                padding: '0.25rem',
+                backgroundColor: 'var(--bg-main)',
+                verticalAlign: 'top',
+                ...(multiHourSession && { colSpan: multiHourSession.duration })
+            }}
+        >
+            <div style={style}>
+                {isOver && isConflict && (
+                    <div style={{
+                        position: 'absolute',
+                        top: '-1.5rem',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        background: '#ef4444',
+                        color: 'white',
+                        fontSize: '0.625rem',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        whiteSpace: 'nowrap',
+                        zIndex: 20,
+                        fontWeight: 700,
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.opacity = '0.8'; e.currentTarget.style.borderColor = 'var(--primary)' }}
-                    onMouseLeave={e => { e.currentTarget.style.opacity = '0.3'; e.currentTarget.style.borderColor = 'var(--border)' }}
-                >
-                    <Plus size={20} />
-                </div>
-            )}
+                        gap: '4px'
+                    }}>
+                        <AlertCircle size={10} /> Conflict Detected
+                    </div>
+                )}
+                {children}
+                {!hasEntries && !isOver && !multiHourSession && (
+                    <div
+                        onClick={onAdd}
+                        style={{
+                            height: '60px',
+                            border: '1px dashed var(--border)',
+                            borderRadius: '0.5rem',
+                            opacity: 0.4,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = '0.8'; e.currentTarget.style.borderColor = 'var(--primary)' }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = '0.4'; e.currentTarget.style.borderColor = 'var(--border)' }}
+                    >
+                        <Plus size={20} />
+                    </div>
+                )}
+            </div>
         </td>
     )
 }

@@ -213,6 +213,10 @@ export function DepartmentsPage() {
                 onClose={() => setImportModalOpen(false)}
                 resourceName="Departments"
                 headers={['Name', 'Code']}
+                formatExamples={{
+                    'Name': 'Department of Computer Science',
+                    'Code': 'CSEIT'
+                }}
                 onImport={(f) => departmentService.bulkImport(f)}
                 onSuccess={load}
             />

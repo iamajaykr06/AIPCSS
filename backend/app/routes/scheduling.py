@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
+import random
 
-from ..models import Workload, Teacher, Course, Section, Room, TimetableEntry, Department
+from ..models import Teacher, Course, Section, Room, TimetableEntry, Department
 from .. import db, socketio
 from .auth import roles_required
 
@@ -81,120 +82,6 @@ def get_scheduling_stats():
         'course_type_dist': course_type_dist,
         'room_dist': room_dist
     }), 200
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# WORKLOAD MANAGEMENT
-# ══════════════════════════════════════════════════════════════════════════════
-
-@scheduling_bp.route('/workloads', methods=['GET'])
-@jwt_required()
-def get_workloads():
-    """List all workloads, optionally filtered by section or teacher."""
-    query = Workload.query
-    section_id = request.args.get('section_id', type=int)
-    teacher_id = request.args.get('teacher_id', type=int)
-    if section_id:
-        query = query.filter_by(section_id=section_id)
-    if teacher_id:
-        query = query.filter_by(teacher_id=teacher_id)
-
-    workloads = query.all()
-    result = []
-    for w in workloads:
-        teacher = db.session.get(Teacher, w.teacher_id)
-        course = db.session.get(Course, w.course_id)
-        section = db.session.get(Section, w.section_id)
-        result.append({
-            'id': w.id,
-            'teacher': {'id': teacher.id, 'name': teacher.name} if teacher else None,
-            'course': {'id': course.id, 'name': course.name, 'code': course.code} if course else None,
-            'section': {'id': section.id, 'name': section.name} if section else None,
-            'hours_per_week': w.hours_per_week,
-            'session_duration': w.session_duration
-        })
-    return jsonify({'data': result}), 200
-
-
-@scheduling_bp.route('/workloads', methods=['POST'])
-@roles_required('admin', 'dept_head')
-def create_workload():
-    """
-    Assigns a teacher to a course for a specific section.
-    Validates that the teacher is qualified for the course.
-    """
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': 'Request body must be JSON'}), 400
-
-    errors = []
-    if not data.get('teacher_id'):
-        errors.append("teacher_id is required")
-    if not data.get('course_id'):
-        errors.append("course_id is required")
-    if not data.get('section_id'):
-        errors.append("section_id is required")
-    if errors:
-        return jsonify({'error': 'Validation failed', 'details': errors}), 422
-
-    teacher = db.session.get(Teacher, data['teacher_id'])
-    if not teacher:
-        return jsonify({'error': 'Teacher not found'}), 404
-
-    course = db.session.get(Course, data['course_id'])
-    if not course:
-        return jsonify({'error': 'Course not found'}), 404
-
-    section = db.session.get(Section, data['section_id'])
-    if not section:
-        return jsonify({'error': 'Section not found'}), 404
-
-    # Domain protection: teacher must be qualified
-    if course not in teacher.qualified_courses:
-        return jsonify({
-            'error': f"Teacher '{teacher.name}' is not qualified to teach '{course.name}'. "
-                     f"Assign the qualification first via POST /api/resources/teachers/{teacher.id}/qualifications"
-        }), 400
-
-    # Prevent duplicate workload assignment
-    existing = Workload.query.filter_by(
-        teacher_id=data['teacher_id'],
-        course_id=data['course_id'],
-        section_id=data['section_id']
-    ).first()
-    if existing:
-        return jsonify({'error': 'This workload assignment already exists'}), 409
-
-    hours = data.get('hours_per_week', 4)
-    if not isinstance(hours, int) or hours < 1 or hours > 20:
-        return jsonify({'error': 'hours_per_week must be an integer between 1 and 20'}), 422
-
-    duration = data.get('session_duration', 1)
-    if not isinstance(duration, int) or duration < 1 or duration > 4:
-        return jsonify({'error': 'session_duration must be between 1 and 4'}), 422
-
-    new_workload = Workload(
-        teacher_id=data['teacher_id'],
-        course_id=data['course_id'],
-        section_id=data['section_id'],
-        hours_per_week=hours,
-        session_duration=duration
-    )
-    db.session.add(new_workload)
-    db.session.commit()
-
-    return jsonify({'message': 'Workload assigned successfully', 'id': new_workload.id}), 201
-
-
-@scheduling_bp.route('/workloads/<int:workload_id>', methods=['DELETE'])
-@roles_required('admin', 'dept_head')
-def delete_workload(workload_id):
-    w = db.session.get(Workload, workload_id)
-    if not w:
-        return jsonify({'error': 'Workload not found'}), 404
-    db.session.delete(w)
-    db.session.commit()
-    return jsonify({'message': 'Workload deleted'}), 200
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -321,6 +208,18 @@ def generate_timetable():
         return sum(1 for i, s in enumerate(TIMESLOTS[:current_idx]) if s not in used)
 
     # ── Main scheduling loop ───────────────────────────────────────────────────
+    # NEW: Generate timetable without workloads by automatically assigning courses
+    
+    # Get all courses for this department
+    dept_courses = Course.query.filter_by(department_id=dept_id).all()
+    if not dept_courses:
+        return jsonify({'error': 'No courses found for this department'}), 404
+    
+    # Get all teachers for this department
+    dept_teachers = [t for t in Teacher.query.all() if dept in t.departments]
+    if not dept_teachers:
+        return jsonify({'error': 'No teachers found for this department'}), 404
+    
     for program in dept.programs:
         for batch in program.batches:
             for section in batch.sections:
@@ -328,50 +227,61 @@ def generate_timetable():
                 progress = int((processed_sections / max(1, total_sections)) * 100)
                 socketio.emit('generation_progress', {
                     'percentage': progress,
-                    'current_section': section.name,
+                    'current_section': f"{program.name} - {section.name}",
                     'status': 'Generating...'
                 })
 
                 section_slot_map[section.id] = {}
                 section_course_days[section.id] = {}
-                workloads = Workload.query.filter_by(section_id=section.id).all()
-
-                for workload in workloads:
-                    teacher = db.session.get(Teacher, workload.teacher_id)
-                    course = db.session.get(Course, workload.course_id)
-                    duration = workload.session_duration or 1
-
-                    if not teacher or not course:
-                        errors.append(f"Missing teacher or course for workload id={workload.id}")
+                
+                # AUTOMATIC COURSE ASSIGNMENT: Assign 4-6 courses per section
+                num_courses_to_assign = random.randint(4, min(6, len(dept_courses)))
+                assigned_courses = random.sample(dept_courses, num_courses_to_assign)
+                
+                for course in assigned_courses:
+                    # Find a qualified teacher for this course
+                    qualified_teachers = [t for t in dept_teachers if course in t.qualified_courses]
+                    
+                    if not qualified_teachers:
+                        # If no qualified teachers, assign any teacher from the department
+                        qualified_teachers = dept_teachers
+                    
+                    if not qualified_teachers:
+                        errors.append(f"No teachers available for course {course.name}")
                         continue
-                        
-                    # Strict Rule: Lab classes must ALWAYS be consecutive for their entire weekly duration
+                    
+                    teacher = random.choice(qualified_teachers)
+                    
+                    # Determine hours based on course type
                     if course.course_type == 'Lab':
-                        duration = workload.hours_per_week
-                        
+                        hours_needed = random.choice([2, 3])
+                        session_duration = hours_needed  # Labs are consecutive
+                    else:
+                        hours_needed = random.choice([3, 4, 5])
+                        session_duration = 1  # Theory classes are 1 hour each
+                    
                     section_course_days[section.id].setdefault(course.id, set())
-
                     allocated_hours = 0
-                    # Try to allocate in blocks of 'duration'
-                    while allocated_hours < workload.hours_per_week:
-                        needed = min(duration, workload.hours_per_week - allocated_hours)
-                        candidates = [] # scored blocks
+                    
+                    # Try to allocate the required hours
+                    while allocated_hours < hours_needed:
+                        needed = min(session_duration, hours_needed - allocated_hours)
+                        candidates = []
 
                         for day in DAYS:
-                            # Strict constraint: If this course is already scheduled on this day (and it's not a single continuous block we are currently placing), skip the day. 
-                            # We only want 1 session of a specific course per day.
+                            # Prevent multiple sessions of same course on same day
                             if day in section_course_days[section.id][course.id]:
                                 continue
                                 
-                            # Start slot can only go up to (len - needed)
+                            # Find consecutive slots for the needed duration
                             for i in range(len(TIMESLOTS) - needed + 1):
                                 block_slots = TIMESLOTS[i:i+needed]
                                 
-                                # Availability check for entire block
+                                # Check teacher availability
                                 if any(not is_teacher_available(teacher, day, s) for s in block_slots):
                                     continue
                                 
-                                # Find a room free for the ENTIRE block
+                                # Find suitable room
                                 best_room = None
                                 max_room_score = 0
                                 for room in all_rooms:
@@ -385,7 +295,7 @@ def generate_timetable():
                                 
                                 if not best_room: continue
 
-                                # Section and Teacher check for entire block
+                                # Check for teacher and section conflicts
                                 if any(check_conflicts(day, s, teacher_id=teacher.id, section_id=section.id) for s in block_slots):
                                     continue
 
@@ -394,10 +304,9 @@ def generate_timetable():
                                 candidates.append({'day': day, 'slots': block_slots, 'room': best_room, 'score': base_score})
 
                         if not candidates:
-                            # If we can't find a block of 'needed' size, try smaller (1h)
-                            # Exception: Do not try smaller slots if it's a Lab course - they MUST be consecutive
+                            # If we can't find a block of 'needed' size, try smaller (for non-lab courses)
                             if needed > 1 and course.course_type != 'Lab':
-                                duration = 1 # fallback to 1h slots for the rest of this workload
+                                session_duration = 1
                                 continue
                             break 
 
@@ -407,8 +316,8 @@ def generate_timetable():
                             entry = TimetableEntry(
                                 day=best_cand['day'],
                                 timeslot=s,
-                                course_id=workload.course_id,
-                                teacher_id=workload.teacher_id,
+                                course_id=course.id,
+                                teacher_id=teacher.id,
                                 room_id=best_cand['room'].id,
                                 department_id=dept_id
                             )
@@ -419,13 +328,14 @@ def generate_timetable():
                             allocated_hours += 1
                             successful_entries += 1
                     
-                    if allocated_hours < workload.hours_per_week:
+                    if allocated_hours < hours_needed:
                         skipped.append({
                             'course': course.name,
                             'section': section.name,
+                            'teacher': teacher.name,
                             'allocated': allocated_hours,
-                            'required': workload.hours_per_week,
-                            'reason': 'Could not satisfy block constraints'
+                            'required': hours_needed,
+                            'reason': 'Could not satisfy time slot constraints'
                         })
 
     db.session.commit()

@@ -430,6 +430,12 @@ export function BatchesPage() {
                 onClose={() => setBatchImportOpen(false)}
                 resourceName="Batches"
                 headers={['Name', 'Code', 'Year', 'ProgramCode']}
+                formatExamples={{
+                    'Name': 'Batch 2024-2027',
+                    'Code': 'B24',
+                    'Year': '2024-2025',
+                    'ProgramCode': 'B.Tech CSE'
+                }}
                 onImport={(f) => batchService.bulkImport(f)}
                 onSuccess={load}
             />
@@ -483,6 +489,11 @@ export function BatchesPage() {
                 onClose={() => setSectionImportOpen(false)}
                 resourceName="Sections"
                 headers={['Name', 'Count', 'BatchCode']}
+                formatExamples={{
+                    'Name': 'A',
+                    'Count': '40',
+                    'BatchCode': 'B24'
+                }}
                 onImport={(f) => sectionService.bulkImport(f)}
                 onSuccess={load}
             />

@@ -885,14 +885,25 @@ def bulk_import_teachers():
                     if pd.notna(phone):
                         t.phone = str(phone).strip()
                 
-                # Resolve Departments by codes (e.g., "CS, ME, MATH")
+                # Resolve Departments by codes (e.g., "CS, ME, MATH" or "CS;ME;MATH")
                 dept_codes_val = row.get('department_codes')
                 if pd.notna(dept_codes_val):
-                    codes = [c.strip() for c in str(dept_codes_val).split(',') if c.strip()]
+                    # Support both comma and semicolon separators
+                    codes = [c.strip() for c in str(dept_codes_val).replace(';', ',').split(',') if c.strip()]
                     for code in codes:
                         dept = Department.query.filter_by(code=code).first()
                         if dept and dept not in t.departments:
                             t.departments.append(dept)
+                
+                # Handle Course Qualifications (e.g., "CS101,MATH201,PHY303" or "CS101;MATH201;PHY303")
+                course_codes_val = row.get('course_codes')
+                if pd.notna(course_codes_val):
+                    # Support both comma and semicolon separators
+                    course_codes = [c.strip() for c in str(course_codes_val).replace(';', ',').split(',') if c.strip()]
+                    for course_code in course_codes:
+                        course = Course.query.filter_by(code=course_code).first()
+                        if course and course not in t.qualified_courses:
+                            t.qualified_courses.append(course)
                 
                 success += 1
             except Exception as e:

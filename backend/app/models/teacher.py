@@ -26,8 +26,6 @@ class Teacher(db.Model):
     # Many-to-Many relationship with Course (Domain Expertise)
     qualified_courses = db.relationship('Course', secondary=teacher_qualifications,
                                        backref=db.backref('qualified_teachers', lazy='dynamic'))
-    
-    workloads = db.relationship('Workload', backref='teacher', lazy=True)
 
     def __repr__(self):
         return f'<Teacher {self.name}>'

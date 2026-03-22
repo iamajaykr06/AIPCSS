@@ -11,9 +11,10 @@ interface BulkImportModalProps {
     headers: string[];
     onImport: (file: File) => Promise<any>;
     onSuccess?: () => void;
+    formatExamples?: { [key: string]: string };
 }
 
-export function BulkImportModal({ isOpen, onClose, resourceName, headers, onImport, onSuccess }: BulkImportModalProps) {
+export function BulkImportModal({ isOpen, onClose, resourceName, headers, onImport, onSuccess, formatExamples }: BulkImportModalProps) {
     const [file, setFile] = useState<File | null>(null);
     const [importing, setImporting] = useState(false);
     const { toast } = useToast();
@@ -68,11 +69,26 @@ export function BulkImportModal({ isOpen, onClose, resourceName, headers, onImpo
                     <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.75rem', lineHeight: '1.4' }}>
                         To ensure successful import, your Excel file must contain exactly these <strong>case-sensitive</strong> column headers in the first row:
                     </p>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginBottom: '1rem' }}>
                         {headers.map(h => (
                             <span key={h} className="badge badge-blue" style={{ fontSize: '0.75rem', padding: '0.25rem 0.625rem' }}>{h}</span>
                         ))}
                     </div>
+                    
+                    {formatExamples && (
+                        <div>
+                            <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', fontWeight: 600 }}>
+                                Format Examples:
+                            </p>
+                            <div style={{ background: 'var(--bg)', padding: '0.75rem', borderRadius: '0.375rem', fontSize: '0.75rem', fontFamily: 'monospace' }}>
+                                {Object.entries(formatExamples).map(([key, value]) => (
+                                    <div key={key} style={{ marginBottom: '0.25rem' }}>
+                                        <span style={{ color: 'var(--color-primary-600)' }}>{key}:</span> {value}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div 

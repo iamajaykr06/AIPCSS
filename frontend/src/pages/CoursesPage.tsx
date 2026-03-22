@@ -261,6 +261,13 @@ export function CoursesPage() {
                 onClose={() => setImportModalOpen(false)}
                 resourceName="Courses"
                 headers={['Name', 'Code', 'Semester', 'Type', 'DeptCode']}
+                formatExamples={{
+                    'Name': 'Data Structures and Algorithms',
+                    'Code': 'CS101',
+                    'Semester': 'Semester I',
+                    'Type': 'Theory',
+                    'DeptCode': 'CSEIT'
+                }}
                 onImport={(f) => courseService.bulkImport(f)}
                 onSuccess={load}
             />

@@ -1,26 +1,10 @@
 import api from '@/lib/axios'
 import type {
-    Workload, WorkloadPayload,
     GenerateSchedulePayload, GenerateScheduleResult,
     TimetableViewResponse, GroupedTimetableResponse,
 } from '@/types'
 
 export const schedulingService = {
-    // Workloads
-    async getWorkloads(filters?: { section_id?: number; teacher_id?: number }): Promise<{ data: Workload[] }> {
-        const res = await api.get('/scheduling/workloads', { params: filters })
-        return res.data
-    },
-
-    async createWorkload(payload: WorkloadPayload): Promise<{ message: string; id: number }> {
-        const res = await api.post('/scheduling/workloads', payload)
-        return res.data
-    },
-
-    async deleteWorkload(id: number): Promise<void> {
-        await api.delete(`/scheduling/workloads/${id}`)
-    },
-
     // Timetable generation
     async generateTimetable(payload: GenerateSchedulePayload): Promise<GenerateScheduleResult> {
         const res = await api.post('/scheduling/generate', payload)

@@ -210,6 +210,11 @@ export function ProgramsPage() {
                 onClose={() => setImportModalOpen(false)}
                 resourceName="Programs"
                 headers={['Name', 'Code', 'DeptCode']}
+                formatExamples={{
+                    'Name': 'Bachelor of Technology in Computer Science',
+                    'Code': 'B.Tech CSE',
+                    'DeptCode': 'CSEIT'
+                }}
                 onImport={(f) => programService.bulkImport(f)}
                 onSuccess={load}
             />

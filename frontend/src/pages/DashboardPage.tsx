@@ -52,7 +52,6 @@ function StatCard({ icon, label, value, color, bgColor, path }: StatCardProps) {
 const quickActions = [
     { label: 'Manage Departments', icon: <Building2 size={20} />, path: '/departments', color: '#3b82f6', desc: 'Add or edit departments' },
     { label: 'Add Teachers', icon: <Briefcase size={20} />, path: '/teachers', color: '#10b981', desc: 'Manage teaching staff' },
-    { label: 'Assign Workloads', icon: <Activity size={20} />, path: '/workloads', color: '#7c3aed', desc: 'Link teachers to courses' },
     { label: 'Generate Timetable', icon: <Zap size={20} />, path: '/timetable', color: '#f59e0b', desc: 'AI schedule generation' },
 ]
 

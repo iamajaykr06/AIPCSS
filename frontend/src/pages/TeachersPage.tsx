@@ -39,6 +39,7 @@ export function TeachersPage() {
     // Availability: day -> slots[]
     const [availability, setAvailability] = useState<Record<string, string[]>>({})
     const [selectedDepts, setSelectedDepts] = useState<number[]>([])
+    const [selectedQuals, setSelectedQuals] = useState<number[]>([])
     const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>('')
     const { toast } = useToast()
 
@@ -78,6 +79,7 @@ export function TeachersPage() {
         reset({ name: '', email: '', phone: '', department_ids: [] })
         setAvailability({})
         setSelectedDepts([])
+        setSelectedQuals([])
         setModalOpen(true)
     }
 
@@ -88,7 +90,8 @@ export function TeachersPage() {
         setValue('phone', t.phone || '')
         setValue('department_ids', (t.departments || []).map(d => d.id))
         setAvailability(t.availability || {})
-        setSelectedDepts(t.departments.map(d => d.id))
+        setSelectedDepts((t.departments || []).map(d => d.id))
+        setSelectedQuals((t.qualified_courses || []).map(c => c.id))
         setModalOpen(true)
     }
 
@@ -108,13 +111,40 @@ export function TeachersPage() {
         setSaving(true)
         try {
             const payload = { ...data, department_ids: selectedDepts, availability }
+            let teacherId: number
+            
             if (editItem) {
                 await teacherService.update(editItem.id, payload)
+                teacherId = editItem.id
                 toast('success', 'Teacher updated')
             } else {
-                await teacherService.create(payload)
+                const result = await teacherService.create(payload)
+                teacherId = result.id
                 toast('success', 'Teacher created')
             }
+            
+            // Handle qualifications
+            if (selectedQuals.length > 0) {
+                // Get current qualifications to avoid duplicates
+                const currentTeacher = await teacherService.get(teacherId)
+                const currentQualIds = currentTeacher.qualified_courses.map(c => c.id)
+                
+                // Add only new qualifications
+                const newQuals = selectedQuals.filter(id => !currentQualIds.includes(id))
+                
+                for (const courseId of newQuals) {
+                    try {
+                        await teacherService.addQualification(teacherId, courseId)
+                    } catch (err) {
+                        console.error('Failed to add qualification:', err)
+                    }
+                }
+                
+                if (newQuals.length > 0) {
+                    toast('success', `${newQuals.length} qualification(s) added`)
+                }
+            }
+            
             setModalOpen(false)
             load()
         } catch (err) {
@@ -331,6 +361,46 @@ export function TeachersPage() {
                         </div>
                     </div>
 
+                    {/* Qualifications */}
+                    <div className="form-group">
+                        <label className="label">Qualified Courses</label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', maxHeight: '120px', overflowY: 'auto', padding: '0.5rem', border: '1px solid var(--border)', borderRadius: '0.375rem' }}>
+                            {courses.length === 0 && (
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Loading courses...</p>
+                            )}
+                            {selectedDepts.length === 0 && (
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Select departments first to see courses</p>
+                            )}
+                            {courses
+                                .filter(c => selectedDepts.length === 0 || selectedDepts.includes(c.department_id || 0))
+                                .map(c => (
+                                <button key={c.id} type="button"
+                                    onClick={() => {
+                                        setSelectedQuals(prev => 
+                                            prev.includes(c.id) 
+                                                ? prev.filter(id => id !== c.id)
+                                                : [...prev, c.id]
+                                        )
+                                    }}
+                                    className="badge"
+                                    style={{
+                                        cursor: 'pointer', padding: '0.25rem 0.5rem', fontSize: '0.75rem',
+                                        background: selectedQuals.includes(c.id) ? '#dcfce7' : 'var(--bg)',
+                                        color: selectedQuals.includes(c.id) ? '#166534' : 'var(--text-secondary)',
+                                        border: selectedQuals.includes(c.id) ? '1px solid #86efac' : '1px solid var(--border)',
+                                    }}>
+                                    {c.code} - {c.name}
+                                </button>
+                            ))}
+                        </div>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                            {selectedQuals.length} course(s) selected
+                            {selectedDepts.length > 0 && (
+                                <span> from {selectedDepts.length} department(s)</span>
+                            )}
+                        </p>
+                    </div>
+
                     {/* Availability grid */}
                     <div className="form-group">
                         <label className="label" style={{ marginBottom: '0.75rem' }}>Availability (click to toggle)</label>
@@ -440,7 +510,7 @@ export function TeachersPage() {
                 onClose={() => setDeleteItem(null)}
                 onConfirm={handleDelete}
                 title="Delete Teacher"
-                message={`Delete teacher "${deleteItem?.name}"? All their workloads will also be removed.`}
+                message={`Delete teacher "${deleteItem?.name}"? This action cannot be undone.`}
                 isLoading={saving}
             />
 
@@ -448,7 +518,14 @@ export function TeachersPage() {
                 isOpen={importModalOpen}
                 onClose={() => setImportModalOpen(false)}
                 resourceName="Teachers"
-                headers={['name', 'email', 'phone', 'department_codes']}
+                headers={['name', 'email', 'phone', 'department_codes', 'course_codes']}
+                formatExamples={{
+                    'name': 'Dr. John Smith',
+                    'email': 'john.smith@university.edu',
+                    'phone': '+1 234 567 8900',
+                    'department_codes': 'CSEIT;PHYS',
+                    'course_codes': 'CS101;MATH201;PHY303'
+                }}
                 onImport={(f) => teacherService.bulkImport(f)}
                 onSuccess={load}
             />

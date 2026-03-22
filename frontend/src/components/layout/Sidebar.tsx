@@ -26,7 +26,6 @@ const navItems: NavItem[] = [
     { label: 'Teachers', icon: <Briefcase size={18} />, path: '/teachers', section: 'Management' },
     { label: 'Courses', icon: <BookOpen size={18} />, path: '/courses', section: 'Management' },
     { label: 'Rooms', icon: <DoorOpen size={18} />, path: '/rooms', section: 'Management' },
-    { label: 'Workloads', icon: <User size={18} />, path: '/workloads', section: 'Scheduling' },
     { label: 'Timetable', icon: <CalendarDays size={18} />, path: '/timetable', section: 'Scheduling' },
 ]
 

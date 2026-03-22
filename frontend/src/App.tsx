@@ -16,7 +16,6 @@ import { BatchesPage } from '@/pages/BatchesPage'
 import { TeachersPage } from '@/pages/TeachersPage'
 import { CoursesPage } from '@/pages/CoursesPage'
 import { RoomsPage } from '@/pages/RoomsPage'
-import { WorkloadsPage } from '@/pages/WorkloadsPage'
 import { TimetablePage } from '@/pages/TimetablePage'
 
 export default function App() {
@@ -42,7 +41,6 @@ export default function App() {
                   <Route path="/teachers" element={<TeachersPage />} />
                   <Route path="/courses" element={<CoursesPage />} />
                   <Route path="/rooms" element={<RoomsPage />} />
-                  <Route path="/workloads" element={<WorkloadsPage />} />
                   <Route path="/timetable" element={<TimetablePage />} />
                 </Route>
               </Route>

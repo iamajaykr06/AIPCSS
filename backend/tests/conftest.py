@@ -1,6 +1,6 @@
 import pytest
 from app import create_app, db
-from app.models import Department, Program, Batch, Section, Teacher, Course, Room, Workload
+from app.models import Department, Program, Batch, Section, Teacher, Course, Room
 
 @pytest.fixture
 def app():

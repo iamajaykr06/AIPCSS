@@ -182,28 +182,6 @@ export interface RoomPayload {
 }
 
 
-// ── Workload ───────────────────────────────────────────────────────────────
-
-export interface Workload {
-    id: number;
-    teacher: { id: number; name: string } | null;
-    course: { id: number; name: string; code: string } | null;
-    section: { id: number; name: string } | null;
-    hours_per_week: number;
-    session_duration: number;
-    teacher_id?: number;
-    course_id?: number;
-    section_id?: number;
-}
-
-export interface WorkloadPayload {
-    teacher_id: number;
-    course_id: number;
-    section_id: number;
-    hours_per_week: number;
-    session_duration: number;
-}
-
 // ── Timetable ──────────────────────────────────────────────────────────────
 
 export type Day = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday';
@@ -226,7 +204,7 @@ export interface GenerateSchedulePayload {
 export interface GenerateScheduleResult {
     status: 'success' | 'partial_success' | 'error';
     entries_created: number;
-    incomplete_workloads: Array<{
+    incomplete_assignments: Array<{
         course: string;
         section: string;
         teacher: string;

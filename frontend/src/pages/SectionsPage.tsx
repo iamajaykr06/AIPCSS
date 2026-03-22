@@ -224,6 +224,11 @@ export function SectionsPage() {
                 onClose={() => setImportModalOpen(false)}
                 resourceName="Sections"
                 headers={['Name', 'Count', 'BatchCode']}
+                formatExamples={{
+                    'Name': 'A',
+                    'Count': '40',
+                    'BatchCode': 'B24'
+                }}
                 onImport={(f) => sectionService.bulkImport(f)}
                 onSuccess={load}
             />

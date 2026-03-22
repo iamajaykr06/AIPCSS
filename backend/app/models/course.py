@@ -10,8 +10,6 @@ class Course(db.Model):
     program_code = db.Column(db.String(50), nullable=True) # From Excel "Program"
     department_code = db.Column(db.String(50), nullable=False) # From Excel "DeptCode"
     department_id = db.Column(db.Integer, db.ForeignKey('department.id'), nullable=False)
-    
-    workloads = db.relationship('Workload', backref='course', lazy=True)
 
     def __repr__(self):
         return f'<Course {self.code or self.name}>'

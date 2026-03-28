@@ -172,6 +172,7 @@ export interface Room {
     capacity: number;
     room_type: RoomType;
     department_id?: number | null;
+    program_id?: number | null;
 }
 
 export interface RoomPayload {
@@ -179,6 +180,7 @@ export interface RoomPayload {
     capacity: number;
     room_type: RoomType;
     department_id?: number | null;
+    program_id?: number | null;
 }
 
 
@@ -199,12 +201,13 @@ export interface TimetableEntry {
 
 export interface GenerateSchedulePayload {
     department_id: number;
+    strict_mode?: boolean;
 }
 
 export interface GenerateScheduleResult {
     status: 'success' | 'partial_success' | 'error';
     entries_created: number;
-    incomplete_assignments: Array<{
+    incomplete_workloads: Array<{
         course: string;
         section: string;
         teacher: string;

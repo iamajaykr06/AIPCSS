@@ -664,7 +664,8 @@ def _room_dict(r):
         'name': r.name, 
         'capacity': r.capacity, 
         'room_type': r.room_type,
-        'department_id': r.department_id
+        'department_id': r.department_id,
+        'program_id': r.program_id
     }
 
 
@@ -703,14 +704,22 @@ def add_room():
     if errors:
         return jsonify({'error': 'Validation failed', 'details': errors}), 422
 
+    room_type = data.get('room_type', 'Classroom')
+    program_id = data.get('program_id')
+    if room_type and str(room_type).lower() == 'lab' and not program_id:
+        return jsonify({'error': 'Validation failed', 'details': ['program_id is required for lab rooms']}), 422
+    if program_id and not db.session.get(Program, program_id):
+        return jsonify({'error': 'Program not found'}), 404
+
     if Room.query.filter_by(name=data['name'].strip()).first():
         return jsonify({'error': f"Room '{data['name']}' already exists"}), 409
 
     r = Room(
         name=data['name'].strip(),
         capacity=data['capacity'],
-        room_type=data.get('room_type', 'Classroom'),
-        department_id=data.get('department_id')
+        room_type=room_type,
+        department_id=data.get('department_id'),
+        program_id=program_id
     )
     db.session.add(r)
     db.session.commit()
@@ -736,6 +745,16 @@ def update_room(room_id):
         r.room_type = data['room_type']
     if 'department_id' in data:
         r.department_id = data['department_id']
+    if 'program_id' in data:
+        if data['program_id'] and not db.session.get(Program, data['program_id']):
+            return jsonify({'error': 'Program not found'}), 404
+        r.program_id = data['program_id']
+
+    # Lab rooms must stay program-scoped.
+    final_room_type = (data.get('room_type', r.room_type) or '').lower()
+    final_program_id = data.get('program_id', r.program_id)
+    if final_room_type == 'lab' and not final_program_id:
+        return jsonify({'error': 'Validation failed', 'details': ['program_id is required for lab rooms']}), 422
 
     db.session.commit()
     return jsonify({'message': 'Room updated', 'room': _room_dict(r)}), 200
@@ -940,13 +959,64 @@ def bulk_import_courses():
 @roles_required('admin')
 def import_rooms():
     file = request.files.get('file')
-    result, status = _bulk_import_logic(file, Room, {
-        'name': 'Name', 
-        'capacity': 'Capacity', 
-        'room_type': 'Type',
-        'department_id': 'Department Code'
-    }, 'name', 
-    None, # allow duplicates during import
-    lookup_configs={'department_id': (Department, 'code', 'Department Code')})
-    return jsonify(result), status
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    try:
+        df = pd.read_excel(BytesIO(file.read()))
+        df.columns = [c.strip() for c in df.columns]
+
+        success = 0
+        errors = []
+
+        for index, row in df.iterrows():
+            try:
+                name = row.get('Name')
+                capacity = row.get('Capacity')
+                room_type = row.get('Type', 'Classroom')
+                dept_code = row.get('Department Code')
+                program_code = row.get('Program Code')
+
+                if pd.isna(name) or pd.isna(capacity):
+                    raise Exception("Missing Name or Capacity")
+
+                existing = Room.query.filter_by(name=str(name).strip()).first()
+                if existing:
+                    success += 1
+                    continue
+
+                department_id = None
+                if pd.notna(dept_code):
+                    dept = Department.query.filter_by(code=str(dept_code).strip()).first()
+                    if not dept:
+                        raise Exception(f"Department was not found with code='{dept_code}'")
+                    department_id = dept.id
+
+                program_id = None
+                if pd.notna(program_code):
+                    program = Program.query.filter_by(code=str(program_code).strip()).first()
+                    if not program:
+                        raise Exception(f"Program was not found with code='{program_code}'")
+                    program_id = program.id
+
+                if str(room_type).strip().lower() == 'lab' and not program_id:
+                    raise Exception("Program Code is required for lab rooms")
+
+                room = Room(
+                    name=str(name).strip(),
+                    capacity=int(capacity),
+                    room_type=str(room_type).strip(),
+                    department_id=department_id,
+                    program_id=program_id
+                )
+                db.session.add(room)
+                success += 1
+            except Exception as e:
+                errors.append(f"Row {index+2}: {str(e)}")
+
+        db.session.commit()
+        return jsonify({"message": f"Successfully processed {success} rooms", "errors": errors}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
 

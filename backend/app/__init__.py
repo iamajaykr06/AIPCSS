@@ -30,6 +30,22 @@ def create_app(env=None):
     CORS(app, resources={r"/api/*": {"origins": app.config['CORS_ORIGINS']}},
          supports_credentials=True)
 
+    # ── Development safety: ensure base tables exist ───────────────────────
+    # If a local DB is created in a partially migrated state, endpoints like
+    # login will crash with "no such table". For development only, auto-create
+    # tables when the critical `users` table is missing.
+    if env in ("development", "testing"):
+        with app.app_context():
+            # Ensure model metadata is registered before create_all().
+            from . import models  # noqa: F401
+            try:
+                from sqlalchemy import inspect
+                if "users" not in inspect(db.engine).get_table_names():
+                    db.create_all()
+            except Exception:
+                # If inspection fails, let runtime surface the real DB error.
+                pass
+
     # ── Blueprints ────────────────────────────────────────────────────────────
     from .routes.auth import auth_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')

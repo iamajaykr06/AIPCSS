@@ -1,8 +1,8 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
-import random
+from datetime import datetime
 
-from ..models import Teacher, Course, Section, Room, TimetableEntry, Department
+from ..models import Teacher, Course, Section, Room, TimetableEntry, Department, ProgramCourse
 from .. import db, socketio
 from .auth import roles_required
 
@@ -113,6 +113,45 @@ def check_conflicts(day, timeslot, teacher_id=None, room_id=None, section_id=Non
     return conflicts
 
 
+def _validate_day_timeslot(day, timeslot):
+    """Validate day/timeslot against configured scheduling grid."""
+    if day not in DAYS:
+        return f"Invalid day '{day}'. Allowed days: {', '.join(DAYS)}"
+    if timeslot not in TIMESLOTS:
+        return f"Invalid timeslot '{timeslot}'. Allowed timeslots: {', '.join(TIMESLOTS)}"
+    return None
+
+
+def _parse_academic_start_year(academic_year):
+    """Parse start year from formats like '2023-2026'."""
+    if not academic_year:
+        return None
+    parts = str(academic_year).split('-')
+    if not parts:
+        return None
+    start = parts[0].strip()
+    if start.isdigit():
+        return int(start)
+    return None
+
+
+def _current_semester_from_batch(batch):
+    """
+    Calculate current semester from batch.academic_year and current date.
+    One semester = 6 months.
+    """
+    start_year = _parse_academic_start_year(batch.academic_year)
+    if not start_year:
+        return batch.current_semester or 1
+
+    now = datetime.utcnow()
+    current_year_half = 0 if now.month <= 6 else 1
+    start_half = 1  # Assume academic cycle starts in second half (Jul-Dec).
+    elapsed_halves = ((now.year - start_year) * 2) + (current_year_half - start_half)
+    semester = elapsed_halves + 1
+    return max(1, min(8, semester))
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TIMETABLE GENERATION
 # ══════════════════════════════════════════════════════════════════════════════
@@ -131,6 +170,8 @@ def generate_timetable():
     data = request.get_json()
     if not data:
         return jsonify({'error': 'Request body must be JSON'}), 400
+
+    strict_mode = bool(data.get('strict_mode', False))
 
     dept_id = data.get('department_id')
     if not dept_id:
@@ -210,15 +251,16 @@ def generate_timetable():
     # ── Main scheduling loop ───────────────────────────────────────────────────
     # NEW: Generate timetable without workloads by automatically assigning courses
     
-    # Get all courses for this department
+    # Get all courses for this department (fallback path)
     dept_courses = Course.query.filter_by(department_id=dept_id).all()
     if not dept_courses:
         return jsonify({'error': 'No courses found for this department'}), 404
     
-    # Get all teachers for this department
-    dept_teachers = [t for t in Teacher.query.all() if dept in t.departments]
-    if not dept_teachers:
-        return jsonify({'error': 'No teachers found for this department'}), 404
+    # GLOBAL TEACHER POOL:
+    # Teachers are university-level resources; qualification decides fit.
+    all_teachers = Teacher.query.all()
+    if not all_teachers:
+        return jsonify({'error': 'No teachers found in university'}), 404
     
     for program in dept.programs:
         for batch in program.batches:
@@ -234,30 +276,60 @@ def generate_timetable():
                 section_slot_map[section.id] = {}
                 section_course_days[section.id] = {}
                 
-                # AUTOMATIC COURSE ASSIGNMENT: Assign 4-6 courses per section
-                num_courses_to_assign = random.randint(4, min(6, len(dept_courses)))
-                assigned_courses = random.sample(dept_courses, num_courses_to_assign)
+                # Determine current semester from academic year and fetch curriculum
+                current_sem = _current_semester_from_batch(batch)
+                batch.current_semester = current_sem
+                curriculum_links = ProgramCourse.query.filter_by(
+                    program_id=program.id,
+                    semester_number=current_sem
+                ).all()
+                program_sem_courses = [pc.course for pc in curriculum_links]
+                if not program_sem_courses:
+                    # Fallback for missing curriculum mapping
+                    program_sem_courses = [
+                        c for c in dept_courses
+                        if (c.program_code and c.program_code == program.code)
+                        or (c.semester and c.semester == current_sem)
+                    ] or dept_courses
+
+                # Assign ALL semester courses for predictable, complete timetables.
+                assigned_courses = list(program_sem_courses)
                 
                 for course in assigned_courses:
-                    # Find a qualified teacher for this course
-                    qualified_teachers = [t for t in dept_teachers if course in t.qualified_courses]
+                    # Find a qualified teacher for this course across university
+                    qualified_teachers = [t for t in all_teachers if course in t.qualified_courses]
                     
                     if not qualified_teachers:
-                        # If no qualified teachers, assign any teacher from the department
-                        qualified_teachers = dept_teachers
+                        if strict_mode:
+                            skipped.append({
+                                'course': course.name,
+                                'section': section.name,
+                                'teacher': 'N/A',
+                                'allocated': 0,
+                                'required': None,
+                                'reason': 'No qualified teacher found (strict_mode enabled)'
+                            })
+                            break
+                        # Fallback: any teacher from university (legacy behavior)
+                        qualified_teachers = all_teachers
                     
                     if not qualified_teachers:
                         errors.append(f"No teachers available for course {course.name}")
                         continue
                     
-                    teacher = random.choice(qualified_teachers)
+                    # Deterministic teacher selection: least currently allocated load first.
+                    teacher_load = {
+                        t.id: TimetableEntry.query.filter_by(department_id=dept_id, teacher_id=t.id).count()
+                        for t in qualified_teachers
+                    }
+                    teacher = min(qualified_teachers, key=lambda t: teacher_load.get(t.id, 0))
                     
-                    # Determine hours based on course type
+                    # Deterministic weekly hours (avoid sparse random outputs)
                     if course.course_type == 'Lab':
-                        hours_needed = random.choice([2, 3])
+                        hours_needed = 2
                         session_duration = hours_needed  # Labs are consecutive
                     else:
-                        hours_needed = random.choice([3, 4, 5])
+                        hours_needed = 3
                         session_duration = 1  # Theory classes are 1 hour each
                     
                     section_course_days[section.id].setdefault(course.id, set())
@@ -287,6 +359,13 @@ def generate_timetable():
                                 for room in all_rooms:
                                     rscore = get_room_score(room, course, section)
                                     if rscore == 0: continue
+                                    # Program-scoped labs: only assign to matching program.
+                                    if (
+                                        course.course_type == 'Lab' and
+                                        getattr(room, 'program_id', None) and
+                                        room.program_id != program.id
+                                    ):
+                                        continue
                                     
                                     if all(not check_conflicts(day, s, room_id=room.id) for s in block_slots):
                                         if rscore > max_room_score:
@@ -299,8 +378,9 @@ def generate_timetable():
                                 if any(check_conflicts(day, s, teacher_id=teacher.id, section_id=section.id) for s in block_slots):
                                     continue
 
-                                # Score the block
-                                base_score = max_room_score - gap_penalty(section.id, day, block_slots[0])
+                                # Score the block: prefer compact schedule and balanced day load.
+                                day_load = len(section_slot_map.get(section.id, {}).get(day, []))
+                                base_score = max_room_score - gap_penalty(section.id, day, block_slots[0]) - (day_load * 2)
                                 candidates.append({'day': day, 'slots': block_slots, 'room': best_room, 'score': base_score})
 
                         if not candidates:
@@ -431,6 +511,23 @@ def create_timetable_entry():
         if field not in data:
             return jsonify({'error': f"'{field}' is required"}), 422
 
+    validation_error = _validate_day_timeslot(data['day'], data['timeslot'])
+    if validation_error:
+        return jsonify({'error': validation_error}), 422
+
+    section = db.session.get(Section, data['section_id'])
+    if not section:
+        return jsonify({'error': 'Section not found'}), 404
+    course = db.session.get(Course, data['course_id'])
+    if not course:
+        return jsonify({'error': 'Course not found'}), 404
+    teacher = db.session.get(Teacher, data['teacher_id'])
+    if not teacher:
+        return jsonify({'error': 'Teacher not found'}), 404
+    department = db.session.get(Department, data['department_id'])
+    if not department:
+        return jsonify({'error': 'Department not found'}), 404
+
     # Check for conflicts
     conflicts = check_conflicts(
         data['day'], data['timeslot'],
@@ -459,9 +556,7 @@ def create_timetable_entry():
         room_id=data['room_id'],
         department_id=data['department_id']
     )
-    section = db.session.get(Section, data['section_id'])
-    if section:
-        entry.sections.append(section)
+    entry.sections.append(section)
     db.session.add(entry)
     db.session.commit()
 
@@ -497,17 +592,31 @@ def update_timetable_entry(entry_id):
     new_day = data.get('day', entry.day)
     new_slot = data.get('timeslot', entry.timeslot)
     new_room = data.get('room_id', entry.room_id)
+    section_ids = [s.id for s in entry.sections]
+
+    validation_error = _validate_day_timeslot(new_day, new_slot)
+    if validation_error:
+        return jsonify({'error': validation_error}), 422
 
     if any(k in data for k in ['day', 'timeslot', 'room_id']):
         conflicts = check_conflicts(
             new_day, new_slot,
             teacher_id=entry.teacher_id,
             room_id=new_room,
-            section_id=entry.section_id,
             exclude_entry_id=entry.id
         )
+        for section_id in section_ids:
+            conflicts.extend(
+                check_conflicts(
+                    new_day, new_slot,
+                    section_id=section_id,
+                    exclude_entry_id=entry.id
+                )
+            )
         if conflicts:
-            return jsonify({'error': 'Conflict detected', 'details': conflicts}), 409
+            # Keep deterministic and readable error messages
+            unique_conflicts = list(dict.fromkeys(conflicts))
+            return jsonify({'error': 'Conflict detected', 'details': unique_conflicts}), 409
 
     if 'day' in data: entry.day = data['day']
     if 'timeslot' in data: entry.timeslot = data['timeslot']

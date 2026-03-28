@@ -3,7 +3,7 @@ import { Plus, Pencil, Trash2, DoorOpen, Users, Upload } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { roomService, departmentService } from '@/services/resources.service'
+import { roomService, departmentService, programService } from '@/services/resources.service'
 import { useToast } from '@/context/ToastContext'
 import { useTable } from '@/hooks/useTable'
 import { DataTable } from '@/components/common/DataTable'
@@ -11,7 +11,7 @@ import { Modal, ConfirmModal } from '@/components/ui/Modal'
 import { PageLoader, ErrorState } from '@/components/ui/Loading'
 import { BulkImportModal } from '@/components/common/BulkImportModal'
 import { getErrorMessage } from '@/lib/utils'
-import type { Room, Department } from '@/types'
+import type { Room, Department, Program } from '@/types'
 
 const schema = z.object({
     name: z.string().min(1, 'Name is required'),
@@ -21,12 +21,25 @@ const schema = z.object({
         if (val === '' || val === null || val === undefined) return null;
         return typeof val === 'string' ? Number(val) : val;
     }),
+    program_id: z.union([z.string(), z.number(), z.null()]).optional().transform((val) => {
+        if (val === '' || val === null || val === undefined) return null;
+        return typeof val === 'string' ? Number(val) : val;
+    }),
+}).superRefine((data, ctx) => {
+    if (data.room_type === 'Lab' && !data.program_id) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['program_id'],
+            message: 'Program is required for Lab rooms',
+        })
+    }
 })
 type FormData = z.infer<typeof schema>
 
 export function RoomsPage() {
     const [rooms, setRooms] = useState<Room[]>([])
     const [departments, setDepartments] = useState<Department[]>([])
+    const [programs, setPrograms] = useState<Program[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [modalOpen, setModalOpen] = useState(false)
@@ -37,10 +50,12 @@ export function RoomsPage() {
     const { toast } = useToast()
 
     const table = useTable({ data: rooms as any, searchFields: ['name', 'room_type'], defaultSortKey: 'name' })
-    const { register, handleSubmit, reset, formState: { errors }, setValue } = useForm<FormData>({
+    const { register, handleSubmit, reset, formState: { errors }, setValue, watch } = useForm<FormData>({
         resolver: zodResolver(schema) as any,
-        defaultValues: { room_type: 'Classroom', capacity: 40, department_id: null },
+        defaultValues: { room_type: 'Classroom', capacity: 40, department_id: null, program_id: null },
     })
+    const selectedRoomType = watch('room_type')
+    const selectedDepartmentId = watch('department_id')
 
     async function load() {
         try {
@@ -62,14 +77,23 @@ export function RoomsPage() {
             console.error('Failed to load departments:', err)
         }
     }
+    async function loadPrograms() {
+        try {
+            const p = await programService.list(undefined, 1, 500)
+            setPrograms(p.data)
+        } catch (err) {
+            console.error('Failed to load programs:', err)
+        }
+    }
     useEffect(() => { 
         load()
         loadDepartments()
+        loadPrograms()
     }, [])
 
     const openCreate = () => {
         setEditItem(null)
-        reset({ name: '', capacity: 40, room_type: 'Classroom', department_id: null })
+        reset({ name: '', capacity: 40, room_type: 'Classroom', department_id: null, program_id: null })
         setModalOpen(true)
     }
 
@@ -79,6 +103,7 @@ export function RoomsPage() {
         setValue('capacity', r.capacity)
         setValue('room_type', r.room_type)
         setValue('department_id', r.department_id || null)
+        setValue('program_id', r.program_id || null)
         setModalOpen(true)
     }
 
@@ -177,6 +202,20 @@ export function RoomsPage() {
                                 )
                             }
                         },
+                        {
+                            key: 'program_id', label: 'Program Scope', sortable: true, render: row => {
+                                const r = row as unknown as Room
+                                if (r.room_type !== 'Lab') {
+                                    return <span className="badge badge-gray">N/A</span>
+                                }
+                                const program = programs.find(p => p.id === r.program_id)
+                                return (
+                                    <span className="badge badge-violet">
+                                        {program?.code || 'Not Set'}
+                                    </span>
+                                )
+                            }
+                        },
                     ]}
                     data={table.paginated as any}
                     search={table.search}
@@ -250,6 +289,25 @@ export function RoomsPage() {
                             Leave empty for general purpose rooms available to all departments
                         </p>
                     </div>
+                    {selectedRoomType === 'Lab' && (
+                        <div className="form-group">
+                            <label className="label">Program (Required for Labs)</label>
+                            <select {...register('program_id')} className={`input select ${errors.program_id ? 'input-error' : ''}`}>
+                                <option value="">Select Program...</option>
+                                {programs
+                                    .filter((p) => !selectedDepartmentId || p.department_id === Number(selectedDepartmentId))
+                                    .map(program => (
+                                        <option key={program.id} value={program.id.toString()}>
+                                            {program.name} ({program.code})
+                                        </option>
+                                    ))}
+                            </select>
+                            {errors.program_id && <p className="error-msg">{errors.program_id.message}</p>}
+                            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                                Lab rooms are restricted to this program during timetable generation.
+                            </p>
+                        </div>
+                    )}
                 </form>
             </Modal>
 
@@ -266,12 +324,13 @@ export function RoomsPage() {
                 isOpen={importModalOpen}
                 onClose={() => setImportModalOpen(false)}
                 resourceName="Rooms"
-                headers={['Name', 'Capacity', 'Type', 'Department Code']}
+                headers={['Name', 'Capacity', 'Type', 'Department Code', 'Program Code']}
                 formatExamples={{
                     'Name': 'Computer Lab 101',
                     'Capacity': '30',
                     'Type': 'Lab',
-                    'Department Code': 'CSEIT'
+                    'Department Code': 'CSEIT',
+                    'Program Code': 'BTECH-CSE'
                 }}
                 onImport={(f) => roomService.bulkImport(f)}
                 onSuccess={load}

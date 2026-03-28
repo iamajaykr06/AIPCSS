@@ -1,17 +1,41 @@
-import React, { useEffect, useState, useMemo } from 'react'
-import { Calendar, Play, Download, Search, Info, CheckCircle2, AlertCircle, Clock, MapPin, User, BookOpen, Trash2, Plus, X, GripVertical, Zap } from 'lucide-react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
+import { Calendar, Play, Download, Search, Info, CheckCircle2, AlertCircle, MapPin, User, BookOpen, Trash2, Plus, GripVertical, Zap } from 'lucide-react'
 import { DndContext, DragOverlay, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { restrictToFirstScrollableAncestor } from '@dnd-kit/modifiers'
 import { schedulingService } from '@/services/scheduling.service'
-import { departmentService, teacherService, roomService, courseService, sectionService } from '@/services/resources.service'
+import { departmentService, teacherService, roomService, courseService, sectionService, programService, batchService } from '@/services/resources.service'
 import { useToast } from '@/context/ToastContext'
 import { PageLoader, Spinner, EmptyState } from '@/components/ui/Loading'
 import { Modal } from '@/components/ui/Modal'
 import { getErrorMessage, DAYS, SLOTS } from '@/lib/utils'
-import type { TimetableEntry, Department, Teacher, Room, Course, Section } from '@/types'
+import type { TimetableEntry, Department, Teacher, Room, Course, Section, Batch, GenerateScheduleResult } from '@/types'
 import { io } from 'socket.io-client'
+
+interface TimetableReadiness {
+    sections: Section[]
+    courses: Course[]
+    rooms: Room[]
+    teachers: Teacher[]
+    qualifiedTeacherCount: number
+    labCoursesCount: number
+    labRoomsCount: number
+    blockers: string[]
+    warnings: string[]
+}
+
+const emptyReadiness: TimetableReadiness = {
+    sections: [],
+    courses: [],
+    rooms: [],
+    teachers: [],
+    qualifiedTeacherCount: 0,
+    labCoursesCount: 0,
+    labRoomsCount: 0,
+    blockers: [],
+    warnings: [],
+}
 
 export function TimetablePage() {
     const [departments, setDepartments] = useState<Department[]>([])
@@ -33,7 +57,11 @@ export function TimetablePage() {
     const [saving, setSaving] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
     const [resolutionModalOpen, setResolutionModalOpen] = useState(false)
+    const [strictMode, setStrictMode] = useState(false)
     const [suggestingEntry, setSuggestingEntry] = useState<TimetableEntry | null>(null)
+    const [readinessLoading, setReadinessLoading] = useState(false)
+    const [readiness, setReadiness] = useState<TimetableReadiness>(emptyReadiness)
+    const [generationResult, setGenerationResult] = useState<GenerateScheduleResult | null>(null)
 
     // Form state for manual entry
     const [formData, setFormData] = useState({
@@ -69,26 +97,111 @@ export function TimetablePage() {
             }
         }
         fetchDepts()
-    }, [])
+    }, [toast])
 
-    useEffect(() => {
-        if (selectedDeptId) {
-            fetchTimetable(selectedDeptId)
-        }
-    }, [selectedDeptId])
-
-    const fetchTimetable = async (deptId: number) => {
+    const fetchTimetable = useCallback(async (deptId: number) => {
         setLoading(true)
         try {
             const res = await schedulingService.viewTimetable(deptId)
             setTimetable(res.data || [])
-        } catch (err) {
+        } catch {
             // Don't toast 404s, just show empty state
             setTimetable([])
         } finally {
             setLoading(false)
         }
-    }
+    }, [])
+
+    const loadDepartmentSections = useCallback(async (deptId: number): Promise<Section[]> => {
+        const programRes = await programService.list(deptId, 1, 500)
+        const programs = programRes.data || []
+        if (programs.length === 0) return []
+
+        const batchResults = await Promise.all(
+            programs.map(program => batchService.list(program.id, 1, 500))
+        )
+        const batches = batchResults.flatMap(result => result.data || [])
+        if (batches.length === 0) return []
+
+        const sectionResults = await Promise.all(
+            batches.map((batch: Batch) => sectionService.list(batch.id, 1, 500))
+        )
+
+        return sectionResults.flatMap(result => result.data || [])
+    }, [])
+
+    const loadReadiness = useCallback(async (deptId: number): Promise<TimetableReadiness> => {
+        setReadinessLoading(true)
+        try {
+            const [sectionData, courseRes, roomRes, teacherRes] = await Promise.all([
+                loadDepartmentSections(deptId),
+                courseService.list(deptId, 1, 500),
+                roomService.list(undefined, 1, 500),
+                teacherService.list(undefined, 1, 500),
+            ])
+
+            const deptCourses = courseRes.data || []
+            const deptRooms = (roomRes.data || []).filter(room => !room.department_id || room.department_id === deptId)
+            const allTeachers = teacherRes.data || []
+            const deptCourseIds = new Set(deptCourses.map(course => course.id))
+            const qualifiedTeacherCount = allTeachers.filter(teacher =>
+                teacher.qualified_courses?.some(course => deptCourseIds.has(course.id))
+            ).length
+            const labCoursesCount = deptCourses.filter(course => course.course_type === 'Lab').length
+            const labRoomsCount = deptRooms.filter(room => room.room_type.toLowerCase().includes('lab')).length
+
+            const blockers: string[] = []
+            const warnings: string[] = []
+
+            if (sectionData.length === 0) blockers.push('No sections found for this department.')
+            if (deptCourses.length === 0) blockers.push('No courses found for this department.')
+            if (deptRooms.length === 0) blockers.push('No rooms are available for this department.')
+            if (allTeachers.length === 0) blockers.push('No teachers are available in the system.')
+
+            if (allTeachers.length > 0 && qualifiedTeacherCount === 0) {
+                warnings.push('No teacher is qualified for the department courses yet. Strict mode will fail.')
+            }
+            if (labCoursesCount > 0 && labRoomsCount === 0) {
+                warnings.push('Lab courses exist, but no lab rooms are available for this department.')
+            }
+
+            const nextReadiness = {
+                sections: sectionData,
+                courses: deptCourses,
+                rooms: deptRooms,
+                teachers: allTeachers,
+                qualifiedTeacherCount,
+                labCoursesCount,
+                labRoomsCount,
+                blockers,
+                warnings,
+            }
+
+            setReadiness(nextReadiness)
+            return nextReadiness
+        } catch (err) {
+            const fallback = {
+                ...emptyReadiness,
+                blockers: ['Could not load timetable readiness data.'],
+            }
+            setReadiness(fallback)
+            toast('error', 'Failed to inspect scheduling readiness', getErrorMessage(err))
+            return fallback
+        } finally {
+            setReadinessLoading(false)
+        }
+    }, [loadDepartmentSections, toast])
+
+    useEffect(() => {
+        if (selectedDeptId) {
+            setGenerationResult(null)
+            setFormData({ teacher_id: '', room_id: '', course_id: '', section_id: '' })
+            fetchTimetable(selectedDeptId)
+            loadReadiness(selectedDeptId)
+        } else {
+            setReadiness(emptyReadiness)
+        }
+    }, [fetchTimetable, loadReadiness, selectedDeptId])
 
     useEffect(() => {
         const socket = io('/', { path: '/socket.io' })
@@ -109,14 +222,39 @@ export function TimetablePage() {
             toast('error', 'No department selected', 'Please select a department first.')
             return
         }
+        if (readiness.blockers.length > 0) {
+            toast('error', 'Generation blocked', readiness.blockers[0])
+            return
+        }
+        if (strictMode && readiness.qualifiedTeacherCount === 0) {
+            toast('error', 'Strict mode cannot run', 'Assign at least one qualified teacher or turn off strict mode.')
+            return
+        }
         setGenerating(true)
         setGenProgress(0)
         setGenStatus('Initializing AI engine...')
+        setGenerationResult(null)
         try {
             toast('info', 'Generation started', 'AI is calculating the optimal schedule...')
-            await schedulingService.generateTimetable({ department_id: selectedDeptId })
-            toast('success', 'Success', 'Timetable generated successfully!')
-            fetchTimetable(selectedDeptId)
+            const result = await schedulingService.generateTimetable({
+                department_id: selectedDeptId,
+                strict_mode: strictMode,
+            })
+            setGenerationResult(result)
+            const skipped = result.incomplete_workloads?.length || 0
+            if (result.status === 'partial_success' || skipped > 0) {
+                toast(
+                    'warning',
+                    'Generated with warnings',
+                    `Created ${result.entries_created} entries, ${skipped} workloads incomplete.`
+                )
+            } else {
+                toast('success', 'Success', 'Timetable generated successfully!')
+            }
+            await Promise.all([
+                fetchTimetable(selectedDeptId),
+                loadReadiness(selectedDeptId),
+            ])
         } catch (err) {
             toast('error', 'Generation failed', getErrorMessage(err))
         } finally {
@@ -163,6 +301,7 @@ export function TimetablePage() {
             await schedulingService.clearTimetable(selectedDeptId)
             toast('success', 'Cleared', 'Timetable has been removed.')
             setTimetable([])
+            setGenerationResult(null)
         } catch (err) {
             toast('error', 'Error', getErrorMessage(err))
         }
@@ -181,16 +320,21 @@ export function TimetablePage() {
 
     const loadModalData = async () => {
         try {
-            const [t, r, c, s] = await Promise.all([
-                teacherService.list(undefined, 1, 500),
-                roomService.list(undefined, 1, 500),
-                courseService.list(undefined, 1, 500),
-                sectionService.list(undefined, 1, 500)
-            ])
-            setTeachers(t.data || [])
-            setRooms(r.data || [])
-            setCourses(c.data || [])
-            setSections(s.data || [])
+            if (!selectedDeptId) return
+
+            if (readiness.courses.length > 0 || readiness.sections.length > 0 || readiness.rooms.length > 0 || readiness.teachers.length > 0) {
+                setTeachers(readiness.teachers)
+                setRooms(readiness.rooms)
+                setCourses(readiness.courses)
+                setSections(readiness.sections)
+                return
+            }
+
+            const nextReadiness = await loadReadiness(selectedDeptId)
+            setTeachers(nextReadiness.teachers)
+            setRooms(nextReadiness.rooms)
+            setCourses(nextReadiness.courses)
+            setSections(nextReadiness.sections)
         } catch (err) {
             toast('error', 'Failed to load resources', getErrorMessage(err))
         }
@@ -247,14 +391,14 @@ export function TimetablePage() {
 
         const entryId = active.id as number
         const dropData = over.id as string // format: "day|slot"
-        const [newDay, newSlot] = dropData.split('|')
+        const [newDay, newSlot] = dropData.split('|') as [TimetableEntry['day'], TimetableEntry['timeslot']]
 
         const entry = timetable.find(e => e.id === entryId)
         if (!entry || (entry.day === newDay && entry.timeslot === newSlot)) return
 
         try {
             await schedulingService.updateEntry(entryId, { day: newDay, timeslot: newSlot })
-            setTimetable(prev => prev.map(e => e.id === entryId ? { ...e, day: newDay, timeslot: newSlot } as any : e))
+            setTimetable(prev => prev.map(e => e.id === entryId ? { ...e, day: newDay, timeslot: newSlot } : e))
             toast('success', 'Entry moved', `Moved to ${newDay} ${newSlot}`)
         } catch (err) {
             toast('error', 'Update failed', getErrorMessage(err))
@@ -318,7 +462,7 @@ export function TimetablePage() {
             if (entrySlotIndex === -1) return
             
             let duration = 1
-            let slots = [entry.timeslot]
+            const slots = [entry.timeslot]
             
             // Look for consecutive slots with same course/teacher/room
             for (let i = entrySlotIndex + 1; i < daySlots.length; i++) {
@@ -350,9 +494,9 @@ export function TimetablePage() {
 
     const scheduleGrid = useMemo(() => {
         const grid: Record<string, Record<string, TimetableEntry[]>> = {}
-        DAYS.forEach(day => {
+        DAYS.forEach((day: string) => {
             grid[day] = {}
-            SLOTS.forEach(slot => {
+            SLOTS.forEach((slot: string) => {
                 // Filter out entries that are part of multi-hour sessions (they'll be handled separately)
                 grid[day][slot] = filteredTimetable.filter(entry => 
                     entry.day === day && 
@@ -386,6 +530,59 @@ export function TimetablePage() {
             })
     }, [timetable])
 
+    const selectedCourse = useMemo(
+        () => courses.find(course => course.id === Number(formData.course_id)) ?? null,
+        [courses, formData.course_id]
+    )
+
+    const selectedSection = useMemo(
+        () => sections.find(section => section.id === Number(formData.section_id)) ?? null,
+        [sections, formData.section_id]
+    )
+
+    const suggestedTeachers = useMemo(() => {
+        if (!selectedCourse) return teachers
+        const matchingTeachers = teachers.filter(teacher =>
+            teacher.qualified_courses?.some(course => course.id === selectedCourse.id)
+        )
+        return matchingTeachers.length > 0 ? matchingTeachers : teachers
+    }, [teachers, selectedCourse])
+
+    const suggestedRooms = useMemo(() => {
+        return rooms.filter(room => {
+            if (selectedCourse?.course_type === 'Lab' && !room.room_type.toLowerCase().includes('lab')) {
+                return false
+            }
+            if (!selectedSection) return true
+            return room.capacity >= selectedSection.student_count
+        })
+    }, [rooms, selectedCourse, selectedSection])
+
+    useEffect(() => {
+        if (!entryModalOpen) return
+
+        if (formData.teacher_id && !suggestedTeachers.some(teacher => teacher.id === Number(formData.teacher_id))) {
+            setFormData(prev => ({ ...prev, teacher_id: '' }))
+        }
+
+        if (formData.room_id && !suggestedRooms.some(room => room.id === Number(formData.room_id))) {
+            setFormData(prev => ({ ...prev, room_id: '' }))
+        }
+    }, [entryModalOpen, formData.teacher_id, formData.room_id, suggestedTeachers, suggestedRooms])
+
+    const readinessTone = readiness.blockers.length > 0
+        ? { color: '#dc2626', bg: 'rgba(239, 68, 68, 0.08)', border: 'rgba(239, 68, 68, 0.2)', label: 'Blocked' }
+        : readiness.warnings.length > 0
+            ? { color: '#d97706', bg: 'rgba(245, 158, 11, 0.08)', border: 'rgba(245, 158, 11, 0.2)', label: 'Needs Attention' }
+            : { color: '#059669', bg: 'rgba(16, 185, 129, 0.08)', border: 'rgba(16, 185, 129, 0.2)', label: 'Ready' }
+
+    const visibleEntryCount = filteredTimetable.length
+    const conflictCount = entriesWithConflicts.size
+    const generationDisabled = !selectedDeptId || generating || readinessLoading || readiness.blockers.length > 0 || (strictMode && readiness.qualifiedTeacherCount === 0)
+    const hasQualifiedTeacherForSelectedCourse = selectedCourse
+        ? teachers.some(teacher => teacher.qualified_courses?.some(course => course.id === selectedCourse.id))
+        : false
+
     if (loading && departments.length === 0) return <PageLoader />
 
     return (
@@ -394,10 +591,10 @@ export function TimetablePage() {
                 <div>
                     <h1 className="page-title">Class Timetable</h1>
                     <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                        View and manage department schedules
+                        Generate, review, and fine-tune department schedules with fewer conflicts
                     </p>
                 </div>
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <select
                         value={selectedDeptId || ''}
                         onChange={e => { setSelectedDeptId(Number(e.target.value)); setFilterType('All'); setFilterId(null) }}
@@ -411,7 +608,13 @@ export function TimetablePage() {
                     <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '0.5rem', padding: '2px' }}>
                         <select
                             value={filterType}
-                            onChange={e => { setFilterType(e.target.value as any); setFilterId(null) }}
+                            onChange={e => {
+                                const nextFilter = e.target.value
+                                if (nextFilter === 'All' || nextFilter === 'Teacher' || nextFilter === 'Room') {
+                                    setFilterType(nextFilter)
+                                    setFilterId(null)
+                                }
+                            }}
                             className="input select"
                             style={{ width: '100px', border: 'none', background: 'transparent' }}
                         >
@@ -463,12 +666,130 @@ export function TimetablePage() {
                     <button
                         className="btn btn-primary"
                         onClick={handleGenerate}
-                        disabled={generating || !selectedDeptId}
+                        disabled={generationDisabled}
+                        title={readiness.blockers[0] || (strictMode && readiness.qualifiedTeacherCount === 0 ? 'Add qualified teachers or disable strict mode.' : undefined)}
                     >
                         {generating ? <Spinner size={16} /> : <Play size={16} />}
-                        {generating ? 'Generating...' : 'Regenerate'}
+                        {generating ? 'Generating...' : timetable.length ? 'Regenerate' : 'Generate'}
                     </button>
                 </div>
+            </div>
+
+            <div
+                className="card"
+                style={{
+                    padding: '1.25rem',
+                    display: 'grid',
+                    gap: '1rem',
+                    background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.03), rgba(59, 130, 246, 0.05))',
+                    border: `1px solid ${readinessTone.border}`,
+                }}
+            >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginBottom: '0.5rem' }}>
+                            <span
+                                style={{
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    color: readinessTone.color,
+                                    background: readinessTone.bg,
+                                    border: `1px solid ${readinessTone.border}`,
+                                    borderRadius: '999px',
+                                    padding: '0.25rem 0.625rem',
+                                }}
+                            >
+                                {readinessTone.label}
+                            </span>
+                            {readinessLoading && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Checking resources...</span>}
+                        </div>
+                        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Generation readiness</h3>
+                        <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: '0.35rem', maxWidth: '680px' }}>
+                            Before generating, make sure this department has sections, courses, rooms, and qualified teachers. This panel highlights the common setup gaps that usually cause weak or incomplete timetables.
+                        </p>
+                    </div>
+                    <label
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            fontSize: '0.8125rem',
+                            color: 'var(--text-secondary)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '0.75rem',
+                            padding: '0.625rem 0.875rem',
+                            background: 'var(--bg-card)',
+                        }}
+                        title="If enabled, the scheduler will only use explicitly qualified teachers."
+                    >
+                        <input
+                            type="checkbox"
+                            checked={strictMode}
+                            onChange={(e) => setStrictMode(e.target.checked)}
+                        />
+                        Strict qualified teachers only
+                    </label>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem' }}>
+                    {[
+                        { label: 'Sections', value: readiness.sections.length, tone: '#2563eb' },
+                        { label: 'Courses', value: readiness.courses.length, tone: '#7c3aed' },
+                        { label: 'Rooms', value: readiness.rooms.length, tone: '#059669' },
+                        { label: 'Qualified Teachers', value: readiness.qualifiedTeacherCount, tone: '#d97706' },
+                    ].map(item => (
+                        <div key={item.label} className="card" style={{ padding: '0.9rem', background: 'var(--bg-card)' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>{item.label}</div>
+                            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: item.tone }}>{item.value}</div>
+                        </div>
+                    ))}
+                </div>
+
+                {readiness.blockers.length > 0 ? (
+                    <div style={{ display: 'grid', gap: '0.5rem' }}>
+                        {readiness.blockers.map(message => (
+                            <div
+                                key={message}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '0.625rem',
+                                    padding: '0.875rem 1rem',
+                                    borderRadius: '0.75rem',
+                                    background: 'rgba(239, 68, 68, 0.08)',
+                                    color: '#b91c1c',
+                                    border: '1px solid rgba(239, 68, 68, 0.12)',
+                                }}
+                            >
+                                <AlertCircle size={16} style={{ marginTop: '0.1rem', flexShrink: 0 }} />
+                                <span style={{ fontSize: '0.8125rem', fontWeight: 500 }}>{message}</span>
+                            </div>
+                        ))}
+                    </div>
+                ) : null}
+
+                {readiness.warnings.length > 0 ? (
+                    <div style={{ display: 'grid', gap: '0.5rem' }}>
+                        {readiness.warnings.map(message => (
+                            <div
+                                key={message}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '0.625rem',
+                                    padding: '0.875rem 1rem',
+                                    borderRadius: '0.75rem',
+                                    background: 'rgba(245, 158, 11, 0.08)',
+                                    color: '#b45309',
+                                    border: '1px solid rgba(245, 158, 11, 0.12)',
+                                }}
+                            >
+                                <Info size={16} style={{ marginTop: '0.1rem', flexShrink: 0 }} />
+                                <span style={{ fontSize: '0.8125rem', fontWeight: 500 }}>{message}</span>
+                            </div>
+                        ))}
+                    </div>
+                ) : null}
             </div>
 
             {generating && (
@@ -502,6 +823,74 @@ export function TimetablePage() {
                 </div>
             )}
 
+            {generationResult && !generating && (
+                <div
+                    className="card"
+                    style={{
+                        padding: '1.25rem',
+                        display: 'grid',
+                        gap: '1rem',
+                        border: generationResult.status === 'success'
+                            ? '1px solid rgba(16, 185, 129, 0.2)'
+                            : '1px solid rgba(245, 158, 11, 0.2)',
+                        background: generationResult.status === 'success'
+                            ? 'rgba(16, 185, 129, 0.05)'
+                            : 'rgba(245, 158, 11, 0.05)',
+                    }}
+                >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                        <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                                {generationResult.status === 'success' ? (
+                                    <CheckCircle2 size={18} color="#059669" />
+                                ) : (
+                                    <AlertCircle size={18} color="#d97706" />
+                                )}
+                                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    {generationResult.status === 'success' ? 'Generation completed' : 'Generation completed with warnings'}
+                                </h3>
+                            </div>
+                            <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>{generationResult.message}</p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            <div className="card" style={{ padding: '0.75rem 1rem', background: 'var(--bg-card)' }}>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Entries created</div>
+                                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>{generationResult.entries_created}</div>
+                            </div>
+                            <div className="card" style={{ padding: '0.75rem 1rem', background: 'var(--bg-card)' }}>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Incomplete workloads</div>
+                                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#d97706' }}>{generationResult.incomplete_workloads.length}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {generationResult.incomplete_workloads.length > 0 && (
+                        <div style={{ display: 'grid', gap: '0.5rem' }}>
+                            {generationResult.incomplete_workloads.slice(0, 4).map(item => (
+                                <div key={`${item.course}-${item.section}-${item.teacher}`} style={{ padding: '0.75rem 0.9rem', borderRadius: '0.75rem', background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                                    <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                        {item.course} • {item.section}
+                                    </div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                                        {item.reason} {item.required ? `(${item.allocated}/${item.required} hours allocated)` : ''}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {generationResult.errors.length > 0 && (
+                        <div style={{ display: 'grid', gap: '0.5rem' }}>
+                            {generationResult.errors.slice(0, 3).map(error => (
+                                <div key={error} style={{ fontSize: '0.8125rem', color: '#b91c1c' }}>
+                                    {error}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
             {loading ? (
                 <div style={{ height: '400px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Spinner size={32} />
@@ -511,9 +900,13 @@ export function TimetablePage() {
                     <EmptyState
                         icon={<Calendar size={48} />}
                         title="No timetable found"
-                        description="Run the AI generator to create a conflict-free schedule for this department."
+                        description={
+                            readiness.blockers.length > 0
+                                ? 'Finish the blocked setup items above, then generate the timetable.'
+                                : 'Run the AI generator to create a workable first draft for this department.'
+                        }
                         action={
-                            <button className="btn btn-primary" onClick={handleGenerate} disabled={generating} style={{ marginTop: '1.5rem' }}>
+                            <button className="btn btn-primary" onClick={handleGenerate} disabled={generationDisabled} style={{ marginTop: '1.5rem' }}>
                                 {generating ? <Spinner size={16} /> : <Play size={16} />}
                                 Generate Timetable Now
                             </button>
@@ -524,12 +917,13 @@ export function TimetablePage() {
                 <div className="card" style={{ overflow: 'hidden' }}>
                     <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#10b981', fontSize: '0.8125rem', fontWeight: 600 }}>
-                                <CheckCircle2 size={16} /> Conflict-Free Schedule
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: conflictCount > 0 ? '#d97706' : '#10b981', fontSize: '0.8125rem', fontWeight: 600 }}>
+                                {conflictCount > 0 ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+                                {conflictCount > 0 ? `${conflictCount} conflict${conflictCount > 1 ? 's' : ''} need attention` : 'Conflict-free schedule'}
                             </div>
                             <span style={{ height: '1rem', width: '1px', background: 'var(--border)' }} />
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
-                                <BookOpen size={16} /> {timetable.length} Lectures Assigned
+                                <BookOpen size={16} /> {visibleEntryCount} shown of {timetable.length} total entries
                             </div>
                         </div>
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -599,21 +993,21 @@ export function TimetablePage() {
         </tr>
     </thead>
     <tbody>
-        {DAYS.map(day => (
-            <tr key={day}>
-                <td style={{ 
-                    padding: '1rem',
-                    verticalAlign: 'middle',
-                    fontWeight: 700,
-                    color: 'var(--text-primary)',
-                    backgroundColor: 'var(--bg-card)',
-                    borderRight: '1px solid var(--border)',
-                    fontSize: '0.875rem',
-                    textAlign: 'center'
-                }}>
-                    {day}
-                </td>
-                {SLOTS.map((slot: string, slotIndex) => {
+                {DAYS.map((day: string) => (
+                    <tr key={day}>
+                        <td style={{ 
+                            padding: '1rem',
+                            verticalAlign: 'middle',
+                            fontWeight: 700,
+                            color: 'var(--text-primary)',
+                            backgroundColor: 'var(--bg-card)',
+                            borderRight: '1px solid var(--border)',
+                            fontSize: '0.875rem',
+                            textAlign: 'center'
+                        }}>
+                            {day}
+                        </td>
+                        {SLOTS.map((slot: string) => {
                     // Check if this slot should be skipped due to multi-hour session
                                                     const multiHourSession = multiHourSessions.find(session => 
                                                         session.entry.day === day && 
@@ -795,6 +1189,18 @@ export function TimetablePage() {
                 }
             >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                    <div
+                        style={{
+                            padding: '0.875rem 1rem',
+                            borderRadius: '0.75rem',
+                            background: 'rgba(59, 130, 246, 0.06)',
+                            border: '1px solid rgba(59, 130, 246, 0.12)',
+                            fontSize: '0.8125rem',
+                            color: 'var(--text-secondary)',
+                        }}
+                    >
+                        Pick a course first. Teacher options will prefer qualified faculty, and room options will prefer a matching capacity and room type.
+                    </div>
                     <div className="form-group">
                         <label className="label">Course</label>
                         <select
@@ -814,7 +1220,7 @@ export function TimetablePage() {
                             onChange={e => setFormData({ ...formData, section_id: e.target.value })}
                         >
                             <option value="">Select Section...</option>
-                            {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            {sections.map((s: Section) => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
                     </div>
                     <div className="form-group">
@@ -825,8 +1231,16 @@ export function TimetablePage() {
                             onChange={e => setFormData({ ...formData, teacher_id: e.target.value })}
                         >
                             <option value="">Select Teacher...</option>
-                            {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                            {suggestedTeachers.map((t: Teacher) => (
+                                <option key={t.id} value={t.id}>
+                                    {t.name}
+                                    {selectedCourse && t.qualified_courses?.some(course => course.id === selectedCourse.id) ? ' - Qualified' : ''}
+                                </option>
+                            ))}
                         </select>
+                        {selectedCourse && suggestedTeachers.length === teachers.length && !hasQualifiedTeacherForSelectedCourse && (
+                            <p className="error-msg">No teacher is explicitly qualified for this course yet. The list is showing all teachers as a fallback.</p>
+                        )}
                     </div>
                     <div className="form-group">
                         <label className="label">Room</label>
@@ -836,8 +1250,15 @@ export function TimetablePage() {
                             onChange={e => setFormData({ ...formData, room_id: e.target.value })}
                         >
                             <option value="">Select Room...</option>
-                            {rooms.map(r => <option key={r.id} value={r.id}>{r.name} (Cap: {r.capacity})</option>)}
+                            {suggestedRooms.map((r: Room) => (
+                                <option key={r.id} value={r.id}>
+                                    {r.name} (Cap: {r.capacity}, {r.room_type})
+                                </option>
+                            ))}
                         </select>
+                        {selectedSection && suggestedRooms.length === 0 && (
+                            <p className="error-msg">No room fits this section size and course type. Add a larger or matching room first.</p>
+                        )}
                     </div>
                 </div>
             </Modal>
@@ -868,18 +1289,21 @@ export function TimetablePage() {
                             </h4>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.75rem', maxHeight: '200px', overflowY: 'auto' }}>
                                 {(() => {
-                                    const suggestions: { day: string, slot: string }[] = [];
-                                    DAYS.forEach(d => {
-                                        SLOTS.forEach(s => {
-                                            const hasConf = timetable.some(e =>
+                                    const suggestions: Array<{ day: TimetableEntry['day'], slot: TimetableEntry['timeslot'] }> = [];
+                                    DAYS.forEach((d: string) => {
+                                        SLOTS.forEach((s: string) => {
+                                            const hasConf = timetable.some((e: TimetableEntry) =>
                                                 e.id !== suggestingEntry.id &&
                                                 e.day === d &&
                                                 e.timeslot === s &&
                                                 (e.teacher?.id === suggestingEntry.teacher?.id ||
                                                     e.room?.id === suggestingEntry.room?.id ||
-                                                    e.sections?.some(as => suggestingEntry.sections?.some(es => es.id === as.id)))
+                                                    e.sections?.some((as: { id: number; name: string }) => suggestingEntry.sections?.some((es: { id: number; name: string }) => es.id === as.id)))
                                             );
-                                            if (!hasConf) suggestions.push({ day: d, slot: s });
+                                            if (!hasConf) suggestions.push({
+                                                day: d as TimetableEntry['day'],
+                                                slot: s as TimetableEntry['timeslot'],
+                                            });
                                         });
                                     });
 
@@ -894,7 +1318,7 @@ export function TimetablePage() {
                                             onClick={async () => {
                                                 try {
                                                     await schedulingService.updateEntry(suggestingEntry.id, { day: s.day, timeslot: s.slot });
-                                                    setTimetable(prev => prev.map(e => e.id === suggestingEntry.id ? { ...e, day: s.day, timeslot: s.slot } as any : e));
+                                                    setTimetable((prev: TimetableEntry[]) => prev.map((e: TimetableEntry) => e.id === suggestingEntry.id ? { ...e, day: s.day, timeslot: s.slot } : e));
                                                     toast('success', 'Resolved', `Moved to ${s.day} ${s.slot}`);
                                                     setResolutionModalOpen(false);
                                                 } catch (err) {
@@ -1239,16 +1663,17 @@ function DroppableCell({ id, children, onAdd, isConflict, multiHourSession }: {
         padding: '0.5rem'
     }
 
-    const hasEntries = React.Children.count((children as any).props.children) > 0
+    const childElement = React.isValidElement<{ children?: React.ReactNode }>(children) ? children : null
+    const hasEntries = React.Children.count(childElement?.props.children) > 0
 
     return (
         <td 
             ref={setNodeRef} 
+            colSpan={multiHourSession?.duration}
             style={{ 
                 padding: '0.25rem',
                 backgroundColor: 'var(--bg-main)',
                 verticalAlign: 'top',
-                ...(multiHourSession && { colSpan: multiHourSession.duration })
             }}
         >
             <div style={style}>

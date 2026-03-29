@@ -60,3 +60,14 @@ _agents/
 _agent/
 *.log
 tmp/
+
+# Datasets for timetable
+courses.xlsx
+departments.xlsx
+teachers.xlsx
+faculty.xlsx
+programs.xlsx
+sections.xlsx
+timetable.xlsx
+room.xlsx
+batches.xlsx

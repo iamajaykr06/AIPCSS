@@ -2,9 +2,10 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 from datetime import datetime
 
-from ..models import Teacher, Course, Section, Room, TimetableEntry, Department, ProgramCourse
+from ..models import Teacher, Course, Section, Room, TimetableEntry, Department
 from .. import db, socketio
 from .auth import roles_required
+from ..scheduler_ortools import schedule_timetable_ortools
 
 scheduling_bp = Blueprint('scheduling', __name__)
 
@@ -172,6 +173,7 @@ def generate_timetable():
         return jsonify({'error': 'Request body must be JSON'}), 400
 
     strict_mode = bool(data.get('strict_mode', False))
+    use_ortools = bool(data.get('use_ortools', True))  # Default to OR-Tools
 
     dept_id = data.get('department_id')
     if not dept_id:
@@ -183,9 +185,130 @@ def generate_timetable():
 
     # Clear existing schedule for this department
     TimetableEntry.query.filter_by(department_id=dept_id).delete()
+    db.session.commit()
 
+    if use_ortools:
+        return generate_with_ortools(dept, dept_id, strict_mode)
+    else:
+        return generate_with_greedy(dept, dept_id, strict_mode)
+
+
+def generate_with_ortools(dept, dept_id, strict_mode):
+    """Generate timetable using OR-Tools CP-SAT solver - BATCH WISE."""
+    all_teachers = Teacher.query.all()
+    all_rooms = Room.query.filter(
+        (Room.department_id == dept_id) | (Room.department_id.is_(None))
+    ).all()
+    
+    if not all_teachers:
+        return jsonify({'error': 'No teachers found'}), 404
+    
+    # Collect all batches to process
+    batches_to_process = []
+    for program in dept.programs:
+        for batch in program.batches:
+            current_sem = _current_semester_from_batch(batch)
+            batch.current_semester = current_sem
+            
+            # Get courses for this batch
+            program_courses = Course.query.filter_by(
+                program_code=program.code,
+                semester=current_sem
+            ).all()
+            
+            if not program_courses:
+                program_courses = Course.query.filter_by(
+                    department_id=dept_id,
+                    semester=current_sem
+                ).all()
+            
+            if program_courses:  # Only add if there are courses
+                batches_to_process.append({
+                    'batch': batch,
+                    'program': program,
+                    'courses': program_courses,
+                    'sections': batch.sections
+                })
+    
+    if not batches_to_process:
+        return jsonify({'error': 'No batches with courses found'}), 404
+    
+    total_batches = len(batches_to_process)
+    successful_entries = 0
+    all_skipped = []
+    all_errors = []
+    
+    # Process each batch separately
+    for batch_idx, batch_info in enumerate(batches_to_process):
+        batch = batch_info['batch']
+        program = batch_info['program']
+        courses = batch_info['courses']
+        sections = list(batch_info['sections'])
+        
+        if not sections:
+            continue
+        
+        progress_pct = int((batch_idx / total_batches) * 100)
+        socketio.emit('generation_progress', {
+            'percentage': progress_pct,
+            'current_section': f"Batch {batch.name} ({program.code}) - {len(courses)} courses, {len(sections)} sections",
+            'status': 'Generating...'
+        })
+        
+        try:
+            # Solve for this batch only
+            entries_data, skipped, errors = schedule_timetable_ortools(
+                sections=sections,
+                courses=courses,
+                teachers=all_teachers,
+                rooms=all_rooms,
+                days=DAYS,
+                timeslots=TIMESLOTS,
+                strict_mode=strict_mode,
+                progress_callback=None  # No need, batches are small
+            )
+            
+            # Create entries for this batch
+            for entry_data in entries_data:
+                entry = TimetableEntry(
+                    day=entry_data['day'],
+                    timeslot=entry_data['timeslot'],
+                    course_id=entry_data['course_id'],
+                    teacher_id=entry_data['teacher_id'],
+                    room_id=entry_data['room_id'],
+                    department_id=dept_id
+                )
+                # Find and add section
+                for section in sections:
+                    if section.id == entry_data['section_id']:
+                        entry.sections.append(section)
+                        break
+                db.session.add(entry)
+                successful_entries += 1
+            
+            # Commit after each batch
+            db.session.commit()
+            
+            all_skipped.extend(skipped)
+            all_errors.extend(errors)
+            
+        except Exception as e:
+            db.session.rollback()
+            all_errors.append(f"Batch {batch.name}: {str(e)}")
+    
+    status = 'success' if not all_skipped and not all_errors else 'partial_success'
+    return jsonify({
+        'status': status,
+        'entries_created': successful_entries,
+        'incomplete_workloads': all_skipped,
+        'errors': all_errors,
+        'message': f'Generated {successful_entries} timetable entries for {total_batches} batches in {dept.name}'
+    }), 200
+
+
+def generate_with_greedy(dept, dept_id, strict_mode):
+    """Original greedy algorithm (fallback)."""
     # Pre-load all rooms once (avoid repeated queries per slot)
-    # Filter rooms by department: department-specific rooms + general rooms (department_id is None)
     all_rooms = Room.query.filter(
         (Room.department_id == dept_id) | (Room.department_id.is_(None))
     ).all()
@@ -279,17 +402,18 @@ def generate_timetable():
                 # Determine current semester from academic year and fetch curriculum
                 current_sem = _current_semester_from_batch(batch)
                 batch.current_semester = current_sem
-                curriculum_links = ProgramCourse.query.filter_by(
-                    program_id=program.id,
-                    semester_number=current_sem
-                ).all()
-                program_sem_courses = [pc.course for pc in curriculum_links]
+                
+                # Get courses for this program using course.program_code and semester
+                program_sem_courses = [
+                    c for c in dept_courses
+                    if c.program_code == program.code and c.semester == current_sem
+                ]
+                
                 if not program_sem_courses:
-                    # Fallback for missing curriculum mapping
+                    # Fallback: all department courses with matching semester
                     program_sem_courses = [
                         c for c in dept_courses
-                        if (c.program_code and c.program_code == program.code)
-                        or (c.semester and c.semester == current_sem)
+                        if c.semester == current_sem
                     ] or dept_courses
 
                 # Assign ALL semester courses for predictable, complete timetables.
@@ -367,6 +491,7 @@ def generate_timetable():
                                     ):
                                         continue
                                     
+                                with db.session.no_autoflush:
                                     if all(not check_conflicts(day, s, room_id=room.id) for s in block_slots):
                                         if rscore > max_room_score:
                                             max_room_score = rscore
@@ -375,7 +500,9 @@ def generate_timetable():
                                 if not best_room: continue
 
                                 # Check for teacher and section conflicts
-                                if any(check_conflicts(day, s, teacher_id=teacher.id, section_id=section.id) for s in block_slots):
+                                with db.session.no_autoflush:
+                                    has_conflict = any(check_conflicts(day, s, teacher_id=teacher.id, section_id=section.id) for s in block_slots)
+                                if has_conflict:
                                     continue
 
                                 # Score the block: prefer compact schedule and balanced day load.

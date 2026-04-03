@@ -6,7 +6,6 @@ from .. import db
 from ..models.user import User
 from ..models.program import Program
 from ..models.course import Course
-from ..models.program_course import ProgramCourse
 from ..models.batch import Batch
 
 curriculum_bp = Blueprint('curriculum', __name__)
@@ -126,10 +125,6 @@ def delete_program(program_id):
     if not program:
         return jsonify({"error": "Program not found"}), 404
 
-    # Check if program has courses
-    if program.program_courses.count() > 0:
-        return jsonify({"error": "Cannot delete program with associated courses"}), 400
-
     # Check if program has batches
     if program.batches.count() > 0:
         return jsonify({"error": "Cannot delete program with associated batches"}), 400
@@ -243,46 +238,46 @@ def delete_course(course_id):
     if not course:
         return jsonify({"error": "Course not found"}), 404
 
-    # Check if course is in curriculum
-    if course.program_courses.count() > 0:
-        return jsonify({"error": "Cannot delete course that is in program curriculum"}), 400
-
     db.session.delete(course)
     db.session.commit()
 
     return jsonify({"message": "Course deleted successfully"}), 200
 
-# ── Curriculum Management (Program-Course Mapping) ─────────────────────────────
+# ── Curriculum Management (uses course.program_code and course.semester) ─────────────────────────────
 
 @curriculum_bp.route('/curriculum', methods=['GET'])
 @jwt_required()
 def get_curriculum():
-    """Get full curriculum for all programs"""
+    """Get curriculum based on course.program_code and course.semester"""
     program_id = request.args.get('program_id', type=int)
     
-    query = ProgramCourse.query
     if program_id:
-        query = query.filter_by(program_id=program_id)
-    
-    program_courses = query.order_by(ProgramCourse.program_id, ProgramCourse.semester_number).all()
+        program = Program.query.get(program_id)
+        if not program:
+            return jsonify({"error": "Program not found"}), 404
+        # Get courses for this program code
+        courses = Course.query.filter_by(program_code=program.code).order_by(Course.semester).all()
+    else:
+        # Get all courses with program codes
+        courses = Course.query.filter(Course.program_code.isnot(None)).order_by(Course.program_code, Course.semester).all()
     
     # Organize by program and semester
     curriculum = {}
-    for pc in program_courses:
-        program_key = f"{pc.program.code} - {pc.program.name}"
+    for c in courses:
+        program_key = c.program_code or "Unknown Program"
         if program_key not in curriculum:
             curriculum[program_key] = {}
         
-        semester_key = f"Semester {pc.semester_number}"
+        semester_key = f"Semester {c.semester}" if c.semester else "Unspecified"
         if semester_key not in curriculum[program_key]:
             curriculum[program_key][semester_key] = []
         
         curriculum[program_key][semester_key].append({
-            'id': pc.id,
-            'course_id': pc.course.id,
-            'course_code': pc.course.code,
-            'course_name': pc.course.name,
-            'course_type': pc.course.course_type
+            'id': c.id,
+            'course_id': c.id,
+            'course_code': c.code,
+            'course_name': c.name,
+            'course_type': c.course_type
         })
     
     return jsonify({"curriculum": curriculum}), 200
@@ -290,81 +285,74 @@ def get_curriculum():
 @curriculum_bp.route('/curriculum', methods=['POST'])
 @roles_required('admin')
 def add_curriculum_item():
-    """Add a course to program curriculum"""
+    """Update course program_code and semester"""
     data = request.get_json()
     if not data:
         return jsonify({"error": "Request body must be JSON"}), 400
 
-    required_fields = ['program_id', 'course_id', 'semester_number']
+    required_fields = ['program_code', 'course_id', 'semester_number']
     for field in required_fields:
         if not data.get(field):
             return jsonify({"error": f"Missing required field: {field}"}), 422
 
-    # Check for duplicate
-    existing = ProgramCourse.query.filter_by(
-        program_id=data['program_id'],
-        course_id=data['course_id'],
-        semester_number=data['semester_number']
-    ).first()
-    
-    if existing:
-        return jsonify({"error": "Course already exists in this program semester"}), 409
+    course = Course.query.get(data['course_id'])
+    if not course:
+        return jsonify({"error": "Course not found"}), 404
 
-    program_course = ProgramCourse(
-        program_id=data['program_id'],
-        course_id=data['course_id'],
-        semester_number=data['semester_number']
-    )
-    db.session.add(program_course)
+    course.program_code = data['program_code']
+    course.semester = data['semester_number']
     db.session.commit()
 
     return jsonify({
-        "message": "Course added to curriculum successfully",
-        "curriculum_item": program_course.to_dict()
+        "message": "Course curriculum updated successfully",
+        "course": {
+            'id': course.id,
+            'code': course.code,
+            'name': course.name,
+            'program_code': course.program_code,
+            'semester': course.semester
+        }
     }), 201
 
-@curriculum_bp.route('/curriculum/<int:curriculum_id>', methods=['PUT'])
+@curriculum_bp.route('/curriculum/<int:course_id>', methods=['PUT'])
 @roles_required('admin')
-def update_curriculum_item(curriculum_id):
-    """Update curriculum item (change semester)"""
-    program_course = db.session.get(ProgramCourse, curriculum_id)
-    if not program_course:
-        return jsonify({"error": "Curriculum item not found"}), 404
+def update_curriculum_item(course_id):
+    """Update course program_code or semester"""
+    course = db.session.get(Course, course_id)
+    if not course:
+        return jsonify({"error": "Course not found"}), 404
 
     data = request.get_json()
     if not data:
         return jsonify({"error": "Request body must be JSON"}), 400
 
-    # Update semester
+    if 'program_code' in data:
+        course.program_code = data['program_code']
     if 'semester_number' in data:
-        # Check for duplicate in new semester
-        existing = ProgramCourse.query.filter_by(
-            program_id=program_course.program_id,
-            course_id=program_course.course_id,
-            semester_number=data['semester_number']
-        ).filter(ProgramCourse.id != curriculum_id).first()
-        
-        if existing:
-            return jsonify({"error": "Course already exists in target semester"}), 409
-        
-        program_course.semester_number = data['semester_number']
+        course.semester = data['semester_number']
 
     db.session.commit()
 
     return jsonify({
-        "message": "Curriculum item updated successfully",
-        "curriculum_item": program_course.to_dict()
+        "message": "Course curriculum updated successfully",
+        "course": {
+            'id': course.id,
+            'code': course.code,
+            'name': course.name,
+            'program_code': course.program_code,
+            'semester': course.semester
+        }
     }), 200
 
-@curriculum_bp.route('/curriculum/<int:curriculum_id>', methods=['DELETE'])
+@curriculum_bp.route('/curriculum/<int:course_id>', methods=['DELETE'])
 @roles_required('admin')
-def delete_curriculum_item(curriculum_id):
-    """Remove a course from program curriculum"""
-    program_course = db.session.get(ProgramCourse, curriculum_id)
-    if not program_course:
-        return jsonify({"error": "Curriculum item not found"}), 404
+def delete_curriculum_item(course_id):
+    """Remove course from curriculum by clearing program_code"""
+    course = db.session.get(Course, course_id)
+    if not course:
+        return jsonify({"error": "Course not found"}), 404
 
-    db.session.delete(program_course)
+    course.program_code = None
     db.session.commit()
 
     return jsonify({"message": "Course removed from curriculum successfully"}), 200
@@ -422,18 +410,18 @@ def get_batch_current_courses(batch_id):
     if not batch:
         return jsonify({"error": "Batch not found"}), 404
 
-    # Get courses for current semester
-    program_courses = ProgramCourse.query.filter_by(
-        program_id=batch.program_id,
-        semester_number=batch.current_semester
+    # Get courses matching batch's program code and current semester
+    courses = Course.query.filter_by(
+        program_code=batch.program.code,
+        semester=batch.current_semester
     ).all()
 
-    courses = [{
-        'id': pc.course.id,
-        'code': pc.course.code,
-        'name': pc.course.name,
-        'type': pc.course.course_type
-    } for pc in program_courses]
+    courses_data = [{
+        'id': c.id,
+        'code': c.code,
+        'name': c.name,
+        'type': c.course_type
+    } for c in courses]
 
     return jsonify({
         "batch": {
@@ -442,5 +430,5 @@ def get_batch_current_courses(batch_id):
             'current_semester': batch.current_semester,
             'program': batch.program.code
         },
-        "courses": courses
+        "courses": courses_data
     }), 200

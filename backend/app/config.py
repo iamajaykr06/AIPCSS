@@ -1,6 +1,8 @@
 import os
 from datetime import timedelta
 
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
 class Config:
     """Base Configuration."""
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'change-this-in-production-please'
@@ -13,7 +15,14 @@ class Config:
 class DevelopmentConfig(Config):
     """Development Configuration."""
     DEBUG = True
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DEV_DATABASE_URL') or 'sqlite:///development.db'
+    
+    # Path logic: solve "unable to open database file" by using absolute paths
+    raw_url = os.environ.get('DEV_DATABASE_URL')
+    if raw_url and raw_url.startswith('sqlite:///instance/'):
+        db_path = os.path.join(BASE_DIR, 'instance', raw_url.split('/')[-1])
+        SQLALCHEMY_DATABASE_URI = f'sqlite:///{db_path}'
+    else:
+        SQLALCHEMY_DATABASE_URI = raw_url or f"sqlite:///{os.path.join(BASE_DIR, 'instance', 'development.db')}"
 
 class TestingConfig(Config):
     """Testing Configuration."""

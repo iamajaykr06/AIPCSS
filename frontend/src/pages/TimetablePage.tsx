@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { Calendar, Play, Download, Search, Info, CheckCircle2, AlertCircle, MapPin, User, BookOpen, Trash2, Plus, GripVertical, Zap } from 'lucide-react'
-import { DndContext, DragOverlay, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
+import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { restrictToFirstScrollableAncestor } from '@dnd-kit/modifiers'
@@ -37,6 +37,455 @@ const emptyReadiness: TimetableReadiness = {
     warnings: [],
 }
 
+// Color palette matching the manual timetable
+const BATCH_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+    'BCA I': { bg: '#90EE90', text: '#000', border: '#228B22' },
+    'BCA III': { bg: '#87CEEB', text: '#000', border: '#4169E1' },
+    'BCA V': { bg: '#DDA0DD', text: '#000', border: '#8B008B' },
+    'MCA I': { bg: '#F4A460', text: '#000', border: '#D2691E' },
+    'MCA III': { bg: '#FFB6C1', text: '#000', border: '#C71585' },
+    'B.TECH CSE I': { bg: '#20B2AA', text: '#fff', border: '#008B8B' },
+    'B.TECH CSE III': { bg: '#98FB98', text: '#000', border: '#32CD32' },
+    'B.TECH CSE V': { bg: '#87CEFA', text: '#000', border: '#1E90FF' },
+    'B.TECH CSE VII': { bg: '#D8BFD8', text: '#000', border: '#9932CC' },
+}
+
+const COURSE_COLORS: Record<string, string> = {
+    'Break': '#FFFF00',
+    'Mathematics': '#FFB6C1',
+    'Programming': '#87CEEB',
+    'Lab': '#90EE90',
+    'Theory': '#F4A460',
+    'Computer': '#DDA0DD',
+    'Database': '#98FB98',
+    'Network': '#FFE4B5',
+    'Project': '#D8BFD8',
+    'Soft Skill': '#FFDAB9',
+    'Language': '#E6E6FA',
+    'English': '#FFA07A',
+    'Environment': '#98FB98',
+    'Default': '#F0F0F0',
+}
+
+// Generate a unique color for a teacher based on their name hash
+function getTeacherColor(name: string): string {
+    // Generate hash from teacher name
+    let hash = 0
+    for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash)
+    }
+    const hue = Math.abs(hash) % 360
+    // Use 70% saturation and 80% lightness for vibrant but readable colors
+    return `hsl(${hue}, 70%, 80%)`
+}
+
+// Get color for a course based on its name
+function getCourseColor(courseName: string, isLab: boolean): string {
+    if (!courseName) return COURSE_COLORS.Default
+    const lower = courseName.toLowerCase()
+
+    if (lower.includes('break')) return COURSE_COLORS.Break
+    if (isLab || lower.includes('lab')) return COURSE_COLORS.Lab
+    if (lower.includes('mathematics') || lower.includes('math')) return COURSE_COLORS.Mathematics
+    if (lower.includes('programming') || lower.includes('coding')) return COURSE_COLORS.Programming
+    if (lower.includes('computer') || lower.includes('fundamental')) return COURSE_COLORS.Computer
+    if (lower.includes('database')) return COURSE_COLORS.Database
+    if (lower.includes('network')) return COURSE_COLORS.Network
+    if (lower.includes('project')) return COURSE_COLORS.Project
+    if (lower.includes('soft') || lower.includes('skill')) return COURSE_COLORS['Soft Skill']
+    if (lower.includes('language')) return COURSE_COLORS.Language
+    if (lower.includes('english')) return COURSE_COLORS.English
+    if (lower.includes('environment')) return COURSE_COLORS.Environment
+
+    // Assign colors based on first character of course name for variety
+    const colors = Object.values(COURSE_COLORS).filter(c => c !== COURSE_COLORS.Break)
+    let hash = 0
+    for (let i = 0; i < courseName.length; i++) {
+        hash = courseName.charCodeAt(i) + ((hash << 5) - hash)
+    }
+    return colors[Math.abs(hash) % colors.length] || COURSE_COLORS.Default
+}
+
+// Get batch display info
+function getBatchColor(batchName: string): { bg: string; text: string; border: string } {
+    // Match batch name patterns
+    for (const [key, value] of Object.entries(BATCH_COLORS)) {
+        if (batchName.toUpperCase().includes(key.toUpperCase())) {
+            return value
+        }
+    }
+    // Default color for unknown batches
+    return { bg: '#E0E0E0', text: '#000', border: '#999' }
+}
+ 
+interface BatchTimetableViewProps {
+    timetable: TimetableEntry[]
+    batches: Batch[]
+    sections: Section[]
+    teachers: Teacher[]
+    onDelete: (id: number) => void
+}
+
+function BatchTimetableView({ timetable, batches, sections, teachers, onDelete }: BatchTimetableViewProps) {
+
+    // Build teacher color mapping using teacher name hash (consistent with legend)
+    const teacherColors = useMemo(() => {
+        const colors = new Map<number, string>()
+        teachers.forEach(teacher => {
+            if (teacher.id && teacher.name) {
+                colors.set(teacher.id, getTeacherColor(teacher.name))
+            }
+        })
+        return colors
+    }, [teachers])
+
+    // ── Build a 3-level grid: day → batchId → slot → entries ──────────────
+    const grid = useMemo(() => {
+        const g: Record<string, Record<string, Record<string, TimetableEntry[]>>> = {}
+
+        DAYS.forEach(day => {
+            g[day] = {}
+            batches.forEach(batch => {
+                g[day][String(batch.id)] = {}
+                SLOTS.forEach(slot => { g[day][String(batch.id)][slot] = [] })
+            })
+        })
+
+        timetable.forEach(entry => {
+            entry.sections?.forEach(section => {
+                const fullSection = sections.find(s => s.id === section.id)
+                if (!fullSection) return
+                const batchKey = String(fullSection.batch_id)
+                const dayGrid = g[entry.day]?.[batchKey]
+                if (!dayGrid) return
+                const slot = entry.timeslot
+                if (dayGrid[slot] && !dayGrid[slot].find(e => e.id === entry.id)) {
+                    dayGrid[slot].push(entry)
+                }
+            })
+        })
+
+        return g
+    }, [timetable, batches, sections])
+
+    // ── Infer the "home room" for each batch (most-used room) ──────────────
+    const batchRooms = useMemo(() => {
+        const counts: Record<string, Record<string, number>> = {}
+
+        timetable.forEach(entry => {
+            if (!entry.room) return
+            entry.sections?.forEach(section => {
+                const full = sections.find(s => s.id === section.id)
+                if (!full) return
+                const key = String(full.batch_id)
+                counts[key] = counts[key] || {}
+                counts[key][entry.room!.name] = (counts[key][entry.room!.name] || 0) + 1
+            })
+        })
+
+        const result: Record<string, string> = {}
+        Object.entries(counts).forEach(([batchId, rooms]) => {
+            const top = Object.entries(rooms).sort((a, b) => b[1] - a[1])[0]
+            if (top) result[batchId] = top[0]
+        })
+        return result
+    }, [timetable, sections])
+
+    const sortedBatches = useMemo(() =>
+        [...batches].sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name))
+    , [batches])
+
+    // ── For each (day, batchId) compute per-slot rendering metadata ────────
+    // Returns: Map<slot, { entry | null, colSpan: number, skip: boolean }>
+    const getSlotMeta = (day: string, batchId: string) => {
+        const meta: Record<string, { entry: TimetableEntry | null; colSpan: number; skip: boolean }> = {}
+        const skipSet = new Set<string>()
+
+        SLOTS.forEach((slot, i) => {
+            if (skipSet.has(slot)) {
+                meta[slot] = { entry: null, colSpan: 1, skip: true }
+                return
+            }
+
+            const entries = grid[day]?.[batchId]?.[slot] || []
+            const entry = entries[0] || null
+
+            let colSpan = 1
+
+            if (entry) {
+                // Look ahead for consecutive identical course+teacher+room
+                for (let j = i + 1; j < SLOTS.length; j++) {
+                    const nextSlot = SLOTS[j]
+                    const nextEntries = grid[day]?.[batchId]?.[nextSlot] || []
+                    const nextEntry = nextEntries[0]
+                    if (
+                        nextEntry &&
+                        nextEntry.course?.id === entry.course?.id &&
+                        nextEntry.teacher?.id === entry.teacher?.id &&
+                        nextEntry.room?.id === entry.room?.id
+                    ) {
+                        colSpan++
+                        skipSet.add(nextSlot)
+                    } else {
+                        break
+                    }
+                }
+            }
+
+            meta[slot] = { entry, colSpan, skip: false }
+        })
+
+        return meta
+    }
+
+    // ── Shared style helpers ───────────────────────────────────────────────
+    const th = (bg: string, color: string, width?: string): React.CSSProperties => ({
+        padding: '0.45rem 0.3rem',
+        background: bg,
+        color,
+        border: '1px solid #555',
+        textAlign: 'center',
+        fontWeight: 700,
+        fontSize: '0.625rem',
+        whiteSpace: 'nowrap',
+        ...(width ? { width } : { minWidth: '80px' }),
+    })
+
+    const totalCols = SLOTS.length + 1   // +1 for the Program column
+
+    return (
+        <div style={{ overflowX: 'auto', padding: '0.75rem' }}>
+            <table style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                fontSize: '0.625rem',
+                border: '2px solid #444',
+                minWidth: '860px',
+                tableLayout: 'fixed',
+            }}>
+
+                {/* ── Column widths ─────────────────────────────────── */}
+                <colgroup>
+                    <col style={{ width: '88px' }} />
+                    {SLOTS.map(slot => <col key={slot} />)}
+                </colgroup>
+
+                {/* ── Header row ──────────────────────────────────────── */}
+                <thead>
+                    <tr>
+                        <th style={th('#388E3C', '#fff', '88px')}>Program</th>
+                        {SLOTS.map(slot => {
+                            const s = String(slot)
+                            const isBreak = s.toLowerCase().includes('break')
+                            return (
+                                <th key={slot} style={th(isBreak ? '#E53935' : '#FDD835', isBreak ? '#fff' : '#000')}>
+                                    {slot}
+                                </th>
+                            )
+                        })}
+                    </tr>
+                </thead>
+
+                {/* ── Body: day sections → batch rows ─────────────────── */}
+                <tbody>
+                    {DAYS.map(day => (
+                        <React.Fragment key={day}>
+
+                            {/* Day separator */}
+                            <tr>
+                                <td
+                                    colSpan={totalCols}
+                                    style={{
+                                        padding: '0.35rem 0.5rem',
+                                        background: '#FDD835',
+                                        border: '1px solid #555',
+                                        textAlign: 'center',
+                                        fontWeight: 800,
+                                        fontSize: '0.75rem',
+                                        color: '#000',
+                                        letterSpacing: '0.05em',
+                                    }}
+                                >
+                                    {day}
+                                </td>
+                            </tr>
+
+                            {/* One row per batch */}
+                            {sortedBatches.map((batch, bi) => {
+                                const batchKey = String(batch.id)
+                                const slotMeta = getSlotMeta(day, batchKey)
+                                // Alternate very subtle zebra stripe on batch rows
+                                const rowBg = bi % 2 === 0 ? '#FAFAFA' : '#F3F3F3'
+
+                                return (
+                                    <tr key={batch.id} style={{ height: '56px' }}>
+
+                                        {/* Program / batch label */}
+                                        <td style={{
+                                            padding: '0.35rem 0.3rem',
+                                            background: '#E8F5E9',
+                                            border: '1px solid #555',
+                                            textAlign: 'center',
+                                            verticalAlign: 'middle',
+                                            fontWeight: 700,
+                                            fontSize: '0.5625rem',
+                                            color: '#1B5E20',
+                                            lineHeight: 1.3,
+                                        }}>
+                                            <div style={{ fontWeight: 800 }}>{batch.name}</div>
+                                            {batch.academic_year && (
+                                                <div style={{ fontWeight: 400, color: '#555', fontSize: '0.5rem' }}>
+                                                    {batch.academic_year}
+                                                </div>
+                                            )}
+                                            {batchRooms[batchKey] && (
+                                                <div style={{
+                                                    marginTop: '2px',
+                                                    fontWeight: 600,
+                                                    color: '#2E7D32',
+                                                    fontSize: '0.5625rem',
+                                                    background: 'rgba(46,125,50,0.1)',
+                                                    borderRadius: '3px',
+                                                    padding: '0 3px',
+                                                    display: 'inline-block',
+                                                }}>
+                                                    {batchRooms[batchKey]}
+                                                </div>
+                                            )}
+                                        </td>
+
+                                        {/* Time slot cells */}
+                                        {SLOTS.map(slot => {
+                                            const { entry, colSpan, skip } = slotMeta[slot]
+                                            if (skip) return null   // rendered as part of a multi-span cell
+
+                                            const s = String(slot)
+                                            const isBreakSlot = s.toLowerCase().includes('break')
+
+                                            // ── BREAK column ──
+                                            if (isBreakSlot) {
+                                                return (
+                                                    <td key={slot} style={{
+                                                        border: '1px solid #555',
+                                                        background: '#FFFF00',
+                                                        textAlign: 'center',
+                                                        fontWeight: 800,
+                                                        fontSize: '0.5625rem',
+                                                        color: '#333',
+                                                        verticalAlign: 'middle',
+                                                    }}>
+                                                        BREAK
+                                                    </td>
+                                                )
+                                            }
+
+                                            // ── Empty cell ──
+                                            if (!entry) {
+                                                return (
+                                                    <td key={slot} colSpan={colSpan} style={{
+                                                        border: '1px solid #ddd',
+                                                        background: rowBg,
+                                                    }} />
+                                                )
+                                            }
+
+                                            // ── Course cell ──
+                                            const isLab = entry.course?.type === 'Lab' ||
+                                                          entry.course?.name?.toLowerCase().includes('lab')
+                                            const bgColor = getCourseColor(entry.course?.name || '', isLab)
+                                            const isMultiSpan = colSpan > 1
+
+                                            // Get teacher color (consistent with legend)
+                                            const teacherColor = entry.teacher?.id
+                                                ? teacherColors.get(entry.teacher.id) || '#E0E0E0'
+                                                : '#E0E0E0'
+
+                                            return (
+                                                <td
+                                                    key={slot}
+                                                    colSpan={colSpan}
+                                                    title={`${entry.course?.name} | ${entry.teacher?.name} | ${entry.room?.name}`}
+                                                    style={{
+                                                        padding: '0.3rem 0.25rem',
+                                                        border: '1px solid #555',
+                                                        background: bgColor,
+                                                        verticalAlign: 'top',
+                                                        position: 'relative',
+                                                        borderLeft: `4px solid ${teacherColor}`,
+                                                    }}
+                                                >
+                                                    {/* Multi-span badge */}
+                                                    {isMultiSpan && (
+                                                        <span style={{
+                                                            position: 'absolute',
+                                                            top: 2,
+                                                            right: 2,
+                                                            background: 'rgba(0,0,0,0.25)',
+                                                            color: '#fff',
+                                                            fontSize: '0.45rem',
+                                                            padding: '1px 3px',
+                                                            borderRadius: '3px',
+                                                            fontWeight: 700,
+                                                        }}>
+                                                            {colSpan}h
+                                                        </span>
+                                                    )}
+
+                                                    {/* Course name */}
+                                                    <div style={{
+                                                        fontWeight: 700,
+                                                        fontSize: '0.5625rem',
+                                                        lineHeight: 1.25,
+                                                        marginBottom: '0.15rem',
+                                                        color: '#000',
+                                                        overflow: 'hidden',
+                                                        display: '-webkit-box',
+                                                        WebkitLineClamp: 3,
+                                                        WebkitBoxOrient: 'vertical',
+                                                    }}>
+                                                        {entry.course?.name}
+                                                    </div>
+
+                                                    {/* Teacher name */}
+                                                    {entry.teacher?.name && (
+                                                        <div style={{
+                                                            fontSize: '0.5rem',
+                                                            color: '#111',
+                                                            lineHeight: 1.2,
+                                                            overflow: 'hidden',
+                                                            display: '-webkit-box',
+                                                            WebkitLineClamp: 2,
+                                                            WebkitBoxOrient: 'vertical',
+                                                        }}>
+                                                            {entry.teacher.name}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Sections (if multiple) */}
+                                                    {(entry.sections?.length ?? 0) > 1 && (
+                                                        <div style={{
+                                                            fontSize: '0.45rem',
+                                                            color: '#333',
+                                                            marginTop: '2px',
+                                                            fontStyle: 'italic',
+                                                        }}>
+                                                            {entry.sections?.map(s => s.name).join(' & ')}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            )
+                                        })}
+                                    </tr>
+                                )
+                            })}
+                        </React.Fragment>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    )
+}
+
 export function TimetablePage() {
     const [departments, setDepartments] = useState<Department[]>([])
     const [genProgress, setGenProgress] = useState<number>(0)
@@ -45,7 +494,7 @@ export function TimetablePage() {
     const [timetable, setTimetable] = useState<TimetableEntry[]>([])
     const [loading, setLoading] = useState(true)
     const [generating, setGenerating] = useState(false)
-    const [viewType, setViewType] = useState<'Grid' | 'List'>('Grid')
+    const [viewType, setViewType] = useState<'Grid' | 'List' | 'Batch'>('Batch')
     const [filterType, setFilterType] = useState<'All' | 'Teacher' | 'Room'>('All')
     const [filterId, setFilterId] = useState<number | null>(null)
     const [entryModalOpen, setEntryModalOpen] = useState(false)
@@ -62,6 +511,7 @@ export function TimetablePage() {
     const [readinessLoading, setReadinessLoading] = useState(false)
     const [readiness, setReadiness] = useState<TimetableReadiness>(emptyReadiness)
     const [generationResult, setGenerationResult] = useState<GenerateScheduleResult | null>(null)
+    const [batches, setBatches] = useState<Batch[]>([])
 
     // Form state for manual entry
     const [formData, setFormData] = useState({
@@ -112,34 +562,36 @@ export function TimetablePage() {
         }
     }, [])
 
-    const loadDepartmentSections = useCallback(async (deptId: number): Promise<Section[]> => {
+    const loadDepartmentSections = useCallback(async (deptId: number): Promise<{ sections: Section[], batches: Batch[] }> => {
         const programRes = await programService.list(deptId, 1, 500)
         const programs = programRes.data || []
-        if (programs.length === 0) return []
+        if (programs.length === 0) return { sections: [], batches: [] }
 
         const batchResults = await Promise.all(
             programs.map(program => batchService.list(program.id, 1, 500))
         )
-        const batches = batchResults.flatMap(result => result.data || [])
-        if (batches.length === 0) return []
+        const allBatches = batchResults.flatMap(result => result.data || [])
+        setBatches(allBatches)
+        if (allBatches.length === 0) return { sections: [], batches: [] }
 
         const sectionResults = await Promise.all(
-            batches.map((batch: Batch) => sectionService.list(batch.id, 1, 500))
+            allBatches.map((batch: Batch) => sectionService.list(batch.id, 1, 500))
         )
 
-        return sectionResults.flatMap(result => result.data || [])
+        return { sections: sectionResults.flatMap(result => result.data || []), batches: allBatches }
     }, [])
 
     const loadReadiness = useCallback(async (deptId: number): Promise<TimetableReadiness> => {
         setReadinessLoading(true)
         try {
-            const [sectionData, courseRes, roomRes, teacherRes] = await Promise.all([
+            const [sectionResult, courseRes, roomRes, teacherRes] = await Promise.all([
                 loadDepartmentSections(deptId),
                 courseService.list(deptId, 1, 500),
                 roomService.list(undefined, 1, 500),
                 teacherService.list(undefined, 1, 500),
             ])
 
+            const sectionData = sectionResult.sections
             const deptCourses = courseRes.data || []
             const deptRooms = (roomRes.data || []).filter(room => !room.department_id || room.department_id === deptId)
             const allTeachers = teacherRes.data || []
@@ -450,31 +902,31 @@ export function TimetablePage() {
             duration: number,
             slots: string[]
         }> = []
-        
+
         filteredTimetable.forEach(entry => {
             // Check if this is part of an already processed multi-hour session
             const existing = sessions.find(s => s.entry.id === entry.id)
             if (existing) return
-            
+
             // Find consecutive slots for this course/teacher/room combination
             const daySlots = SLOTS
             const entrySlotIndex = daySlots.indexOf(entry.timeslot)
             if (entrySlotIndex === -1) return
-            
+
             let duration = 1
             const slots = [entry.timeslot]
-            
+
             // Look for consecutive slots with same course/teacher/room
             for (let i = entrySlotIndex + 1; i < daySlots.length; i++) {
                 const nextSlot = daySlots[i]
-                const nextEntry = filteredTimetable.find(e => 
-                    e.day === entry.day && 
+                const nextEntry = filteredTimetable.find(e =>
+                    e.day === entry.day &&
                     e.timeslot === nextSlot &&
                     e.course?.id === entry.course?.id &&
                     e.teacher?.id === entry.teacher?.id &&
                     e.room?.id === entry.room?.id
                 )
-                
+
                 if (nextEntry) {
                     duration++
                     slots.push(nextSlot)
@@ -482,13 +934,13 @@ export function TimetablePage() {
                     break
                 }
             }
-            
+
             // If it spans multiple hours, mark it as a multi-hour session
             if (duration > 1) {
                 sessions.push({ entry, duration, slots })
             }
         })
-        
+
         return sessions
     }, [filteredTimetable])
 
@@ -498,8 +950,8 @@ export function TimetablePage() {
             grid[day] = {}
             SLOTS.forEach((slot: string) => {
                 // Filter out entries that are part of multi-hour sessions (they'll be handled separately)
-                grid[day][slot] = filteredTimetable.filter(entry => 
-                    entry.day === day && 
+                grid[day][slot] = filteredTimetable.filter(entry =>
+                    entry.day === day &&
                     entry.timeslot === slot &&
                     !multiHourSessions.some(session => session.entry.id === entry.id)
                 )
@@ -529,6 +981,91 @@ export function TimetablePage() {
                 return true
             })
     }, [timetable])
+
+    // Extract unique sections with batch info for legend table
+    const sectionLegend = useMemo(() => {
+        const seen = new Set<number>()
+        const sectionsWithBatch: Array<{
+            id: number
+            shortName: string
+            fullName: string
+            batchName: string
+            batchYear: string
+            studentCount: number
+        }> = []
+
+        timetable.forEach(entry => {
+            entry.sections?.forEach(section => {
+                if (seen.has(section.id)) return
+                seen.add(section.id)
+
+                // Find the section from readiness data to get batch_id
+                const fullSection = readiness.sections.find(s => s.id === section.id)
+                const batch = fullSection ? batches.find(b => b.id === fullSection.batch_id) : null
+
+                sectionsWithBatch.push({
+                    id: section.id,
+                    shortName: section.name,
+                    fullName: fullSection?.name || section.name,
+                    batchName: batch?.name || '-',
+                    batchYear: batch?.academic_year || '-',
+                    studentCount: fullSection?.student_count || 0
+                })
+            })
+        })
+
+        return sectionsWithBatch.sort((a, b) => a.shortName.localeCompare(b.shortName))
+    }, [timetable, readiness.sections, batches])
+
+    // Extract unique courses for legend table
+    const courseLegend = useMemo(() => {
+        const seen = new Set<number>()
+        const coursesList: Array<{
+            id: number
+            code: string
+            name: string
+            type: string
+        }> = []
+
+        timetable.forEach(entry => {
+            if (!entry.course || seen.has(entry.course.id)) return
+            seen.add(entry.course.id)
+
+            const fullCourse = readiness.courses.find(c => c.id === entry.course.id)
+            coursesList.push({
+                id: entry.course.id,
+                code: fullCourse?.code || '-',
+                name: entry.course.name,
+                type: entry.course.type || fullCourse?.course_type || '-'
+            })
+        })
+
+        return coursesList.sort((a, b) => a.code.localeCompare(b.code))
+    }, [timetable, readiness.courses])
+
+    // Extract unique teachers for legend table
+    const teacherLegend = useMemo(() => {
+        const seen = new Set<number>()
+        const teachersList: Array<{
+            id: number
+            shortName: string
+            fullName: string
+        }> = []
+
+        timetable.forEach(entry => {
+            if (!entry.teacher || seen.has(entry.teacher.id)) return
+            seen.add(entry.teacher.id)
+
+            const fullTeacher = readiness.teachers.find(t => t.id === entry.teacher.id)
+            teachersList.push({
+                id: entry.teacher.id,
+                shortName: entry.teacher.name?.split(' ').map(n => n[0]).join('').toUpperCase() || '-',
+                fullName: entry.teacher.name || '-'
+            })
+        })
+
+        return teachersList.sort((a, b) => a.shortName.localeCompare(b.shortName))
+    }, [timetable, readiness.teachers])
 
     const selectedCourse = useMemo(
         () => courses.find(course => course.id === Number(formData.course_id)) ?? null,
@@ -737,6 +1274,7 @@ export function TimetablePage() {
                         { label: 'Courses', value: readiness.courses.length, tone: '#7c3aed' },
                         { label: 'Rooms', value: readiness.rooms.length, tone: '#059669' },
                         { label: 'Qualified Teachers', value: readiness.qualifiedTeacherCount, tone: '#d97706' },
+                        { label: 'Batches', value: batches.length, tone: '#0891b2' },
                     ].map(item => (
                         <div key={item.label} className="card" style={{ padding: '0.9rem', background: 'var(--bg-card)' }}>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>{item.label}</div>
@@ -926,220 +1464,114 @@ export function TimetablePage() {
                                 <BookOpen size={16} /> {visibleEntryCount} shown of {timetable.length} total entries
                             </div>
                         </div>
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            <button
-                                className={`btn btn-sm ${viewType === 'Grid' ? 'btn-primary' : 'btn-secondary'}`}
-                                onClick={() => setViewType('Grid')}
-                            >
-                                Grid View
-                            </button>
-                            <button
-                                className={`btn btn-sm ${viewType === 'List' ? 'btn-primary' : 'btn-secondary'}`}
-                                onClick={() => setViewType('List')}
-                            >
-                                List View
-                            </button>
-                        </div>
                     </div>
 
-                    {viewType === 'Grid' ? (
-                        <div style={{ overflowX: 'auto', padding: '1rem' }}>
-                            <DndContext
-                                sensors={sensors}
-                                collisionDetection={closestCenter}
-                                onDragStart={handleDragStart}
-                                onDragEnd={handleDragEnd}
-                                modifiers={[restrictToFirstScrollableAncestor]}
-                            >
-                                <table style={{ 
-    width: '100%', 
-    borderCollapse: 'separate', 
-    borderSpacing: '4px', 
-    backgroundColor: 'var(--bg-main)',
-    borderRadius: '0.75rem',
-    overflow: 'hidden'
-}}>
-    <thead>
-        <tr style={{ backgroundColor: 'var(--bg-card)' }}>
-            <th style={{ 
-                width: '120px', 
-                padding: '1rem', 
-                textAlign: 'left', 
-                fontWeight: 700, 
-                color: 'var(--text-primary)',
-                borderBottom: '2px solid var(--border)',
-                fontSize: '0.875rem'
-            }}>
-                Day
-            </th>
-            {SLOTS.map((slot: string) => (
-                <th key={slot} style={{ 
-                    padding: '0.75rem 0.5rem', 
-                    textAlign: 'center',
-                    borderBottom: '2px solid var(--border)',
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    color: 'var(--text-muted)',
-                    minWidth: '140px'
-                }}>
-                    <div style={{ fontSize: '0.625rem', textTransform: 'uppercase', marginBottom: '0.25rem', opacity: 0.7 }}>
-                        Time
-                    </div>
-                    <div style={{ fontSize: '0.812rem', color: 'var(--text-primary)', fontWeight: 600 }}>
-                        {slot}
-                    </div>
-                </th>
-            ))}
-        </tr>
-    </thead>
-    <tbody>
-                {DAYS.map((day: string) => (
-                    <tr key={day}>
-                        <td style={{ 
-                            padding: '1rem',
-                            verticalAlign: 'middle',
-                            fontWeight: 700,
-                            color: 'var(--text-primary)',
-                            backgroundColor: 'var(--bg-card)',
-                            borderRight: '1px solid var(--border)',
-                            fontSize: '0.875rem',
-                            textAlign: 'center'
+                    <BatchTimetableView
+                        timetable={filteredTimetable}
+                        batches={batches}
+                        sections={readiness.sections}
+                        teachers={readiness.teachers}
+                        onDelete={handleDeleteEntry}
+                    />
+                </div>
+            )}
+
+            {/* Legend Tables */}
+            {timetable.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
+                    {/* Teachers Legend */}
+                    <div className="card" style={{ overflow: 'hidden' }}>
+                        <div style={{
+                            padding: '1rem 1.25rem',
+                            borderBottom: '1px solid var(--border)',
+                            background: 'var(--bg-card)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem'
                         }}>
-                            {day}
-                        </td>
-                        {SLOTS.map((slot: string) => {
-                    // Check if this slot should be skipped due to multi-hour session
-                                                    const multiHourSession = multiHourSessions.find(session => 
-                                                        session.entry.day === day && 
-                                                        session.slots.includes(slot) &&
-                                                        session.slots[0] === slot // Only show card on first slot
-                                                    )
-                                                    
-                                                    const isConflict = activeId ? (() => {
-                                                        const activeEntry = timetable.find(e => e.id === activeId)
-                                                        if (!activeEntry) return false
-                                                        return timetable.some(e =>
-                                                            e.id !== activeId &&
-                                                            e.day === day &&
-                                                            e.timeslot === slot &&
-                                                            (e.sections?.some(as => activeEntry.sections?.some(es => es.id === as.id)) ||
-                                                                e.teacher?.id === activeEntry.teacher?.id ||
-                                                                e.room?.id === activeEntry.room?.id)
-                                                        )
-                                                    })() : false
-
-                                                    // Skip cells that are part of multi-hour sessions (except the first one)
-                                                    const skipCell = multiHourSessions.some(session => 
-                                                        session.entry.day === day && 
-                                                        session.slots.includes(slot) && 
-                                                        session.slots[0] !== slot
-                                                    )
-
-                                                    if (skipCell) return null
-
-                                                    return (
-                                                        <DroppableCell 
-                                                            key={slot} 
-                                                            id={`${day}|${slot}`} 
-                                                            onAdd={() => openAddModal(day, slot)} 
-                                                            isConflict={isConflict}
-                                                            multiHourSession={multiHourSession}
-                                                        >
-                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minHeight: '80px', padding: '0.5rem' }}>
-                                                                {multiHourSession ? (
-                                                                    <MultiHourCard
-                                                                        session={multiHourSession}
-                                                                        onDelete={() => handleDeleteEntry(multiHourSession.entry.id)}
-                                                                        hasConflict={entriesWithConflicts.has(multiHourSession.entry.id)}
-                                                                        onResolve={() => { setSuggestingEntry(multiHourSession.entry); setResolutionModalOpen(true) }}
-                                                                    />
-                                                                ) : (
-                                                                    scheduleGrid[day][slot].map((entry) => (
-                                                                        <DraggableCard
-                                                                            key={entry.id}
-                                                                            entry={entry}
-                                                                            onDelete={() => handleDeleteEntry(entry.id)}
-                                                                            hasConflict={entriesWithConflicts.has(entry.id)}
-                                                                            onResolve={() => { setSuggestingEntry(entry); setResolutionModalOpen(true) }}
-                                                                        />
-                                                                    ))
-                                                                )}
-                                                            </div>
-                                                        </DroppableCell>
-                                                    )
-                                                })}
-            </tr>
-        ))}
-    </tbody>
-</table>
-
-                                <DragOverlay>
-                                    {activeId ? (
-                                        <div className="card" style={{
-                                            padding: '1rem',
-                                            borderLeft: '4px solid #3b82f6',
-                                            background: 'var(--bg-card)',
-                                            width: '240px',
-                                            opacity: 0.9,
-                                            boxShadow: 'var(--shadow-floating)',
-                                            backdropFilter: 'blur(16px)',
-                                            borderRadius: 'var(--radius-xl)'
-                                        }}>
-                                            <div style={{ fontSize: '0.75rem', fontWeight: 700 }}>
-                                                {timetable.find(e => e.id === activeId)?.course?.name}
-                                            </div>
-                                            <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
-                                                {(() => {
-                                                    const ae = timetable.find(e => e.id === activeId)
-                                                    return ae?.sections?.map(s => s.name).join(', ')
-                                                })()}
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                </DragOverlay>
-                            </DndContext>
+                            <User size={18} style={{ color: '#d97706' }} />
+                            <h3 style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                Teachers Legend
+                            </h3>
+                            <span style={{
+                                fontSize: '0.75rem',
+                                color: 'var(--text-muted)',
+                                marginLeft: 'auto'
+                            }}>
+                                {teacherLegend.length} teachers
+                            </span>
                         </div>
-                    ) : (
-                        <div style={{ padding: '1rem' }}>
-                            <div style={{ overflowX: 'auto' }}>
-                                <table className="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Day</th>
-                                            <th>Time</th>
-                                            <th>Course</th>
-                                            <th>Section</th>
-                                            <th>Teacher</th>
-                                            <th>Room</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredTimetable.map((entry) => (
-                                            <tr key={entry.id}>
-                                                <td style={{ fontWeight: 600 }}>{entry.day}</td>
-                                                <td><span className="badge badge-amber">{entry.timeslot}</span></td>
-                                                <td>{entry.course?.name}</td>
-                                                <td>
-                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
-                                                        {entry.sections?.map(s => (
-                                                            <span key={s.id} className="badge badge-gray">{s.name}</span>
-                                                        ))}
-                                                    </div>
+                        <div style={{ maxHeight: '400px', overflowY: 'auto', padding: '0.5rem' }}>
+                            <table style={{
+                                width: '100%',
+                                borderCollapse: 'collapse',
+                                border: '1px solid #333',
+                            }}>
+                                <thead>
+                                    <tr style={{ background: '#87CEEB' }}>
+                                        <th style={{
+                                            padding: '0.5rem',
+                                            border: '1px solid #333',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
+                                            textAlign: 'center',
+                                            width: '50%',
+                                        }}>Faculty Name</th>
+                                        <th style={{
+                                            padding: '0.5rem',
+                                            border: '1px solid #333',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
+                                            textAlign: 'center',
+                                            width: '50%',
+                                        }}>Faculty Name</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(() => {
+                                        // Build teacher color mapping using teacher name hash
+                                        const sortedTeachers = [...teacherLegend].sort((a, b) =>
+                                            a.fullName.localeCompare(b.fullName)
+                                        )
+                                        const rows: Array<{ left: typeof sortedTeachers[0] | null; right: typeof sortedTeachers[0] | null }> = []
+                                        for (let i = 0; i < sortedTeachers.length; i += 2) {
+                                            rows.push({
+                                                left: sortedTeachers[i] || null,
+                                                right: sortedTeachers[i + 1] || null,
+                                            })
+                                        }
+
+                                        return rows.map((row, rowIndex) => (
+                                            <tr key={rowIndex}>
+                                                <td style={{
+                                                    padding: '0.4rem 0.5rem',
+                                                    border: '1px solid #333',
+                                                    fontSize: '0.6875rem',
+                                                    textAlign: 'center',
+                                                    background: row.left ? getTeacherColor(row.left.fullName) : '#fff',
+                                                    color: '#000',
+                                                    fontWeight: 500,
+                                                }}>
+                                                    {row.left?.fullName || ''}
                                                 </td>
-                                                <td>{entry.teacher?.name}</td>
-                                                <td><span className="badge badge-blue">{entry.room?.name}</span></td>
-                                                <td>
-                                                    <button className="btn btn-ghost btn-icon btn-sm" style={{ color: '#ef4444' }} onClick={() => handleDeleteEntry(entry.id)}>
-                                                        <Trash2 size={14} />
-                                                    </button>
+                                                <td style={{
+                                                    padding: '0.4rem 0.5rem',
+                                                    border: '1px solid #333',
+                                                    fontSize: '0.6875rem',
+                                                    textAlign: 'center',
+                                                    background: row.right ? getTeacherColor(row.right.fullName) : '#fff',
+                                                    color: '#000',
+                                                    fontWeight: 500,
+                                                }}>
+                                                    {row.right?.fullName || ''}
                                                 </td>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                                        ))
+                                    })()}
+                                </tbody>
+                            </table>
                         </div>
-                    )}
+                    </div>
                 </div>
             )}
 
@@ -1349,7 +1781,7 @@ export function TimetablePage() {
     )
 }
 
-function DraggableCard({ entry, onDelete, hasConflict, onResolve }: { entry: TimetableEntry, onDelete: () => void, hasConflict?: boolean, onResolve?: () => void }) {
+function DraggableCard({ entry, onDelete, hasConflict, onResolve, batches, sections }: { entry: TimetableEntry, onDelete: () => void, hasConflict?: boolean, onResolve?: () => void, batches: Batch[], sections: Section[] }) {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: entry.id,
     })
@@ -1424,13 +1856,13 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve }: { entry: Tim
 
                 <div style={{ paddingRight: '1.5rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
-                        <div style={{ 
-                            fontSize: '0.6875rem', 
-                            fontWeight: 600, 
-                            color: hasConflict ? '#dc2626' : 'var(--text-primary)', 
-                            overflow: 'hidden', 
-                            whiteSpace: 'nowrap', 
-                            textOverflow: 'ellipsis', 
+                        <div style={{
+                            fontSize: '0.6875rem',
+                            fontWeight: 600,
+                            color: hasConflict ? '#dc2626' : 'var(--text-primary)',
+                            overflow: 'hidden',
+                            whiteSpace: 'nowrap',
+                            textOverflow: 'ellipsis',
                             maxWidth: '70%',
                             lineHeight: '1.2'
                         }}>
@@ -1439,12 +1871,12 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve }: { entry: Tim
                         <div style={{ display: 'flex', gap: '2px' }}>
                             <button
                                 onClick={(e) => { e.stopPropagation(); onDelete() }}
-                                style={{ 
-                                    background: 'none', 
-                                    border: 'none', 
-                                    padding: '0', 
-                                    color: '#ef4444', 
-                                    cursor: 'pointer', 
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    padding: '0',
+                                    color: '#ef4444',
+                                    cursor: 'pointer',
                                     opacity: 0.6,
                                     fontSize: '0.75rem'
                                 }}
@@ -1455,19 +1887,23 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve }: { entry: Tim
                         </div>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
-                        {entry.sections?.map(s => (
-                            <span key={s.id} style={{ 
-                                fontSize: '0.5625rem', 
-                                padding: '1px 4px', 
-                                background: 'rgba(255, 255, 255, 0.8)', 
-                                border: '1px solid var(--border)', 
-                                borderRadius: '3px', 
-                                color: 'var(--text-secondary)',
-                                fontWeight: 500
-                            }}>
-                                {s.name}
-                            </span>
-                        ))}
+                        {entry.sections?.map(s => {
+                            const fullSection = sections.find(sec => sec.id === s.id)
+                            const batch = fullSection ? batches.find(b => b.id === fullSection.batch_id) : null
+                            return (
+                                <span key={s.id} style={{
+                                    fontSize: '0.5625rem',
+                                    padding: '1px 4px',
+                                    background: 'rgba(255, 255, 255, 0.8)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '3px',
+                                    color: 'var(--text-secondary)',
+                                    fontWeight: 500
+                                }}>
+                                    {s.name}{batch ? ` (${batch.name})` : ''}
+                                </span>
+                            )
+                        })}
                     </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', fontSize: '0.5625rem', color: 'var(--text-secondary)' }}>
@@ -1483,11 +1919,13 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve }: { entry: Tim
     )
 }
 
-function MultiHourCard({ session, onDelete, hasConflict, onResolve }: { 
-    session: { entry: TimetableEntry, duration: number, slots: string[] }, 
-    onDelete: () => void, 
-    hasConflict?: boolean, 
-    onResolve?: () => void 
+function MultiHourCard({ session, onDelete, hasConflict, onResolve, batches, sections }: {
+    session: { entry: TimetableEntry, duration: number, slots: string[] },
+    onDelete: () => void,
+    hasConflict?: boolean,
+    onResolve?: () => void,
+    batches: Batch[],
+    sections: Section[]
 }) {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: session.entry.id,
@@ -1563,13 +2001,13 @@ function MultiHourCard({ session, onDelete, hasConflict, onResolve }: {
 
                 <div style={{ paddingRight: '1.5rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
-                        <div style={{ 
-                            fontSize: '0.6875rem', 
-                            fontWeight: 600, 
+                        <div style={{
+                            fontSize: '0.6875rem',
+                            fontWeight: 600,
                             color: hasConflict ? '#dc2626' : '#059669', // Green for lab
-                            overflow: 'hidden', 
-                            whiteSpace: 'nowrap', 
-                            textOverflow: 'ellipsis', 
+                            overflow: 'hidden',
+                            whiteSpace: 'nowrap',
+                            textOverflow: 'ellipsis',
                             maxWidth: '70%',
                             lineHeight: '1.2',
                             display: 'flex',
@@ -1591,12 +2029,12 @@ function MultiHourCard({ session, onDelete, hasConflict, onResolve }: {
                         <div style={{ display: 'flex', gap: '2px' }}>
                             <button
                                 onClick={(e) => { e.stopPropagation(); onDelete() }}
-                                style={{ 
-                                    background: 'none', 
-                                    border: 'none', 
-                                    padding: '0', 
-                                    color: '#ef4444', 
-                                    cursor: 'pointer', 
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    padding: '0',
+                                    color: '#ef4444',
+                                    cursor: 'pointer',
                                     opacity: 0.6,
                                     fontSize: '0.75rem'
                                 }}
@@ -1607,19 +2045,23 @@ function MultiHourCard({ session, onDelete, hasConflict, onResolve }: {
                         </div>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
-                        {session.entry.sections?.map(s => (
-                            <span key={s.id} style={{ 
-                                fontSize: '0.5625rem', 
-                                padding: '1px 4px', 
-                                background: 'rgba(255, 255, 255, 0.8)', 
-                                border: '1px solid var(--border)', 
-                                borderRadius: '3px', 
-                                color: 'var(--text-secondary)',
-                                fontWeight: 500
-                            }}>
-                                {s.name}
-                            </span>
-                        ))}
+                        {session.entry.sections?.map(s => {
+                            const fullSection = sections.find(sec => sec.id === s.id)
+                            const batch = fullSection ? batches.find(b => b.id === fullSection.batch_id) : null
+                            return (
+                                <span key={s.id} style={{
+                                    fontSize: '0.5625rem',
+                                    padding: '1px 4px',
+                                    background: 'rgba(255, 255, 255, 0.8)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '3px',
+                                    color: 'var(--text-secondary)',
+                                    fontWeight: 500
+                                }}>
+                                    {s.name}{batch ? ` (${batch.name})` : ''}
+                                </span>
+                            )
+                        })}
                     </div>
                     <div style={{ fontSize: '0.5625rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
                         {session.slots.join(' - ')}
@@ -1638,10 +2080,10 @@ function MultiHourCard({ session, onDelete, hasConflict, onResolve }: {
     )
 }
 
-function DroppableCell({ id, children, onAdd, isConflict, multiHourSession }: { 
-    id: string, 
-    children: React.ReactNode, 
-    onAdd: () => void, 
+function DroppableCell({ id, children, onAdd, isConflict, multiHourSession }: {
+    id: string,
+    children: React.ReactNode,
+    onAdd: () => void,
     isConflict?: boolean,
     multiHourSession?: { entry: TimetableEntry, duration: number, slots: string[] }
 }) {
@@ -1667,10 +2109,10 @@ function DroppableCell({ id, children, onAdd, isConflict, multiHourSession }: {
     const hasEntries = React.Children.count(childElement?.props.children) > 0
 
     return (
-        <td 
-            ref={setNodeRef} 
+        <td
+            ref={setNodeRef}
             colSpan={multiHourSession?.duration}
-            style={{ 
+            style={{
                 padding: '0.25rem',
                 backgroundColor: 'var(--bg-main)',
                 verticalAlign: 'top',

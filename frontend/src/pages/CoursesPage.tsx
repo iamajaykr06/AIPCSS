@@ -260,12 +260,13 @@ export function CoursesPage() {
                 isOpen={importModalOpen}
                 onClose={() => setImportModalOpen(false)}
                 resourceName="Courses"
-                headers={['Name', 'Code', 'Semester', 'Type', 'DeptCode']}
+                headers={['Name', 'code', 'Semester', 'Type', 'Program', 'DeptCode']}
                 formatExamples={{
                     'Name': 'Data Structures and Algorithms',
-                    'Code': 'CS101',
+                    'code': 'CS101',
                     'Semester': 'Semester I',
                     'Type': 'Theory',
+                    'Program': 'BCA',
                     'DeptCode': 'CSEIT'
                 }}
                 onImport={(f) => courseService.bulkImport(f)}

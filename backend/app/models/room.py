@@ -9,3 +9,7 @@ class Room(db.Model):
     # Program-specific labs (e.g., Pharmacy lab only for Pharmacy program).
     # Keep nullable so lecture/class rooms remain globally reusable.
     program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=True)
+    
+    # Relationships
+    department = db.relationship('Department', backref='rooms')
+    program = db.relationship('Program', backref='assigned_rooms')

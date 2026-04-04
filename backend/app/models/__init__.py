@@ -7,3 +7,17 @@ from .program import Program
 from .batch import Batch
 from .section import Section
 from .timetable import TimetableEntry
+from .schedule_settings import ScheduleSettings
+
+__all__ = [
+    'User',
+    'Department',
+    'Program',
+    'Batch',
+    'Section',
+    'Teacher',
+    'Course',
+    'Room',
+    'TimetableEntry',
+    'ScheduleSettings',
+]

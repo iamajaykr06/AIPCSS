@@ -59,6 +59,12 @@ def create_app(env=None):
     from .routes.curriculum import curriculum_bp
     app.register_blueprint(curriculum_bp, url_prefix='/api/curriculum')
 
+    from .routes.settings import settings_bp
+    app.register_blueprint(settings_bp, url_prefix='/api/settings')
+
+    from .scheduler_new.api import scheduler_bp
+    app.register_blueprint(scheduler_bp, url_prefix='/api/scheduler')
+
     # ── Global error handlers ─────────────────────────────────────────────────
     @app.errorhandler(400)
     def bad_request(e):

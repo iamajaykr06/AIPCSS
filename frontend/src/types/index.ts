@@ -230,6 +230,61 @@ export interface GroupedTimetableResponse {
     department: string;
 }
 
+// ── Schedule Settings ─────────────────────────────────────────────────────────
+
+export type DayOfWeek = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
+
+export interface ScheduleTimeSlot {
+    start: string;
+    end: string;
+    label: string;
+}
+
+export interface ScheduleBreak {
+    start: string;
+    end: string;
+    label: string;
+    type?: string;
+}
+
+export interface ScheduleSettings {
+    id: number;
+    working_days: DayOfWeek[];
+    time_slots: ScheduleTimeSlot[];
+    breaks: ScheduleBreak[];
+    slot_duration_minutes: number;
+    start_time: string;
+    end_time: string;
+    max_consecutive_slots: number;
+    min_break_between_classes: number;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface ScheduleSettingsPayload {
+    working_days?: DayOfWeek[];
+    time_slots?: ScheduleTimeSlot[];
+    breaks?: ScheduleBreak[];
+    slot_duration_minutes?: number;
+    start_time?: string;
+    end_time?: string;
+    max_consecutive_slots?: number;
+    min_break_between_classes?: number;
+}
+
+export interface SchedulePreview {
+    working_days: DayOfWeek[];
+    time_slots: ScheduleTimeSlot[];
+    breaks: ScheduleBreak[];
+    total_slots_per_day: number;
+    total_slots_per_week: number;
+    slot_duration_minutes: number;
+    schedule_grid: Record<string, Array<{
+        time: ScheduleTimeSlot;
+        is_break: boolean;
+    }>>;
+}
+
 // ── UI ─────────────────────────────────────────────────────────────────────
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';

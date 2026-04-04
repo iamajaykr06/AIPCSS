@@ -2,10 +2,9 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 from datetime import datetime
 
-from ..models import Teacher, Course, Section, Room, TimetableEntry, Department
+from ..models import Teacher, Course, Section, Room, TimetableEntry, Department, ScheduleSettings
 from .. import db, socketio
 from .auth import roles_required
-from ..scheduler_ortools import schedule_timetable_ortools
 
 scheduling_bp = Blueprint('scheduling', __name__)
 
@@ -256,17 +255,39 @@ def generate_with_ortools(dept, dept_id, strict_mode):
         })
         
         try:
-            # Solve for this batch only
-            entries_data, skipped, errors = schedule_timetable_ortools(
-                sections=sections,
-                courses=courses,
-                teachers=all_teachers,
-                rooms=all_rooms,
-                days=DAYS,
-                timeslots=TIMESLOTS,
-                strict_mode=strict_mode,
-                progress_callback=None  # No need, batches are small
+            # Solve using new CSP scheduler
+            from ..scheduler_new import DataLoader, SchedulerEngine
+            
+            data_loader = DataLoader(department_id=dept_id)
+            problem = data_loader.load_problem()
+            
+            scheduler = SchedulerEngine(
+                problem=problem,
+                debug=False,
+                max_retries=3,
+                time_limit_seconds=60.0
             )
+            
+            result = scheduler.solve(progress_callback=None)
+            
+            if not result.success:
+                all_errors.append(f"Batch {batch.name}: {result.error_message}")
+                continue
+            
+            # Convert result to expected format
+            entries_data = []
+            for entry in result.schedule:
+                entries_data.append({
+                    'section_id': entry.section_id,
+                    'course_id': entry.course_id,
+                    'teacher_id': entry.faculty_id,
+                    'room_id': entry.room_id,
+                    'day': entry.timeslot.day,
+                    'timeslot': f"{entry.timeslot.start_time}-{entry.timeslot.end_time}"
+                })
+            
+            skipped = []
+            errors = []
             
             # Create entries for this batch
             for entry_data in entries_data:
@@ -599,7 +620,9 @@ def view_timetable(dept_id):
                      'capacity': rooms.get(e.room_id, {}).capacity if e.room_id in rooms else None},
         })
 
-    # Optional: group by section for easier frontend rendering
+    # Fetch schedule settings to include breaks
+    settings = ScheduleSettings.get_or_create_default()
+    breaks_data = settings.breaks or []
     group_by = request.args.get('group_by')
     if group_by == 'section':
         grouped = {}
@@ -609,7 +632,13 @@ def view_timetable(dept_id):
                 grouped.setdefault(key, []).append(entry)
         return jsonify({'data': grouped, 'department': dept.name}), 200
 
-    return jsonify({'data': result, 'department': dept.name, 'total': len(result)}), 200
+    return jsonify({
+        'data': result,
+        'breaks': breaks_data,
+        'working_days': settings.working_days,
+        'department': dept.name,
+        'total': len(result)
+    }), 200
 
 
 @scheduling_bp.route('/view/<int:dept_id>', methods=['DELETE'])

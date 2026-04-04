@@ -13,6 +13,8 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { DepartmentsPage } from '@/pages/DepartmentsPage'
 import { ProgramsPage } from '@/pages/ProgramsPage'
 import { BatchesPage } from '@/pages/BatchesPage'
+import { SectionsPage } from '@/pages/SectionsPage'
+import { SettingsPage } from '@/pages/SettingsPage'
 import { TeachersPage } from '@/pages/TeachersPage'
 import { CoursesPage } from '@/pages/CoursesPage'
 import { RoomsPage } from '@/pages/RoomsPage'
@@ -38,10 +40,12 @@ export default function App() {
                   <Route path="/departments" element={<DepartmentsPage />} />
                   <Route path="/programs" element={<ProgramsPage />} />
                   <Route path="/batches" element={<BatchesPage />} />
+                  <Route path="/sections" element={<SectionsPage />} />
                   <Route path="/teachers" element={<TeachersPage />} />
                   <Route path="/courses" element={<CoursesPage />} />
                   <Route path="/rooms" element={<RoomsPage />} />
                   <Route path="/timetable" element={<TimetablePage />} />
+                  <Route path="/settings" element={<SettingsPage />} />
                 </Route>
               </Route>
 

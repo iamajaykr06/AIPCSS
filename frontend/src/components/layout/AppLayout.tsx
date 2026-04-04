@@ -11,6 +11,7 @@ const pageTitles: Record<string, string> = {
     '/courses': 'Courses',
     '/rooms': 'Rooms',
     '/timetable': 'Timetable',
+    '/settings': 'Schedule Settings',
 }
 
 export function AppLayout() {

@@ -18,11 +18,9 @@ class DataLoader:
         self.settings = ScheduleSettings.get_or_create_default()
     
     def load_faculty(self) -> List[Faculty]:
-        """Load faculty from database"""
+        """Load faculty from database - load ALL as teachers are shared across university"""
         query = Teacher.query
-        if self.department_id:
-            query = query.join(Teacher.departments).filter_by(id=self.department_id)
-        
+        # Always load all teachers to avoid 422 errors due to cross-departmental course assignments
         teachers = query.all()
         
         faculty_list = []
@@ -85,15 +83,8 @@ class DataLoader:
                 course_faculty_map[course.id].add(teacher.id)
         
         course_list = []
-        # Get all faculty IDs for this department as fallback
-        all_faculty_ids = set()
-        for teacher in Teacher.query.all():
-            if self.department_id:
-                # Check if teacher belongs to this department
-                if any(d.id == self.department_id for d in teacher.departments):
-                    all_faculty_ids.add(teacher.id)
-            else:
-                all_faculty_ids.add(teacher.id)
+        # Get all university faculty IDs as fallback
+        all_faculty_ids = {t.id for t in Teacher.query.all()}
         
         for course in courses:
             # Determine hours based on course type

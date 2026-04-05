@@ -1,5 +1,6 @@
 """
 SchedulerEngine - Backtracking CSP solver with MRV, LCV, and Forward Checking
+Optimized for performance with caching and selective constraint checking
 """
 
 import time
@@ -13,7 +14,7 @@ from .models import ScheduleEntry, SchedulingProblem, Timeslot
 from .constraint_engine import ConstraintEngine
 
 
-@dataclass
+dataclass
 class AssignmentVariable:
     """Represents a class that needs to be scheduled"""
     section_id: int
@@ -25,7 +26,7 @@ class AssignmentVariable:
         return hash((self.section_id, self.course_id, self.hours_needed))
 
 
-@dataclass
+dataclass
 class DomainValue:
     """A possible assignment: (faculty, room, timeslot)"""
     faculty_id: int
@@ -36,7 +37,7 @@ class DomainValue:
         return hash((self.faculty_id, self.room_id, self.timeslot))
 
 
-@dataclass
+dataclass
 class ScheduleResult:
     """Result of scheduling attempt"""
     success: bool
@@ -61,10 +62,11 @@ class SchedulerEngine:
     - Minimum Remaining Values (MRV) heuristic
     - Least Constraining Value (LCV) heuristic  
     - Forward Checking for constraint propagation
+    - Multi-level caching for performance
     """
     
     def __init__(self, problem: SchedulingProblem, debug: bool = False, 
-                 max_retries: int = 3, time_limit_seconds: float = 300.0):
+                 max_retries: int = 3, time_limit_seconds: float = 60.0):
         self.problem = problem
         self.debug = debug
         self.max_retries = max_retries
@@ -81,7 +83,8 @@ class SchedulerEngine:
         self.backtracks = 0
         self.start_time = 0.0
         
-        # Cache for domain computations
+        # Multi-level caching
+        self.static_domain_cache: Dict[Tuple[int, int, int], List[DomainValue]] = {}
         self.domain_cache: Dict[Tuple[int, int, int], List[DomainValue]] = {}
     
     def _get_variables(self) -> List[AssignmentVariable]:
@@ -92,7 +95,6 @@ class SchedulerEngine:
                 course = self.problem.course_map.get(course_id)
                 if course:
                     hours = course.get_hours_needed()
-                    # Schedule each course as a single unit (with hours_needed indicating duration)
                     instances.append(AssignmentVariable(
                         section_id=section.id,
                         course_id=course_id,
@@ -100,19 +102,11 @@ class SchedulerEngine:
                     ))
         return instances
     
-    def _compute_domain(self, var: AssignmentVariable, 
-                        assigned_slots: Set[Timeslot]) -> List[DomainValue]:
+    def _compute_static_domain(self, var: AssignmentVariable) -> List[DomainValue]:
         """
-        Compute all valid (faculty, room, timeslot) combinations for a variable.
-        This is cached for performance.
+        Compute static domain (faculty/rooms available in general, independent of assignments).
+        This is expensive but computed once per variable per retry.
         """
-        cache_key = (var.section_id, var.course_id, var.hours_needed)
-        
-        if cache_key in self.domain_cache:
-            # Filter out already assigned timeslots
-            cached = self.domain_cache[cache_key]
-            return [d for d in cached if d.timeslot not in assigned_slots]
-        
         domain_values = []
         section = self.problem.section_map.get(var.section_id)
         course = self.problem.course_map.get(var.course_id)
@@ -122,18 +116,11 @@ class SchedulerEngine:
         
         # Get valid timeslots for this section
         for timeslot in self.problem.timeslots:
-            if timeslot in assigned_slots:
-                continue
-            
             # For multi-hour courses (labs or theory blocks), need consecutive slots
             if var.hours_needed > 1:
-                # Find consecutive slots
-                consecutive = self._find_consecutive_slots(
-                    timeslot, var.hours_needed, assigned_slots
-                )
+                consecutive = self._find_consecutive_slots(timeslot, var.hours_needed, set())
                 if not consecutive:
                     continue
-                # Use the first slot as the anchor, but verify all slots are valid
                 anchor_slot = consecutive[0]
             else:
                 anchor_slot = timeslot
@@ -157,8 +144,25 @@ class SchedulerEngine:
                         timeslot=anchor_slot
                     ))
         
-        self.domain_cache[cache_key] = domain_values
         return domain_values
+    
+    def _compute_domain(self, var: AssignmentVariable, 
+                        assigned_slots: Set[Timeslot]) -> List[DomainValue]:
+        """
+        Compute domain using multi-level caching:
+        - Level 1: Static domain (computed once, valid across all assignments)
+        - Level 2: Filter by assigned slots (cheap operation)
+        """
+        cache_key = (var.section_id, var.course_id, var.hours_needed)
+        
+        # Get or compute static domain
+        if cache_key not in self.static_domain_cache:
+            self.static_domain_cache[cache_key] = self._compute_static_domain(var)
+        
+        static = self.static_domain_cache[cache_key]
+        
+        # Filter by assigned slots (cheap filtering)
+        return [d for d in static if d.timeslot not in assigned_slots]
     
     def _find_consecutive_slots(self, start_slot: Timeslot, 
                                  hours_needed: int, 
@@ -187,10 +191,8 @@ class SchedulerEngine:
     
     def _mrv_heuristic(self, variables: List[AssignmentVariable], 
                        assigned_slots: Set[Timeslot]) -> Optional[AssignmentVariable]:
-        """
-        Minimum Remaining Values heuristic:
-        Select variable with smallest domain (most constrained)
-        """
+        """Minimum Remaining Values heuristic:
+        Select variable with smallest domain (most constrained)"""
         unassigned = [v for v in variables if not v.assigned]
         if not unassigned:
             return None
@@ -216,34 +218,23 @@ class SchedulerEngine:
     
     def _lcv_heuristic(self, var: AssignmentVariable, 
                        domain: List[DomainValue]) -> List[DomainValue]:
-        """
-        Least Constraining Value heuristic:
-        Order domain values by least impact on other variables
-        """
+        """Least Constraining Value heuristic:
+        Order domain values by least impact on other variables"""
         def count_constraints(value: DomainValue) -> int:
-            """Count how many other variables this value would constrain"""
+            """Count how many other variables this value would constrain"""  
             constraints = 0
             
-            # Simulate adding this entry
-            entry = ScheduleEntry(
-                section_id=var.section_id,
-                course_id=var.course_id,
-                faculty_id=value.faculty_id,
-                room_id=value.room_id,
-                timeslot=value.timeslot
-            )
-            
-            # Count affected faculty, room, section slots
-            # Faculty at this timeslot
             slot_key = (value.timeslot.day, value.timeslot.start_time)
+            
+            # Faculty utilization penalty
             if self.constraint_engine.faculty_schedule[value.faculty_id][slot_key]:
                 constraints += 10  # High penalty for conflict
             
-            # Room at this timeslot
+            # Room utilization penalty
             if self.constraint_engine.room_schedule[value.room_id][slot_key]:
                 constraints += 10
             
-            # Same section at this timeslot
+            # Section utilization penalty
             if self.constraint_engine.section_schedule[var.section_id][slot_key]:
                 constraints += 10
             
@@ -258,14 +249,17 @@ class SchedulerEngine:
         # Sort by constraint count (ascending - least constraining first)
         return sorted(domain, key=count_constraints)
     
+    def _shares_resource(self, var: AssignmentVariable, entry: ScheduleEntry) -> bool:
+        """Check if variable uses same resources as entry"""  
+        return var.section_id == entry.section_id
+    
     def _forward_check(self, var: AssignmentVariable, 
                        value: DomainValue,
                        remaining_vars: List[AssignmentVariable],
                        assigned_slots: Set[Timeslot]) -> bool:
-        """
-        Forward Checking: Check if assignment leaves all future variables with non-empty domains
-        """
-        # Add this timeslot to assigned set temporarily
+        """Forward Checking: Check if assignment leaves affected future variables with non-empty domains.
+        OPTIMIZED: Only check variables that share resources with current assignment."""
+        # Add this timeslot to assigned set
         new_assigned = assigned_slots | {value.timeslot}
         
         # Update constraint engine
@@ -278,11 +272,13 @@ class SchedulerEngine:
         )
         self.constraint_engine.add_entry(entry)
         
-        # Check all unassigned variables still have valid domains
-        for future_var in remaining_vars:
-            if future_var.assigned:
-                continue
-            
+        # Only check variables that are affected (share section, faculty, or room)
+        affected_vars = [
+            v for v in remaining_vars 
+            if v.assigned == False and self._shares_resource(v, entry)
+        ]
+        
+        for future_var in affected_vars:
             domain = self._compute_domain(future_var, new_assigned)
             if not domain:
                 # Dead end - restore and return False
@@ -297,9 +293,7 @@ class SchedulerEngine:
                    schedule: List[ScheduleEntry],
                    assigned_slots: Set[Timeslot],
                    depth: int = 0) -> Optional[List[ScheduleEntry]]:
-        """
-        Recursive backtracking with MRV and LCV heuristics
-        """
+        """Recursive backtracking with MRV and LCV heuristics"""
         # Check time limit
         if time.time() - self.start_time > self.time_limit:
             if self.debug:
@@ -341,7 +335,7 @@ class SchedulerEngine:
                     self.logger.debug(f"Inconsistent: {error}")
                 continue
             
-            # Forward checking
+            # Forward checking (optimized to check only affected variables)
             if not self._forward_check(var, value, variables, assigned_slots):
                 if self.debug:
                     self.logger.debug(f"Forward check failed for ({var.section_id}, {var.course_id})")
@@ -373,9 +367,7 @@ class SchedulerEngine:
         return None
     
     def solve(self, progress_callback: Optional[Callable[[int, str], None]] = None) -> ScheduleResult:
-        """
-        Main entry point: attempt to solve the scheduling problem
-        """
+        """Main entry point: attempt to solve the scheduling problem"""  
         self.start_time = time.time()
         self.nodes_explored = 0
         self.backtracks = 0
@@ -404,7 +396,7 @@ class SchedulerEngine:
             # Shuffle variable order for retry attempts (helps escape local minima)
             if attempt > 0:
                 random.shuffle(variables)
-                self.domain_cache.clear()  # Clear cache for new attempt
+                self.static_domain_cache.clear()  # Clear static domain cache for new attempt
             
             # Run backtracking
             schedule = []

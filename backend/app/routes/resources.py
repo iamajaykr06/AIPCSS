@@ -596,7 +596,8 @@ def add_course():
     if errors:
         return jsonify({'error': 'Validation failed', 'details': errors}), 422
 
-    if not db.session.get(Department, data['department_id']):
+    dept = db.session.get(Department, data['department_id'])
+    if not dept:
         return jsonify({'error': 'Department not found'}), 404
     if Course.query.filter_by(code=data['code'].strip()).first():
         return jsonify({'error': f"Course with code '{data['code']}' already exists"}), 409
@@ -606,7 +607,9 @@ def add_course():
         code=data['code'].strip(),
         semester=data.get('semester', 1),
         course_type=data.get('course_type', 'Theory'),
-        department_id=data['department_id']
+        department_id=data['department_id'],
+        department_code=dept.code,
+        program_code=data.get('program_code'),
     )
     db.session.add(c)
     db.session.commit()

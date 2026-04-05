@@ -1,32 +1,13 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from functools import wraps
+from flask_jwt_extended import jwt_required
 
 from .. import db
-from ..models.user import User
 from ..models.program import Program
 from ..models.course import Course
 from ..models.batch import Batch
+from .auth import roles_required
 
 curriculum_bp = Blueprint('curriculum', __name__)
-
-# ── Role guard decorator ───────────────────────────────────────────────────────
-
-def roles_required(*roles):
-    """Decorator: @roles_required('admin') or @roles_required('admin','dept_head')"""
-    def decorator(fn):
-        @wraps(fn)
-        @jwt_required()
-        def wrapper(*args, **kwargs):
-            identity = get_jwt_identity()
-            user = User.query.filter_by(email=identity).first()
-            if not user or not user.is_active:
-                return jsonify({"error": "User not found or inactive"}), 401
-            if user.role not in roles:
-                return jsonify({"error": f"Access denied. Required roles: {list(roles)}"}), 403
-            return fn(*args, **kwargs)
-        return wrapper
-    return decorator
 
 # ── Program Management ───────────────────────────────────────────────────────
 
@@ -126,7 +107,7 @@ def delete_program(program_id):
         return jsonify({"error": "Program not found"}), 404
 
     # Check if program has batches
-    if program.batches.count() > 0:
+    if len(program.batches) > 0:
         return jsonify({"error": "Cannot delete program with associated batches"}), 400
 
     db.session.delete(program)
@@ -252,7 +233,7 @@ def get_curriculum():
     program_id = request.args.get('program_id', type=int)
     
     if program_id:
-        program = Program.query.get(program_id)
+        program = db.session.get(Program, program_id)
         if not program:
             return jsonify({"error": "Program not found"}), 404
         # Get courses for this program code
@@ -295,7 +276,7 @@ def add_curriculum_item():
         if not data.get(field):
             return jsonify({"error": f"Missing required field: {field}"}), 422
 
-    course = Course.query.get(data['course_id'])
+    course = db.session.get(Course, data['course_id'])
     if not course:
         return jsonify({"error": "Course not found"}), 404
 

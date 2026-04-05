@@ -4,11 +4,7 @@ from app.models import Department, Program, Batch, Section, Teacher, Course, Roo
 
 @pytest.fixture
 def app():
-    app = create_app()
-    app.config.update({
-        "TESTING": True,
-        "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
-    })
+    app = create_app('testing')
 
     with app.app_context():
         db.create_all()
@@ -34,14 +30,14 @@ def sample_data(app):
         db.session.add(bca)
         db.session.commit()
         
-        batch = Batch(name="B23", academic_year="2023", program_id=bca.id)
+        batch = Batch(name="B23", code="B23", academic_year="2023", program_id=bca.id)
         db.session.add(batch)
         db.session.commit()
         
         section = Section(name="A", batch_id=batch.id, student_count=30)
         db.session.add(section)
         
-        course = Course(name="Python", code="IT1", credits=4, department_id=it_dept.id, course_type="Theory")
+        course = Course(name="Python", code="IT1", department_id=it_dept.id, course_type="Theory", department_code="IT")
         db.session.add(course)
         db.session.commit()
         

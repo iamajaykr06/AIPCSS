@@ -310,6 +310,16 @@ def generate_with_greedy(dept, dept_id, strict_mode):
     section_slots: dict[int, set] = {}   # section_id -> {(day, slot), ...}
     teacher_load: dict[int, int] = {}    # teacher_id -> count of entries assigned
 
+    # Pre-populate with existing entries from other departments to prevent
+    # cross-department double-booking of shared rooms and teachers
+    existing_entries = TimetableEntry.query.all()
+    for e in existing_entries:
+        teacher_slots.setdefault(e.teacher_id, set()).add((e.day, e.timeslot))
+        room_slots.setdefault(e.room_id, set()).add((e.day, e.timeslot))
+        for s in e.sections:
+            section_slots.setdefault(s.id, set()).add((e.day, e.timeslot))
+        teacher_load[e.teacher_id] = teacher_load.get(e.teacher_id, 0) + 1
+
     def is_teacher_available(teacher, day, slot):
         if not teacher.availability:
             return True  # no restrictions = always available

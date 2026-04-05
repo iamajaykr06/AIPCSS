@@ -206,12 +206,13 @@ def generate_with_ortools(dept, dept_id, strict_mode):
         data_loader = DataLoader(department_id=dept_id)
         problem = data_loader.load_problem()
         
-        if not problem.variables:
+        classes = problem.get_section_courses()
+        if not classes:
             return jsonify({'error': 'No courses found for this department'}), 404
             
         socketio.emit('generation_progress', {
             'percentage': 30,
-            'current_section': f"Solving {len(problem.variables)} classes...",
+            'current_section': f"Solving {len(classes)} classes...",
             'status': 'Generating...'
         })
         
@@ -219,7 +220,7 @@ def generate_with_ortools(dept, dept_id, strict_mode):
         scheduler = OrtoolsSchedulerEngine(
             problem=problem,
             debug=False,
-            time_limit_seconds=60.0  # Allow longer timeout due to strictness
+            time_limit_seconds=120.0  # Allow longer timeout for large datasets
         )
         
         result = scheduler.solve(progress_callback=None)
@@ -301,6 +302,23 @@ def generate_with_greedy(dept, dept_id, strict_mode):
     successful_entries = 0
     skipped = []
     errors = []
+
+    # In-memory conflict tracking to eliminate N+1 DB queries
+    # Sets of (day, timeslot) occupied by each resource
+    teacher_slots: dict[int, set] = {}   # teacher_id -> {(day, slot), ...}
+    room_slots: dict[int, set] = {}      # room_id -> {(day, slot), ...}
+    section_slots: dict[int, set] = {}   # section_id -> {(day, slot), ...}
+    teacher_load: dict[int, int] = {}    # teacher_id -> count of entries assigned
+
+    # Pre-populate with existing entries from other departments to prevent
+    # cross-department double-booking of shared rooms and teachers
+    existing_entries = TimetableEntry.query.all()
+    for e in existing_entries:
+        teacher_slots.setdefault(e.teacher_id, set()).add((e.day, e.timeslot))
+        room_slots.setdefault(e.room_id, set()).add((e.day, e.timeslot))
+        for s in e.sections:
+            section_slots.setdefault(s.id, set()).add((e.day, e.timeslot))
+        teacher_load[e.teacher_id] = teacher_load.get(e.teacher_id, 0) + 1
 
     def is_teacher_available(teacher, day, slot):
         if not teacher.availability:
@@ -425,10 +443,6 @@ def generate_with_greedy(dept, dept_id, strict_mode):
                         continue
                     
                     # Deterministic teacher selection: least currently allocated load first.
-                    teacher_load = {
-                        t.id: TimetableEntry.query.filter_by(department_id=dept_id, teacher_id=t.id).count()
-                        for t in qualified_teachers
-                    }
                     teacher = min(qualified_teachers, key=lambda t: teacher_load.get(t.id, 0))
                     
                     # Deterministic weekly hours (avoid sparse random outputs)
@@ -460,7 +474,7 @@ def generate_with_greedy(dept, dept_id, strict_mode):
                                 if any(not is_teacher_available(teacher, day, s) for s in block_slots):
                                     continue
                                 
-                                # Find suitable room
+                                # Find suitable room using in-memory tracking
                                 best_room = None
                                 max_room_score = 0
                                 for room in all_rooms:
@@ -474,17 +488,21 @@ def generate_with_greedy(dept, dept_id, strict_mode):
                                     ):
                                         continue
 
-                                    with db.session.no_autoflush:
-                                        if all(not check_conflicts(day, s, room_id=room.id) for s in block_slots):
-                                            if rscore > max_room_score:
-                                                max_room_score = rscore
-                                                best_room = room
+                                    r_occupied = room_slots.get(room.id, set())
+                                    if all((day, s) not in r_occupied for s in block_slots):
+                                        if rscore > max_room_score:
+                                            max_room_score = rscore
+                                            best_room = room
                                 
                                 if not best_room: continue
 
-                                # Check for teacher and section conflicts
-                                with db.session.no_autoflush:
-                                    has_conflict = any(check_conflicts(day, s, teacher_id=teacher.id, section_id=section.id) for s in block_slots)
+                                # Check for teacher and section conflicts using in-memory sets
+                                t_occupied = teacher_slots.get(teacher.id, set())
+                                s_occupied = section_slots.get(section.id, set())
+                                has_conflict = any(
+                                    (day, s) in t_occupied or (day, s) in s_occupied
+                                    for s in block_slots
+                                )
                                 if has_conflict:
                                     continue
 
@@ -515,6 +533,11 @@ def generate_with_greedy(dept, dept_id, strict_mode):
                             db.session.add(entry)
                             section_slot_map[section.id].setdefault(best_cand['day'], []).append(s)
                             section_course_days[section.id][course.id].add(best_cand['day'])
+                            # Update in-memory conflict tracking
+                            teacher_slots.setdefault(teacher.id, set()).add((best_cand['day'], s))
+                            room_slots.setdefault(best_cand['room'].id, set()).add((best_cand['day'], s))
+                            section_slots.setdefault(section.id, set()).add((best_cand['day'], s))
+                            teacher_load[teacher.id] = teacher_load.get(teacher.id, 0) + 1
                             allocated_hours += 1
                             successful_entries += 1
                     

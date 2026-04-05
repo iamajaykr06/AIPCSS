@@ -4,6 +4,33 @@ import type {
     TimetableViewResponse, GroupedTimetableResponse,
 } from '@/types'
 
+interface CreateEntryPayload {
+    day: string;
+    timeslot: string;
+    section_id: number;
+    course_id: number;
+    teacher_id: number;
+    room_id: number;
+    department_id: number;
+}
+
+interface UpdateEntryPayload {
+    day?: string;
+    timeslot?: string;
+    room_id?: number;
+    teacher_id?: number;
+    course_id?: number;
+    section_id?: number;
+}
+
+interface SchedulingStats {
+    total_entries: number;
+    departments: number;
+    courses_scheduled: number;
+    teachers_assigned: number;
+    rooms_used: number;
+}
+
 export const schedulingService = {
     // Timetable generation
     async generateTimetable(payload: GenerateSchedulePayload): Promise<GenerateScheduleResult> {
@@ -28,7 +55,7 @@ export const schedulingService = {
     },
 
     // Manual Entry Management
-    async createEntry(payload: any): Promise<{ message: string; id: number }> {
+    async createEntry(payload: CreateEntryPayload): Promise<{ message: string; id: number }> {
         const res = await api.post('/scheduling/entries', payload)
         return res.data
     },
@@ -37,12 +64,12 @@ export const schedulingService = {
         await api.delete(`/scheduling/entries/${id}`)
     },
 
-    async updateEntry(id: number, payload: any): Promise<{ message: string }> {
+    async updateEntry(id: number, payload: UpdateEntryPayload): Promise<{ message: string }> {
         const res = await api.patch(`/scheduling/entries/${id}`, payload)
         return res.data
     },
 
-    async getStats(): Promise<any> {
+    async getStats(): Promise<SchedulingStats> {
         const res = await api.get('/scheduling/stats')
         return res.data
     }

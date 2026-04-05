@@ -193,138 +193,100 @@ def generate_timetable():
 
 
 def generate_with_ortools(dept, dept_id, strict_mode):
-    """Generate timetable using OR-Tools CP-SAT solver - BATCH WISE."""
-    all_teachers = Teacher.query.all()
-    all_rooms = Room.query.filter(
-        (Room.department_id == dept_id) | (Room.department_id.is_(None))
-    ).all()
-    
-    if not all_teachers:
-        return jsonify({'error': 'No teachers found'}), 404
-    
-    # Collect all batches to process
-    batches_to_process = []
-    for program in dept.programs:
-        for batch in program.batches:
-            current_sem = _current_semester_from_batch(batch)
-            batch.current_semester = current_sem
-            
-            # Get courses for this batch
-            program_courses = Course.query.filter_by(
-                program_code=program.code,
-                semester=current_sem
-            ).all()
-            
-            if not program_courses:
-                program_courses = Course.query.filter_by(
-                    department_id=dept_id,
-                    semester=current_sem
-                ).all()
-            
-            if program_courses:  # Only add if there are courses
-                batches_to_process.append({
-                    'batch': batch,
-                    'program': program,
-                    'courses': program_courses,
-                    'sections': batch.sections
-                })
-    
-    if not batches_to_process:
-        return jsonify({'error': 'No batches with courses found'}), 404
-    
-    total_batches = len(batches_to_process)
-    successful_entries = 0
-    all_skipped = []
-    all_errors = []
-    
-    # Process each batch separately
-    for batch_idx, batch_info in enumerate(batches_to_process):
-        batch = batch_info['batch']
-        program = batch_info['program']
-        courses = batch_info['courses']
-        sections = list(batch_info['sections'])
+    """Generate timetable using the new optimized Genetic Engine - DEPARTMENT GLOBAL WISE."""
+    try:
+        from ..scheduler_new import DataLoader, OrtoolsSchedulerEngine
         
-        if not sections:
-            continue
-        
-        progress_pct = int((batch_idx / total_batches) * 100)
         socketio.emit('generation_progress', {
-            'percentage': progress_pct,
-            'current_section': f"Batch {batch.name} ({program.code}) - {len(courses)} courses, {len(sections)} sections",
+            'percentage': 10,
+            'current_section': f"Global Load - {dept.name}",
+            'status': 'Loading Data...'
+        })
+        
+        data_loader = DataLoader(department_id=dept_id)
+        problem = data_loader.load_problem()
+        
+        if not problem.variables:
+            return jsonify({'error': 'No courses found for this department'}), 404
+            
+        socketio.emit('generation_progress', {
+            'percentage': 30,
+            'current_section': f"Solving {len(problem.variables)} classes...",
             'status': 'Generating...'
         })
         
-        try:
-            # Solve using new CSP scheduler
-            from ..scheduler_new import DataLoader, SchedulerEngine
+        # Deploy Google OR-Tools C++ CP-SAT Solver
+        scheduler = OrtoolsSchedulerEngine(
+            problem=problem,
+            debug=False,
+            time_limit_seconds=60.0  # Allow longer timeout due to strictness
+        )
+        
+        result = scheduler.solve(progress_callback=None)
+        
+        if not result.schedule:
+            return jsonify({
+                'status': 'error',
+                'errors': [result.error_message or "OR-Tools resolved map as mathematically INFEASIBLE. No layout exists."],
+                'message': 'Failed to generate a valid timetable'
+            }), 422
             
-            data_loader = DataLoader(department_id=dept_id)
-            problem = data_loader.load_problem()
-            
-            scheduler = SchedulerEngine(
-                problem=problem,
-                debug=False,
-                max_retries=3,
-                time_limit_seconds=60.0
+        # Still alert on partial success to UI
+        if not result.success:
+            socketio.emit('generation_progress', {
+                'percentage': 90,
+                'current_section': f"Saving Best Found Schedule ({result.conflicts.get('room_overlap', 0)} conflicts remaining)",
+                'status': 'Partial Success'
+            })
+        else:
+            socketio.emit('generation_progress', {
+                'percentage': 90,
+                'current_section': "Saving Perfect Schedule",
+                'status': 'Finalizing...'
+            })
+        
+        # Save all generated entries
+        successful_entries = 0
+        for entry_data in result.schedule:
+            entry = TimetableEntry(
+                day=entry_data.timeslot.day,
+                timeslot=f"{entry_data.timeslot.start_time}-{entry_data.timeslot.end_time}",
+                course_id=entry_data.course_id,
+                teacher_id=entry_data.faculty_id,
+                room_id=entry_data.room_id,
+                department_id=dept_id
             )
+            # Find the section and attach it
+            section = db.session.get(Section, entry_data.section_id)
+            if section:
+                entry.sections.append(section)
+                
+            db.session.add(entry)
+            successful_entries += 1
             
-            result = scheduler.solve(progress_callback=None)
-            
-            if not result.success:
-                all_errors.append(f"Batch {batch.name}: {result.error_message}")
-                continue
-            
-            # Convert result to expected format
-            entries_data = []
-            for entry in result.schedule:
-                entries_data.append({
-                    'section_id': entry.section_id,
-                    'course_id': entry.course_id,
-                    'teacher_id': entry.faculty_id,
-                    'room_id': entry.room_id,
-                    'day': entry.timeslot.day,
-                    'timeslot': f"{entry.timeslot.start_time}-{entry.timeslot.end_time}"
-                })
-            
-            skipped = []
-            errors = []
-            
-            # Create entries for this batch
-            for entry_data in entries_data:
-                entry = TimetableEntry(
-                    day=entry_data['day'],
-                    timeslot=entry_data['timeslot'],
-                    course_id=entry_data['course_id'],
-                    teacher_id=entry_data['teacher_id'],
-                    room_id=entry_data['room_id'],
-                    department_id=dept_id
-                )
-                # Find and add section
-                for section in sections:
-                    if section.id == entry_data['section_id']:
-                        entry.sections.append(section)
-                        break
-                db.session.add(entry)
-                successful_entries += 1
-            
-            # Commit after each batch
-            db.session.commit()
-            
-            all_skipped.extend(skipped)
-            all_errors.extend(errors)
-            
-        except Exception as e:
-            db.session.rollback()
-            all_errors.append(f"Batch {batch.name}: {str(e)}")
-    
-    status = 'success' if not all_skipped and not all_errors else 'partial_success'
-    return jsonify({
-        'status': status,
-        'entries_created': successful_entries,
-        'incomplete_workloads': all_skipped,
-        'errors': all_errors,
-        'message': f'Generated {successful_entries} timetable entries for {total_batches} batches in {dept.name}'
-    }), 200
+        db.session.commit()
+        
+        socketio.emit('generation_progress', {
+            'percentage': 100,
+            'current_section': "Complete",
+            'status': 'Done'
+        })
+        
+        return jsonify({
+            'status': 'success',
+            'entries_created': successful_entries,
+            'incomplete_workloads': [],
+            'errors': [],
+            'message': f'Successfully generated {successful_entries} assignments for {dept.name}'
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'errors': [str(e)],
+            'message': 'Fatal error during generation'
+        }), 500
 
 
 def generate_with_greedy(dept, dept_id, strict_mode):

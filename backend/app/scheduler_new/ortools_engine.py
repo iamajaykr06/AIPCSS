@@ -141,6 +141,8 @@ class OrtoolsSchedulerEngine:
                 else:
                     msg += "All qualified faculty are completely unavailable during compatible timeslots."
 
+                print(f"ERROR: {msg}")
+
                 return ScheduleResult(
                     success=False,
                     error_message=msg
@@ -220,6 +222,8 @@ class OrtoolsSchedulerEngine:
         else:
             if progress_callback:
                 progress_callback(100, "Failed to resolve constraint topology. Graph is heavily infeasible.")
+            
+            print(f"ERROR: Solver status: {solver.StatusName(status)}")
             return ScheduleResult(
                 success=False,
                 error_message=f"No feasible layout bounds found (Status: {solver.StatusName(status)})",

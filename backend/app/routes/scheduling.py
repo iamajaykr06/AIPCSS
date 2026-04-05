@@ -179,6 +179,7 @@ def generate_timetable():
         return jsonify({'error': 'department_id is required'}), 422
 
     dept = db.session.get(Department, dept_id)
+    print(f"DEBUG: Generating timetable for dept {dept_id}")
     if not dept:
         return jsonify({'error': 'Department not found'}), 404
 
@@ -226,10 +227,12 @@ def generate_with_ortools(dept, dept_id, strict_mode):
         result = scheduler.solve(progress_callback=None)
         
         if not result.schedule:
+            print(f"ERROR: OR-Tools failed to generate schedule. Success: {result.success}, Error: {result.error_message}")
+            msg = result.error_message or "OR-Tools concluded the problem is mathematically INFEASIBLE. Check resource quotas/constraints."
             return jsonify({
                 'status': 'error',
-                'errors': [result.error_message or "OR-Tools resolved map as mathematically INFEASIBLE. No layout exists."],
-                'message': 'Failed to generate a valid timetable'
+                'errors': [msg],
+                'message': f"Generation failed: {msg}"
             }), 422
             
         # Still alert on partial success to UI

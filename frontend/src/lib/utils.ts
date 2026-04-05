@@ -8,11 +8,20 @@ export function getErrorMessage(error: unknown): string {
 
     // Axios-style error
     if (typeof error === 'object' && error !== null && 'response' in error) {
-        const axiosErr = error as AxiosError<{ error?: string; message?: string; details?: string[] }>
+        const axiosErr = error as AxiosError<{ 
+            error?: string; 
+            message?: string; 
+            details?: string[]; 
+            errors?: string[];
+        }>
         const data = axiosErr.response?.data
         if (data) {
+            // Check for details, errors, error, or message in that order
             if (data.details && Array.isArray(data.details)) {
                 return data.details.join(', ')
+            }
+            if (data.errors && Array.isArray(data.errors)) {
+                return data.errors.join(', ')
             }
             return data.error || data.message || axiosErr.message
         }

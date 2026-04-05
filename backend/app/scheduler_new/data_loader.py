@@ -179,12 +179,31 @@ class DataLoader:
             for c in dept_courses:
                 # Match program
                 similarity = calculate_similarity(c.program_code, program_code)
-                if similarity < 0.3 and c.program_code != program_code:
-                    continue
+                # Ensure they actually mapped correctly (don't accidentally match None to None and give all courses)
+                is_exact_match = (c.program_code and program_code and c.program_code == program_code)
+                
+                if similarity < 0.3 and not is_exact_match:
+                    # Also fallback: only match if both are completely empty and within same department
+                    if not (not c.program_code and not program_code and c.department_id == section.batch.program.department_id):
+                        continue
                 
                 # Filter by current semester (if course has semester specified)
-                if c.semester is not None and current_semester is not None:
-                    if c.semester != current_semester:
+                course_sem = c.semester
+                if course_sem is None and c.semester_name:
+                    # Attempt to extract digit from string like "Semester 3", "3", "III"
+                    import re
+                    digits = re.findall(r'\d+', str(c.semester_name))
+                    if digits:
+                        course_sem = int(digits[0])
+                    else:
+                        # try roman numerals? I, II, III, IV, V, VI, VII, VIII
+                        roman_map = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8}
+                        sem_upper = str(c.semester_name).strip().upper().replace('SEMESTER', '').strip()
+                        if sem_upper in roman_map:
+                            course_sem = roman_map[sem_upper]
+                            
+                if course_sem is not None and current_semester is not None:
+                    if course_sem != current_semester:
                         continue
                 
                 course_ids.append(c.id)

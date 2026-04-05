@@ -132,6 +132,48 @@ class ScheduleEntry:
 
 
 @dataclass
+class AssignmentVariable:
+    """Represents a class that needs to be scheduled"""
+    section_id: int
+    course_id: int
+    hours_needed: int
+    assigned: bool = False
+    
+    def __hash__(self):
+        return hash((self.section_id, self.course_id, self.hours_needed))
+
+
+@dataclass
+class DomainValue:
+    """A possible assignment: (faculty, room, timeslot)"""
+    faculty_id: int
+    room_id: int
+    timeslot: Timeslot
+    
+    def __hash__(self):
+        return hash((self.faculty_id, self.room_id, self.timeslot))
+
+
+@dataclass
+class ScheduleResult:
+    """Result of scheduling attempt"""
+    success: bool
+    schedule: List[ScheduleEntry] = field(default_factory=list)
+    error_message: Optional[str] = None
+    conflicts: Dict[str, int] = field(default_factory=dict)
+    stats: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict:
+        return {
+            "status": "success" if self.success else "failure",
+            "schedule": [e.to_dict() for e in self.schedule] if self.success else [],
+            "error": self.error_message,
+            "conflicts": self.conflicts,
+            "stats": self.stats
+        }
+
+
+@dataclass
 class SchedulingProblem:
     """Complete scheduling problem definition"""
     sections: List[Section]
@@ -163,7 +205,11 @@ class SchedulingProblem:
             for course_id in section.course_ids:
                 course = self.course_map.get(course_id)
                 if course:
-                    hours = course.get_hours_needed()
-                    # Schedule course as a single unit (not individual hours)
-                    instances.append((section.id, course_id, hours))
+                    if course.course_type == "Lab":
+                        # Labs are scheduled as continuous multi-hour blocks
+                        instances.append((section.id, course_id, course.get_hours_needed()))
+                    else:
+                        # Theory courses are scheduled as distinct 1-hour slots individually
+                        for _ in range(course.get_hours_needed()):
+                            instances.append((section.id, course_id, 1))
         return instances

@@ -11,7 +11,7 @@ from typing import Optional
 from .. import db, socketio
 from ..models import TimetableEntry, Department, ScheduleSettings
 from .data_loader import DataLoader
-from .scheduler_engine import SchedulerEngine
+from .genetic_engine import GeneticSchedulerEngine
 
 
 scheduler_bp = Blueprint('scheduler_new', __name__)
@@ -32,14 +32,20 @@ def generate():
     """
     POST /api/scheduler/generate
     
-    CSP-based scheduler with Backtracking + Forward Checking + MRV + LCV.
+    Enhanced Genetic Algorithm scheduler with adaptive parameters, local search, and multiple crossover operators.
     
     Request Body:
     {
         "department_id": int (optional),
         "debug": bool (optional, default false),
         "max_retries": int (optional, default 3),
-        "time_limit_seconds": float (optional, default 300)
+        "time_limit_seconds": float (optional, default 300),
+        "population_size": int (optional, default 100),
+        "mutation_rate": float (optional, default 0.1),
+        "tournament_size": int (optional, default 5),
+        "elite_size": int (optional, default 2),
+        "use_local_search": bool (optional, default true),
+        "local_search_intensity": int (optional, default 10)
     }
     
     Response:
@@ -65,6 +71,14 @@ def generate():
     debug_mode = data.get('debug', False)
     max_retries = data.get('max_retries', 3)
     time_limit = data.get('time_limit_seconds', 300.0)
+    
+    # GA-specific parameters
+    population_size = data.get('population_size', 100)
+    mutation_rate = data.get('mutation_rate', 0.1)
+    tournament_size = data.get('tournament_size', 5)
+    elite_size = data.get('elite_size', 2)
+    use_local_search = data.get('use_local_search', True)
+    local_search_intensity = data.get('local_search_intensity', 10)
     
     # Setup logging
     if debug_mode:
@@ -113,14 +127,20 @@ def generate():
             }), 400
         
         # Initialize scheduler
-        scheduler = SchedulerEngine(
+        scheduler = GeneticSchedulerEngine(
             problem=problem,
             debug=debug_mode,
             max_retries=max_retries,
-            time_limit_seconds=time_limit
+            time_limit_seconds=time_limit,
+            population_size=population_size,
+            mutation_rate=mutation_rate,
+            tournament_size=tournament_size,
+            elite_size=elite_size,
+            use_local_search=use_local_search,
+            local_search_intensity=local_search_intensity
         )
         
-        # Solve with CSP backtracking
+        # Solve
         result = scheduler.solve()
         
         if result.success:
@@ -166,14 +186,20 @@ def generate_timetable():
     """
     POST /generate-timetable
     
-    Generate timetable using backtracking CSP solver with MRV, LCV, and Forward Checking.
+    Generate timetable using Enhanced Genetic Algorithm with adaptive parameters, local search, and multiple crossover operators.
     
     Request Body:
     {
         "department_id": int (optional),
         "debug": bool (optional, default false),
         "max_retries": int (optional, default 3),
-        "time_limit_seconds": float (optional, default 300)
+        "time_limit_seconds": float (optional, default 300),
+        "population_size": int (optional, default 100),
+        "mutation_rate": float (optional, default 0.1),
+        "tournament_size": int (optional, default 5),
+        "elite_size": int (optional, default 2),
+        "use_local_search": bool (optional, default true),
+        "local_search_intensity": int (optional, default 10)
     }
     
     Response:
@@ -194,6 +220,14 @@ def generate_timetable():
     debug_mode = data.get('debug', False)
     max_retries = data.get('max_retries', 3)
     time_limit = data.get('time_limit_seconds', 300.0)
+    
+    # GA-specific parameters
+    population_size = data.get('population_size', 100)
+    mutation_rate = data.get('mutation_rate', 0.1)
+    tournament_size = data.get('tournament_size', 5)
+    elite_size = data.get('elite_size', 2)
+    use_local_search = data.get('use_local_search', True)
+    local_search_intensity = data.get('local_search_intensity', 10)
     
     # Validate department if provided
     if department_id:
@@ -265,13 +299,19 @@ def generate_timetable():
             }), 400
         
         # Initialize scheduler
-        emit_progress(department_id or 0, 10, "Initializing scheduler...")
+        emit_progress(department_id or 0, 10, "Initializing Genetic Algorithm scheduler...")
         
-        scheduler = SchedulerEngine(
+        scheduler = GeneticSchedulerEngine(
             problem=problem,
             debug=debug_mode,
             max_retries=max_retries,
-            time_limit_seconds=time_limit
+            time_limit_seconds=time_limit,
+            population_size=population_size,
+            mutation_rate=mutation_rate,
+            tournament_size=tournament_size,
+            elite_size=elite_size,
+            use_local_search=use_local_search,
+            local_search_intensity=local_search_intensity
         )
         
         # Solve

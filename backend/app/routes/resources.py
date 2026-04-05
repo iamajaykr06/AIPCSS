@@ -856,7 +856,7 @@ def bulk_import_batches():
     res, status = _bulk_import_logic(
         file, 
         Batch, 
-        {'name': 'Name', 'code': 'Code', 'academic_year': 'Year'}, 
+        {'name': 'Name', 'code': 'Code', 'academic_year': 'AcademicYear'},  # Changed from 'Year' to 'AcademicYear'
         'code',
         lookup_configs={'program_id': (Program, 'code', 'ProgramCode')}
     )
@@ -866,14 +866,51 @@ def bulk_import_batches():
 @roles_required('admin')
 def bulk_import_sections():
     file = request.files.get('file')
-    res, status = _bulk_import_logic(
-        file, 
-        Section, 
-        {'name': 'Name', 'student_count': 'Count'}, 
-        None,
-        lookup_configs={'batch_id': (Batch, 'code', 'BatchCode')}
-    )
-    return jsonify(res), status
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    try:
+        df = pd.read_excel(BytesIO(file.read()))
+        success = 0
+        errors = []
+
+        for index, row in df.iterrows():
+            try:
+                name = row.get('Name')
+                student_count = row.get('Count')
+                batch_code = row.get('BatchCode')
+
+                if pd.isna(name) or pd.isna(batch_code):
+                    raise Exception("Missing required field: Name or BatchCode")
+
+                batch = Batch.query.filter_by(code=str(batch_code).strip()).first()
+                if not batch:
+                    raise Exception(f"Batch was not found with code='{batch_code}'")
+
+                cleaned_name = str(name).strip()
+                cleaned_count = int(student_count) if pd.notna(student_count) else 40
+
+                existing = Section.query.filter_by(batch_id=batch.id, name=cleaned_name).first()
+                if existing:
+                    # Keep re-imports idempotent and refresh student count when it changed.
+                    existing.student_count = cleaned_count
+                    success += 1
+                    continue
+
+                db.session.add(Section(
+                    name=cleaned_name,
+                    student_count=cleaned_count,
+                    batch_id=batch.id,
+                ))
+                success += 1
+            except Exception as e:
+                errors.append(f"Row {index+2}: {str(e)}")
+
+        db.session.commit()
+        return jsonify({"message": f"Successfully processed {success} sections", "errors": errors}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
 
 @resources_bp.route('/teachers/import', methods=['POST'])
 @roles_required('admin')
@@ -941,22 +978,72 @@ def bulk_import_teachers():
 @roles_required('admin')
 def bulk_import_courses():
     file = request.files.get('file')
-    # Update mapping to including semester string and department code from excel file
-    res, status = _bulk_import_logic(
-        file, 
-        Course, 
-        {
-            'name': 'Name', 
-            'code': 'code', 
-            'semester_name': 'Semester', 
-            'course_type': 'Type', 
-            'program_code': 'Program', 
-            'department_code': 'DeptCode'
-        }, 
-        None, # allow duplicates during import
-        lookup_configs={'department_id': (Department, 'code', 'DeptCode')}
-    )
-    return jsonify(res), status
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
+    
+    try:
+        df = pd.read_excel(BytesIO(file.read()))
+        success = 0
+        errors = []
+        
+        for index, row in df.iterrows():
+            try:
+                name = row.get('Name')
+                code = row.get('code')
+                semester_name = row.get('Semester')
+                course_type = row.get('Type', 'Theory')
+                program_code = row.get('Program')
+                dept_code = row.get('DeptCode')
+                
+                if pd.isna(name) or pd.isna(code) or pd.isna(dept_code):
+                    raise Exception("Missing required field: Name, code, or DeptCode")
+                
+                # Parse semester as integer from semester_name (e.g., "Semester 3" -> 3, "III" -> 3)
+                semester = None
+                if pd.notna(semester_name):
+                    # Try to extract digit from string like "Semester 3", "3"
+                    import re
+                    digits = re.findall(r'\d+', str(semester_name))
+                    if digits:
+                        semester = int(digits[0])
+                    else:
+                        # Try roman numerals: I, II, III, IV, V, VI, VII, VIII
+                        roman_map = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8}
+                        sem_upper = str(semester_name).strip().upper().replace('SEMESTER', '').strip()
+                        if sem_upper in roman_map:
+                            semester = roman_map[sem_upper]
+                
+                # Lookup department
+                dept = Department.query.filter_by(code=str(dept_code).strip()).first()
+                if not dept:
+                    raise Exception(f"Department not found with code='{dept_code}'")
+                
+                # Check for existing course
+                existing = Course.query.filter_by(code=str(code).strip()).first()
+                if existing:
+                    success += 1
+                    continue
+                
+                course = Course(
+                    name=str(name).strip(),
+                    code=str(code).strip(),
+                    semester=semester,  # Store as integer
+                    semester_name=str(semester_name).strip() if pd.notna(semester_name) else None,
+                    course_type=str(course_type).strip() if pd.notna(course_type) else 'Theory',
+                    program_code=str(program_code).strip() if pd.notna(program_code) else None,
+                    department_code=str(dept_code).strip(),
+                    department_id=dept.id
+                )
+                db.session.add(course)
+                success += 1
+            except Exception as e:
+                errors.append(f"Row {index+2}: {str(e)}")
+        
+        db.session.commit()
+        return jsonify({"message": f"Successfully processed {success} courses", "errors": errors}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
 
 @resources_bp.route('/rooms/import', methods=['POST'])
 @roles_required('admin')
@@ -996,11 +1083,15 @@ def import_rooms():
                     department_id = dept.id
 
                 program_id = None
+                program = None
                 if pd.notna(program_code):
                     program = Program.query.filter_by(code=str(program_code).strip()).first()
                     if not program:
                         raise Exception(f"Program was not found with code='{program_code}'")
                     program_id = program.id
+                    # Auto-set department_id from program's department for department-level sharing
+                    if program.department_id and not department_id:
+                        department_id = program.department_id
 
                 if str(room_type).strip().lower() == 'lab' and not program_id:
                     raise Exception("Program Code is required for lab rooms")

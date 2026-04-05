@@ -1,7 +1,7 @@
 import api from '@/lib/axios'
 import type {
     GenerateSchedulePayload, GenerateScheduleResult,
-    TimetableViewResponse, GroupedTimetableResponse,
+    TimetableViewResponse, GroupedTimetableResponse, SchedulingStats,
 } from '@/types'
 
 interface CreateEntryPayload {
@@ -21,14 +21,6 @@ interface UpdateEntryPayload {
     teacher_id?: number;
     course_id?: number;
     section_id?: number;
-}
-
-interface SchedulingStats {
-    total_entries: number;
-    departments: number;
-    courses_scheduled: number;
-    teachers_assigned: number;
-    rooms_used: number;
 }
 
 export const schedulingService = {

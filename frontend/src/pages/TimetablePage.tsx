@@ -10,7 +10,7 @@ import { useToast } from '@/context/ToastContext'
 import { PageLoader, Spinner, EmptyState } from '@/components/ui/Loading'
 import { Modal } from '@/components/ui/Modal'
 import { getErrorMessage, DAYS, SLOTS } from '@/lib/utils'
-import type { TimetableEntry, Department, Teacher, Room, Course, Section, Batch, GenerateScheduleResult } from '@/types'
+import type { TimetableEntry, Department, Teacher, Room, Course, Section, Batch, GenerateScheduleResult, ScheduleBreak } from '@/types'
 import { io } from 'socket.io-client'
 
 interface TimetableReadiness {
@@ -123,10 +123,12 @@ interface BatchTimetableViewProps {
     batches: Batch[]
     sections: Section[]
     teachers: Teacher[]
+    workingDays: string[]
+    displaySlots: Array<{ key: string; label: string; isBreak: boolean }>
     onDelete: (id: number) => void
 }
 
-function BatchTimetableView({ timetable, batches, sections, teachers, onDelete }: BatchTimetableViewProps) {
+function BatchTimetableView({ timetable, batches, sections, teachers, workingDays, displaySlots, onDelete }: BatchTimetableViewProps) {
 
     // Build teacher color mapping using teacher name hash (consistent with legend)
     const teacherColors = useMemo(() => {
@@ -143,11 +145,15 @@ function BatchTimetableView({ timetable, batches, sections, teachers, onDelete }
     const grid = useMemo(() => {
         const g: Record<string, Record<string, Record<string, TimetableEntry[]>>> = {}
 
-        DAYS.forEach(day => {
+        workingDays.forEach(day => {
             g[day] = {}
             batches.forEach(batch => {
                 g[day][String(batch.id)] = {}
-                SLOTS.forEach(slot => { g[day][String(batch.id)][slot] = [] })
+                displaySlots.forEach(slot => {
+                    if (!slot.isBreak) {
+                        g[day][String(batch.id)][slot.key] = []
+                    }
+                })
             })
         })
 
@@ -166,7 +172,7 @@ function BatchTimetableView({ timetable, batches, sections, teachers, onDelete }
         })
 
         return g
-    }, [timetable, batches, sections])
+    }, [timetable, batches, sections, workingDays, displaySlots])
 
     // ── Infer the "home room" for each batch (most-used room) ──────────────
     const batchRooms = useMemo(() => {
@@ -201,22 +207,35 @@ function BatchTimetableView({ timetable, batches, sections, teachers, onDelete }
         const meta: Record<string, { entry: TimetableEntry | null; colSpan: number; skip: boolean }> = {}
         const skipSet = new Set<string>()
 
-        SLOTS.forEach((slot, i) => {
-            if (skipSet.has(slot)) {
-                meta[slot] = { entry: null, colSpan: 1, skip: true }
+        displaySlots.forEach((slot, i) => {
+            if (skipSet.has(slot.key)) {
+                meta[slot.key] = { entry: null, colSpan: 1, skip: true }
                 return
             }
 
-            const entries = grid[day]?.[batchId]?.[slot] || []
+            if (slot.isBreak) {
+                meta[slot.key] = { entry: null, colSpan: 1, skip: false }
+                return
+            }
+
+            const entries = grid[day]?.[batchId]?.[slot.key] || []
             const entry = entries[0] || null
 
             let colSpan = 1
 
             if (entry) {
+                const isLabEntry = entry.course?.type === 'Lab' || entry.course?.name?.toLowerCase().includes('lab')
+                if (!isLabEntry) {
+                    meta[slot.key] = { entry, colSpan, skip: false }
+                    return
+                }
                 // Look ahead for consecutive identical course+teacher+room
-                for (let j = i + 1; j < SLOTS.length; j++) {
-                    const nextSlot = SLOTS[j]
-                    const nextEntries = grid[day]?.[batchId]?.[nextSlot] || []
+                for (let j = i + 1; j < displaySlots.length; j++) {
+                    const nextSlot = displaySlots[j]
+                    if (nextSlot.isBreak) {
+                        break
+                    }
+                    const nextEntries = grid[day]?.[batchId]?.[nextSlot.key] || []
                     const nextEntry = nextEntries[0]
                     if (
                         nextEntry &&
@@ -225,14 +244,14 @@ function BatchTimetableView({ timetable, batches, sections, teachers, onDelete }
                         nextEntry.room?.id === entry.room?.id
                     ) {
                         colSpan++
-                        skipSet.add(nextSlot)
+                        skipSet.add(nextSlot.key)
                     } else {
                         break
                     }
                 }
             }
 
-            meta[slot] = { entry, colSpan, skip: false }
+            meta[slot.key] = { entry, colSpan, skip: false }
         })
 
         return meta
@@ -251,7 +270,7 @@ function BatchTimetableView({ timetable, batches, sections, teachers, onDelete }
         ...(width ? { width } : { minWidth: '80px' }),
     })
 
-    const totalCols = SLOTS.length + 1   // +1 for the Program column
+    const totalCols = displaySlots.length + 1   // +1 for the Program column
 
     return (
         <div style={{ overflowX: 'auto', padding: '0.75rem' }}>
@@ -267,19 +286,17 @@ function BatchTimetableView({ timetable, batches, sections, teachers, onDelete }
                 {/* ── Column widths ─────────────────────────────────── */}
                 <colgroup>
                     <col style={{ width: '88px' }} />
-                    {SLOTS.map(slot => <col key={slot} />)}
+                    {displaySlots.map(slot => <col key={slot.key} />)}
                 </colgroup>
 
                 {/* ── Header row ──────────────────────────────────────── */}
                 <thead>
                     <tr>
                         <th style={th('#388E3C', '#fff', '88px')}>Program</th>
-                        {SLOTS.map(slot => {
-                            const s = String(slot)
-                            const isBreak = s.toLowerCase().includes('break')
+                        {displaySlots.map(slot => {
                             return (
-                                <th key={slot} style={th(isBreak ? '#E53935' : '#FDD835', isBreak ? '#fff' : '#000')}>
-                                    {slot}
+                                <th key={slot.key} style={th(slot.isBreak ? '#E53935' : '#FDD835', slot.isBreak ? '#fff' : '#000')}>
+                                    {slot.label}
                                 </th>
                             )
                         })}
@@ -288,7 +305,7 @@ function BatchTimetableView({ timetable, batches, sections, teachers, onDelete }
 
                 {/* ── Body: day sections → batch rows ─────────────────── */}
                 <tbody>
-                    {DAYS.map(day => (
+                    {workingDays.map(day => (
                         <React.Fragment key={day}>
 
                             {/* Day separator */}
@@ -355,17 +372,16 @@ function BatchTimetableView({ timetable, batches, sections, teachers, onDelete }
                                         </td>
 
                                         {/* Time slot cells */}
-                                        {SLOTS.map(slot => {
-                                            const { entry, colSpan, skip } = slotMeta[slot]
+                                        {displaySlots.map(slot => {
+                                            const { entry, colSpan, skip } = slotMeta[slot.key]
                                             if (skip) return null   // rendered as part of a multi-span cell
 
-                                            const s = String(slot)
-                                            const isBreakSlot = s.toLowerCase().includes('break')
+                                            const isBreakSlot = slot.isBreak
 
                                             // ── BREAK column ──
                                             if (isBreakSlot) {
                                                 return (
-                                                    <td key={slot} style={{
+                                                    <td key={slot.key} style={{
                                                         border: '1px solid #555',
                                                         background: '#FFFF00',
                                                         textAlign: 'center',
@@ -374,7 +390,7 @@ function BatchTimetableView({ timetable, batches, sections, teachers, onDelete }
                                                         color: '#333',
                                                         verticalAlign: 'middle',
                                                     }}>
-                                                        BREAK
+                                                        {slot.label}
                                                     </td>
                                                 )
                                             }
@@ -382,7 +398,7 @@ function BatchTimetableView({ timetable, batches, sections, teachers, onDelete }
                                             // ── Empty cell ──
                                             if (!entry) {
                                                 return (
-                                                    <td key={slot} colSpan={colSpan} style={{
+                                                    <td key={slot.key} colSpan={colSpan} style={{
                                                         border: '1px solid #ddd',
                                                         background: rowBg,
                                                     }} />
@@ -402,7 +418,7 @@ function BatchTimetableView({ timetable, batches, sections, teachers, onDelete }
 
                                             return (
                                                 <td
-                                                    key={slot}
+                                                    key={slot.key}
                                                     colSpan={colSpan}
                                                     title={`${entry.course?.name} | ${entry.teacher?.name} | ${entry.room?.name}`}
                                                     style={{
@@ -512,6 +528,9 @@ export function TimetablePage() {
     const [readiness, setReadiness] = useState<TimetableReadiness>(emptyReadiness)
     const [generationResult, setGenerationResult] = useState<GenerateScheduleResult | null>(null)
     const [batches, setBatches] = useState<Batch[]>([])
+    const [workingDays, setWorkingDays] = useState<string[]>([...DAYS])
+    const [timeSlots, setTimeSlots] = useState<string[]>([...SLOTS])
+    const [breaks, setBreaks] = useState<ScheduleBreak[]>([])
 
     // Form state for manual entry
     const [formData, setFormData] = useState({
@@ -530,6 +549,22 @@ export function TimetablePage() {
     )
 
     const [activeId, setActiveId] = useState<number | null>(null)
+
+    const displaySlots = useMemo(() => {
+        const teaching = timeSlots.map(slot => {
+            const [start, end] = slot.split('-')
+            return { key: slot, label: slot, isBreak: false, start, end }
+        })
+        const pauseSlots = (breaks || []).map((item, index) => ({
+            key: `break-${item.start}-${item.end}-${index}`,
+            label: item.label || `${item.start}-${item.end}`,
+            isBreak: true,
+            start: item.start,
+            end: item.end,
+        }))
+
+        return [...teaching, ...pauseSlots].sort((left, right) => left.start.localeCompare(right.start))
+    }, [timeSlots, breaks])
 
     useEffect(() => {
         async function fetchDepts() {
@@ -554,9 +589,16 @@ export function TimetablePage() {
         try {
             const res = await schedulingService.viewTimetable(deptId)
             setTimetable(res.data || [])
+            setWorkingDays(res.working_days?.length ? res.working_days : [...DAYS])
+            const nextTimeSlots = res.time_slots?.map(slot => `${slot.start}-${slot.end}`) || []
+            setTimeSlots(nextTimeSlots.length ? nextTimeSlots : [...SLOTS])
+            setBreaks(res.breaks || [])
         } catch {
             // Don't toast 404s, just show empty state
             setTimetable([])
+            setWorkingDays([...DAYS])
+            setTimeSlots([...SLOTS])
+            setBreaks([])
         } finally {
             setLoading(false)
         }
@@ -908,8 +950,11 @@ export function TimetablePage() {
             const existing = sessions.find(s => s.entry.id === entry.id)
             if (existing) return
 
+            const isLab = entry.course?.type === 'Lab' || entry.course?.name?.toLowerCase().includes('lab')
+            if (!isLab) return
+
             // Find consecutive slots for this course/teacher/room combination
-            const daySlots = SLOTS
+            const daySlots = timeSlots
             const entrySlotIndex = daySlots.indexOf(entry.timeslot)
             if (entrySlotIndex === -1) return
 
@@ -942,13 +987,13 @@ export function TimetablePage() {
         })
 
         return sessions
-    }, [filteredTimetable])
+    }, [filteredTimetable, timeSlots])
 
     const scheduleGrid = useMemo(() => {
         const grid: Record<string, Record<string, TimetableEntry[]>> = {}
-        DAYS.forEach((day: string) => {
+        workingDays.forEach((day: string) => {
             grid[day] = {}
-            SLOTS.forEach((slot: string) => {
+            timeSlots.forEach((slot: string) => {
                 // Filter out entries that are part of multi-hour sessions (they'll be handled separately)
                 grid[day][slot] = filteredTimetable.filter(entry =>
                     entry.day === day &&
@@ -958,7 +1003,7 @@ export function TimetablePage() {
             })
         })
         return grid
-    }, [filteredTimetable, multiHourSessions])
+    }, [filteredTimetable, multiHourSessions, workingDays, timeSlots])
 
     const uniqueTeachers = useMemo(() => {
         const seen = new Set<number>()
@@ -1119,6 +1164,13 @@ export function TimetablePage() {
     const hasQualifiedTeacherForSelectedCourse = selectedCourse
         ? teachers.some(teacher => teacher.qualified_courses?.some(course => course.id === selectedCourse.id))
         : false
+    const unscheduledSectionCounts = useMemo(() => {
+        const counts = new Map<string, number>()
+        for (const item of generationResult?.incomplete_workloads || []) {
+            counts.set(item.section, (counts.get(item.section) || 0) + 1)
+        }
+        return Array.from(counts.entries()).sort((left, right) => right[1] - left[1])
+    }, [generationResult])
 
     if (loading && departments.length === 0) return <PageLoader />
 
@@ -1429,6 +1481,103 @@ export function TimetablePage() {
                 </div>
             )}
 
+            {generationResult && generationResult.incomplete_workloads.length > 0 && (
+                <div
+                    className="card"
+                    style={{
+                        overflow: 'hidden',
+                        border: '1px solid rgba(245, 158, 11, 0.18)',
+                        background: 'rgba(245, 158, 11, 0.04)',
+                    }}
+                >
+                    <div
+                        style={{
+                            padding: '1rem 1.25rem',
+                            borderBottom: '1px solid rgba(245, 158, 11, 0.18)',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            gap: '1rem',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                        }}
+                    >
+                        <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.3rem' }}>
+                                <AlertCircle size={18} color="#d97706" />
+                                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    Unscheduled Workloads
+                                </h3>
+                            </div>
+                            <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                                These courses or batches could not be placed with the current rooms, faculty, and timetable rules.
+                            </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            <div className="card" style={{ padding: '0.75rem 1rem', background: 'var(--bg-card)' }}>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Unscheduled items</div>
+                                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#d97706' }}>
+                                    {generationResult.incomplete_workloads.length}
+                                </div>
+                            </div>
+                            <div className="card" style={{ padding: '0.75rem 1rem', background: 'var(--bg-card)' }}>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Affected sections</div>
+                                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                                    {unscheduledSectionCounts.length}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{ padding: '1rem 1.25rem', display: 'grid', gap: '1rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            {unscheduledSectionCounts.slice(0, 8).map(([sectionName, count]) => (
+                                <span
+                                    key={sectionName}
+                                    style={{
+                                        fontSize: '0.75rem',
+                                        fontWeight: 600,
+                                        color: '#92400e',
+                                        background: 'rgba(245, 158, 11, 0.12)',
+                                        border: '1px solid rgba(245, 158, 11, 0.18)',
+                                        borderRadius: '999px',
+                                        padding: '0.3rem 0.65rem',
+                                    }}
+                                >
+                                    {sectionName}: {count}
+                                </span>
+                            ))}
+                        </div>
+
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '760px' }}>
+                                <thead>
+                                    <tr style={{ background: 'rgba(245, 158, 11, 0.08)' }}>
+                                        <th style={{ padding: '0.75rem', textAlign: 'left', fontSize: '0.75rem', borderBottom: '1px solid var(--border)' }}>Section</th>
+                                        <th style={{ padding: '0.75rem', textAlign: 'left', fontSize: '0.75rem', borderBottom: '1px solid var(--border)' }}>Course</th>
+                                        <th style={{ padding: '0.75rem', textAlign: 'left', fontSize: '0.75rem', borderBottom: '1px solid var(--border)' }}>Teacher</th>
+                                        <th style={{ padding: '0.75rem', textAlign: 'left', fontSize: '0.75rem', borderBottom: '1px solid var(--border)' }}>Allocated</th>
+                                        <th style={{ padding: '0.75rem', textAlign: 'left', fontSize: '0.75rem', borderBottom: '1px solid var(--border)' }}>Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {generationResult.incomplete_workloads.map(item => (
+                                        <tr key={`${item.section}-${item.course}-${item.reason}`}>
+                                            <td style={{ padding: '0.75rem', fontSize: '0.8125rem', borderBottom: '1px solid var(--border)' }}>{item.section}</td>
+                                            <td style={{ padding: '0.75rem', fontSize: '0.8125rem', borderBottom: '1px solid var(--border)', fontWeight: 600 }}>{item.course}</td>
+                                            <td style={{ padding: '0.75rem', fontSize: '0.8125rem', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>{item.teacher}</td>
+                                            <td style={{ padding: '0.75rem', fontSize: '0.8125rem', borderBottom: '1px solid var(--border)' }}>
+                                                {item.required ? `${item.allocated}/${item.required}` : item.allocated}
+                                            </td>
+                                            <td style={{ padding: '0.75rem', fontSize: '0.8125rem', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>{item.reason}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {loading ? (
                 <div style={{ height: '400px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Spinner size={32} />
@@ -1471,6 +1620,8 @@ export function TimetablePage() {
                         batches={batches}
                         sections={readiness.sections}
                         teachers={readiness.teachers}
+                        workingDays={workingDays}
+                        displaySlots={displaySlots}
                         onDelete={handleDeleteEntry}
                     />
                 </div>
@@ -1722,8 +1873,8 @@ export function TimetablePage() {
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.75rem', maxHeight: '200px', overflowY: 'auto' }}>
                                 {(() => {
                                     const suggestions: Array<{ day: TimetableEntry['day'], slot: TimetableEntry['timeslot'] }> = [];
-                                    DAYS.forEach((d: string) => {
-                                        SLOTS.forEach((s: string) => {
+                                    workingDays.forEach((d: string) => {
+                                        timeSlots.forEach((s: string) => {
                                             const hasConf = timetable.some((e: TimetableEntry) =>
                                                 e.id !== suggestingEntry.id &&
                                                 e.day === d &&

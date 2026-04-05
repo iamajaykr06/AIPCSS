@@ -5,6 +5,7 @@ DataLoader - Loads scheduling data from SQLAlchemy models
 import re
 from typing import List, Optional, Dict, Set
 from collections import defaultdict
+from sqlalchemy.orm import joinedload, selectinload
 from .. import db
 from ..models import Teacher, Course, Section, Room, ScheduleSettings, Batch, Program
 from .models import Faculty, Room as SchedulerRoom, Course as SchedulerCourse, Section as SchedulerSection, Timeslot
@@ -16,12 +17,103 @@ class DataLoader:
     def __init__(self, department_id: Optional[int] = None):
         self.department_id = department_id
         self.settings = ScheduleSettings.get_or_create_default()
+
+    @staticmethod
+    def _normalize_program_code(code: Optional[str]) -> Set[str]:
+        """Normalize program text into comparable tokens once per unique code."""
+        if not code:
+            return set()
+        words = re.split(r'[.\s,_\-]+', code.upper())
+        return {word for word in words if len(word) >= 2}
+
+    @classmethod
+    def _calculate_program_similarity(
+        cls,
+        course_program_code: Optional[str],
+        section_program_code: Optional[str],
+        course_tokens: Optional[Set[str]] = None,
+        section_tokens: Optional[Set[str]] = None
+    ) -> float:
+        """Calculate fuzzy similarity between two program codes."""
+        course_tokens = course_tokens if course_tokens is not None else cls._normalize_program_code(course_program_code)
+        section_tokens = section_tokens if section_tokens is not None else cls._normalize_program_code(section_program_code)
+
+        if not course_tokens or not section_tokens:
+            return 0.0
+
+        if course_program_code == section_program_code:
+            return 1.0
+
+        for left in course_tokens:
+            for right in section_tokens:
+                if left in right or right in left:
+                    return 0.8
+
+        union = course_tokens | section_tokens
+        if not union:
+            return 0.0
+
+        return len(course_tokens & section_tokens) / len(union)
+
+    @staticmethod
+    def _resolve_course_semester(course: Course) -> Optional[int]:
+        """Resolve semester from either numeric or text representation."""
+        if course.semester is not None:
+            return course.semester
+
+        if not course.semester_name:
+            return None
+
+        digits = re.findall(r'\d+', str(course.semester_name))
+        if digits:
+            return int(digits[0])
+
+        roman_map = {
+            'I': 1,
+            'II': 2,
+            'III': 3,
+            'IV': 4,
+            'V': 5,
+            'VI': 6,
+            'VII': 7,
+            'VIII': 8,
+        }
+        sem_upper = str(course.semester_name).strip().upper().replace('SEMESTER', '').strip()
+        return roman_map.get(sem_upper)
+
+    @staticmethod
+    def _deduplicate_sections(sections: List[Section]) -> List[Section]:
+        """
+        Collapse exact duplicate section rows caused by repeated imports.
+
+        The live dataset currently contains multiple rows with the same
+        `(batch_id, name)` business identity, which makes the scheduler solve
+        the same academic section multiple times and inflates unscheduled
+        workload counts. Keep the lowest-id record as the canonical section.
+        """
+        deduplicated = []
+        seen_keys = set()
+
+        for section in sorted(sections, key=lambda item: item.id):
+            key = (section.batch_id, (section.name or "").strip().upper())
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            deduplicated.append(section)
+
+        return deduplicated
     
-    def load_faculty(self) -> List[Faculty]:
-        """Load faculty from database - load ALL as teachers are shared across university"""
-        query = Teacher.query
-        # Always load all teachers to avoid 422 errors due to cross-departmental course assignments
-        teachers = query.all()
+    def load_faculty(self, course_ids: Optional[Set[int]] = None) -> List[Faculty]:
+        """Load faculty from database - only those qualified for relevant courses"""
+        teachers = Teacher.query.options(selectinload(Teacher.qualified_courses)).all()
+        
+        if course_ids:
+            relevant_teachers = []
+            for teacher in teachers:
+                qualified_ids = {c.id for c in teacher.qualified_courses}
+                if qualified_ids & course_ids:
+                    relevant_teachers.append(teacher)
+            teachers = relevant_teachers
         
         faculty_list = []
         for teacher in teachers:
@@ -30,6 +122,9 @@ class DataLoader:
             if teacher.availability:
                 for day, slots in teacher.availability.items():
                     availability[day] = set(slots) if isinstance(slots, list) else {slots}
+            else:
+                # If no availability set, teacher is available all times
+                availability = None  # None means "always available"
             
             # Get qualified course IDs
             qualified_ids = {c.id for c in teacher.qualified_courses}
@@ -76,15 +171,15 @@ class DataLoader:
         
         courses = query.all()
         
-        # Get qualified faculty for each course
+        teachers = Teacher.query.options(selectinload(Teacher.qualified_courses)).all()
         course_faculty_map = defaultdict(set)
-        for teacher in Teacher.query.all():
+        all_faculty_ids = set()
+        for teacher in teachers:
+            all_faculty_ids.add(teacher.id)
             for course in teacher.qualified_courses:
                 course_faculty_map[course.id].add(teacher.id)
         
         course_list = []
-        # Get all university faculty IDs as fallback
-        all_faculty_ids = {t.id for t in Teacher.query.all()}
         
         for course in courses:
             # Determine hours based on course type
@@ -112,86 +207,71 @@ class DataLoader:
     
     def load_sections(self) -> List[SchedulerSection]:
         """Load sections from database"""
-        query = Section.query.join(Section.batch).join(Batch.program)
+        query = Section.query.options(
+            joinedload(Section.batch).joinedload(Batch.program)
+        )
         
         if self.department_id:
-            from ..models import Program
-            query = query.join(Program.department).filter_by(id=self.department_id)
+            query = query.join(Section.batch).join(Batch.program).filter(
+                Program.department_id == self.department_id
+            )
         
-        sections = query.all()
+        sections = self._deduplicate_sections(query.all())
+        department_ids = {
+            section.batch.program.department_id
+            for section in sections
+            if section.batch and section.batch.program
+        }
+
+        if not department_ids:
+            return []
+
+        course_query = Course.query
+        if self.department_id:
+            course_query = course_query.filter(Course.department_id == self.department_id)
+        else:
+            course_query = course_query.filter(Course.department_id.in_(department_ids))
+
+        all_department_courses = course_query.all()
+        courses_by_department = defaultdict(list)
+        course_tokens = {}
+        course_semesters = {}
+
+        for course in all_department_courses:
+            courses_by_department[course.department_id].append(course)
+            course_tokens[course.id] = self._normalize_program_code(course.program_code)
+            course_semesters[course.id] = self._resolve_course_semester(course)
         
         section_list = []
         for section in sections:
+            program = section.batch.program if section.batch else None
+            if not program:
+                continue
+
             # Get courses for this section's program and semester
-            program_code = section.batch.program.code if section.batch.program else None
+            program_code = program.code
             current_semester = section.batch.current_semester
-            
-            # Match courses - handle different naming conventions
-            # Program codes in courses may differ from program.name
-            # e.g., "B.Sc Agriculture" vs "B.SC. AGRI", "B.Tech Mining" vs "B.Tech MIE"
-            # Also filter by current semester
-            dept_courses = Course.query.filter_by(department_id=section.batch.program.department_id).all()
+            section_tokens = self._normalize_program_code(program_code)
+            dept_courses = courses_by_department.get(program.department_id, [])
             course_ids = []
-            
-            def normalize_code(code):
-                """Normalize program code for matching"""
-                if not code:
-                    return set()
-                # Split by common separators and filter meaningful words
-                words = re.split(r'[.\s,_\-]+', code.upper())
-                # Filter out short words but keep abbreviations (2+ chars)
-                return {w for w in words if len(w) >= 2}
-            
-            def calculate_similarity(code1, code2):
-                """Calculate word overlap similarity between two program codes"""
-                words1 = normalize_code(code1)
-                words2 = normalize_code(code2)
-                
-                if not words1 or not words2:
-                    return 0.0
-                
-                # Check for exact match
-                if code1 == code2:
-                    return 1.0
-                
-                # Check word overlap
-                intersection = words1 & words2
-                union = words1 | words2
-                
-                # Check if any word from one is substring of another
-                for w1 in words1:
-                    for w2 in words2:
-                        if w1 in w2 or w2 in w1:
-                            return 0.8
-                
-                # Jaccard similarity
-                return len(intersection) / len(union) if union else 0.0
             
             for c in dept_courses:
                 # Match program
-                similarity = calculate_similarity(c.program_code, program_code)
+                similarity = self._calculate_program_similarity(
+                    c.program_code,
+                    program_code,
+                    course_tokens.get(c.id),
+                    section_tokens
+                )
                 # Ensure they actually mapped correctly (don't accidentally match None to None and give all courses)
                 is_exact_match = (c.program_code and program_code and c.program_code == program_code)
                 
                 if similarity < 0.3 and not is_exact_match:
                     # Also fallback: only match if both are completely empty and within same department
-                    if not (not c.program_code and not program_code and c.department_id == section.batch.program.department_id):
+                    if not (not c.program_code and not program_code and c.department_id == program.department_id):
                         continue
                 
-                # Filter by current semester (if course has semester specified)
-                course_sem = c.semester
-                if course_sem is None and c.semester_name:
-                    # Attempt to extract digit from string like "Semester 3", "3", "III"
-                    digits = re.findall(r'\d+', str(c.semester_name))
-                    if digits:
-                        course_sem = int(digits[0])
-                    else:
-                        # try roman numerals? I, II, III, IV, V, VI, VII, VIII
-                        roman_map = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8}
-                        sem_upper = str(c.semester_name).strip().upper().replace('SEMESTER', '').strip()
-                        if sem_upper in roman_map:
-                            course_sem = roman_map[sem_upper]
-                            
+                course_sem = course_semesters.get(c.id)
                 if course_sem is not None and current_semester is not None:
                     if course_sem != current_semester:
                         continue
@@ -207,7 +287,9 @@ class DataLoader:
                 student_count=section.student_count,
                 batch_id=section.batch_id,
                 program_code=program_code,
-                department_id=self.department_id,
+                department_id=program.department_id,
+                current_semester=current_semester,
+                batch_code=section.batch.code,
                 course_ids=course_ids
             ))
         
@@ -263,7 +345,11 @@ class DataLoader:
             section_program_map[section.id] = section.program_code
         
         courses = self.load_courses(section_program_map)
-        faculty = self.load_faculty()
+        
+        # Get all course IDs for faculty filtering
+        all_course_ids = {c.id for c in courses}
+        faculty = self.load_faculty(course_ids=all_course_ids)
+        
         rooms = self.load_rooms()
         timeslots = self.load_timeslots()
         

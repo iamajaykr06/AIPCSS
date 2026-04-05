@@ -3,6 +3,7 @@ from flask_jwt_extended import jwt_required
 from datetime import datetime
 
 from ..models import Teacher, Course, Section, Room, TimetableEntry, Department, ScheduleSettings
+from ..models.timetable import entry_sections
 from .. import db, socketio
 from .auth import roles_required
 
@@ -10,6 +11,65 @@ scheduling_bp = Blueprint('scheduling', __name__)
 
 DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 TIMESLOTS = ['09:00-10:00', '10:00-11:00', '11:00-12:00', '01:00-02:00', '02:00-03:00']
+
+
+def _delete_department_timetable_entries(department_id):
+    """Delete timetable entries and their section links for one department."""
+    entry_ids = [
+        entry_id for (entry_id,) in db.session.query(TimetableEntry.id)
+        .filter_by(department_id=department_id)
+        .all()
+    ]
+    if entry_ids:
+        db.session.execute(
+            entry_sections.delete().where(entry_sections.c.entry_id.in_(entry_ids))
+        )
+    TimetableEntry.query.filter_by(department_id=department_id).delete()
+
+
+def _build_timeslot_sequence(problem):
+    """Build an ordered per-day slot sequence from the loaded scheduling problem."""
+    day_order = {
+        'Monday': 1,
+        'Tuesday': 2,
+        'Wednesday': 3,
+        'Thursday': 4,
+        'Friday': 5,
+        'Saturday': 6,
+        'Sunday': 7,
+    }
+    ordered = sorted(
+        problem.timeslots,
+        key=lambda slot: (day_order.get(slot.day, 99), slot.start_time)
+    )
+    per_day = {}
+    for slot in ordered:
+        per_day.setdefault(slot.day, []).append(slot)
+    return per_day
+
+
+def _expand_schedule_slots(entry_data, course, per_day_slots):
+    """Expand lab blocks into per-slot timetable rows for the UI/database."""
+    duration = 2 if course and course.course_type == 'Lab' else 1
+    day_slots = per_day_slots.get(entry_data.timeslot.day, [])
+    start_index = next(
+        (
+            index for index, slot in enumerate(day_slots)
+            if slot.start_time == entry_data.timeslot.start_time and slot.end_time == entry_data.timeslot.end_time
+        ),
+        None
+    )
+    if start_index is None:
+        return [f"{entry_data.timeslot.start_time}-{entry_data.timeslot.end_time}"]
+
+    expanded = []
+    for offset in range(duration):
+        slot_index = start_index + offset
+        if slot_index >= len(day_slots):
+            break
+        slot = day_slots[slot_index]
+        expanded.append(f"{slot.start_time}-{slot.end_time}")
+    return expanded or [f"{entry_data.timeslot.start_time}-{entry_data.timeslot.end_time}"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -184,7 +244,7 @@ def generate_timetable():
         return jsonify({'error': 'Department not found'}), 404
 
     # Clear existing schedule for this department
-    TimetableEntry.query.filter_by(department_id=dept_id).delete()
+    _delete_department_timetable_entries(dept_id)
     db.session.commit()
 
     if use_ortools:
@@ -196,7 +256,8 @@ def generate_timetable():
 def generate_with_ortools(dept, dept_id, strict_mode):
     """Generate timetable using the new optimized Genetic Engine - DEPARTMENT GLOBAL WISE."""
     try:
-        from ..scheduler_new import DataLoader, OrtoolsSchedulerEngine
+        from ..scheduler_new.data_loader import DataLoader
+        from ..scheduler_new.hybrid_engine import HybridSchedulerEngine
         
         socketio.emit('generation_progress', {
             'percentage': 10,
@@ -217,57 +278,71 @@ def generate_with_ortools(dept, dept_id, strict_mode):
             'status': 'Generating...'
         })
         
-        # Deploy Google OR-Tools C++ CP-SAT Solver
-        scheduler = OrtoolsSchedulerEngine(
+        # Use fast hybrid scheduler (greedy + local search)
+        scheduler = HybridSchedulerEngine(
             problem=problem,
-            debug=False,
-            time_limit_seconds=120.0  # Allow longer timeout for large datasets
+            debug=False
         )
         
         result = scheduler.solve(progress_callback=None)
         
         if not result.schedule:
-            print(f"ERROR: OR-Tools failed to generate schedule. Success: {result.success}, Error: {result.error_message}")
-            msg = result.error_message or "OR-Tools concluded the problem is mathematically INFEASIBLE. Check resource quotas/constraints."
+            print(f"ERROR: Hybrid scheduler failed. Success: {result.success}, Error: {result.error_message}")
+            msg = result.error_message or "Scheduling failed - no valid assignments found."
             return jsonify({
                 'status': 'error',
                 'errors': [msg],
                 'message': f"Generation failed: {msg}"
             }), 422
-            
-        # Still alert on partial success to UI
+        
+        # Alert on partial success
         if not result.success:
+            failed_count = result.stats.get('failed_workloads', len(result.stats.get('failed_details', [])))
             socketio.emit('generation_progress', {
                 'percentage': 90,
-                'current_section': f"Saving Best Found Schedule ({result.conflicts.get('room_overlap', 0)} conflicts remaining)",
+                'current_section': f"Partial Schedule: {failed_count} workloads could not be scheduled",
                 'status': 'Partial Success'
             })
         else:
             socketio.emit('generation_progress', {
                 'percentage': 90,
-                'current_section': "Saving Perfect Schedule",
+                'current_section': "Saving Complete Schedule",
                 'status': 'Finalizing...'
             })
         
         # Save all generated entries
         successful_entries = 0
+        section_ids = {entry_data.section_id for entry_data in result.schedule}
+        sections = {
+            section.id: section
+            for section in Section.query.filter(Section.id.in_(section_ids)).all()
+        } if section_ids else {}
+        course_ids = {entry_data.course_id for entry_data in result.schedule}
+        courses = {
+            course.id: course
+            for course in Course.query.filter(Course.id.in_(course_ids)).all()
+        } if course_ids else {}
+        per_day_slots = _build_timeslot_sequence(problem)
+        entries_to_save = []
+
         for entry_data in result.schedule:
-            entry = TimetableEntry(
-                day=entry_data.timeslot.day,
-                timeslot=f"{entry_data.timeslot.start_time}-{entry_data.timeslot.end_time}",
-                course_id=entry_data.course_id,
-                teacher_id=entry_data.faculty_id,
-                room_id=entry_data.room_id,
-                department_id=dept_id
-            )
-            # Find the section and attach it
-            section = db.session.get(Section, entry_data.section_id)
-            if section:
-                entry.sections.append(section)
-                
-            db.session.add(entry)
-            successful_entries += 1
-            
+            section = sections.get(entry_data.section_id)
+            course = courses.get(entry_data.course_id)
+            for slot_label in _expand_schedule_slots(entry_data, course, per_day_slots):
+                entry = TimetableEntry(
+                    day=entry_data.timeslot.day,
+                    timeslot=slot_label,
+                    course_id=entry_data.course_id,
+                    teacher_id=entry_data.faculty_id,
+                    room_id=entry_data.room_id,
+                    department_id=dept_id
+                )
+                if section:
+                    entry.sections.append(section)
+                entries_to_save.append(entry)
+                successful_entries += 1
+
+        db.session.add_all(entries_to_save)
         db.session.commit()
         
         socketio.emit('generation_progress', {
@@ -277,11 +352,15 @@ def generate_with_ortools(dept, dept_id, strict_mode):
         })
         
         return jsonify({
-            'status': 'success',
+            'status': 'success' if result.success else 'partial_success',
             'entries_created': successful_entries,
-            'incomplete_workloads': [],
+            'incomplete_workloads': result.stats.get('failed_details', []),
             'errors': [],
-            'message': f'Successfully generated {successful_entries} assignments for {dept.name}'
+            'message': (
+                f'Successfully generated {successful_entries} timetable entries for {dept.name}'
+                if result.success else
+                f'Generated {successful_entries} timetable entries for {dept.name} with some unscheduled workloads'
+            )
         }), 200
         
     except Exception as e:
@@ -626,6 +705,7 @@ def view_timetable(dept_id):
     return jsonify({
         'data': result,
         'breaks': breaks_data,
+        'time_slots': settings.time_slots,
         'working_days': settings.working_days,
         'department': dept.name,
         'total': len(result)
@@ -640,7 +720,13 @@ def clear_timetable(dept_id):
     if not dept:
         return jsonify({'error': 'Department not found'}), 404
 
-    deleted = TimetableEntry.query.filter_by(department_id=dept_id).delete()
+    entry_ids = [
+        entry_id for (entry_id,) in db.session.query(TimetableEntry.id)
+        .filter_by(department_id=dept_id)
+        .all()
+    ]
+    deleted = len(entry_ids)
+    _delete_department_timetable_entries(dept_id)
     db.session.commit()
     return jsonify({'message': f'Cleared {deleted} timetable entries for {dept.name}'}), 200
 

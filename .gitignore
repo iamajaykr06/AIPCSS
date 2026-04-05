@@ -61,6 +61,11 @@ _agents/
 _agent/
 *.log
 tmp/
+*.tmp
+.pytest_cache/
+pytest-cache-files-*/
+backend/pytest-cache-files-*/
+backend/.pytest_cache/
 
 # Datasets for timetable
 courses.xlsx

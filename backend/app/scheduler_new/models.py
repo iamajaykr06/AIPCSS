@@ -71,9 +71,43 @@ class Room:
     
     def is_suitable_for(self, course_type: str) -> bool:
         """Check if room is suitable for course type"""
-        if course_type == "Lab":
-            return "lab" in self.room_type.lower()
+        course_type_lower = course_type.lower() if course_type else ""
+        room_type_lower = self.room_type.lower() if self.room_type else ""
+        
+        if course_type_lower == "lab":
+            return "lab" in room_type_lower
+        
+        if course_type_lower in ["moot court", "moot"]:
+            return "moot" in room_type_lower or "court" in room_type_lower
+        
         return True
+    
+    def can_be_used_by_program(self, program_id: Optional[int], department_id: Optional[int]) -> bool:
+        """
+        Check if this room can be used by a given program.
+        
+        Rules:
+        - If room has no program_id restriction, it's available to all
+        - If room has program_id:
+          * If program_id matches, room is available
+          * If department_id matches room's department, allow same-dept sharing
+          * Otherwise, room is not available
+        """
+        # If room has no program restriction, any program can use it
+        if self.program_id is None:
+            return True
+        
+        # If a specific program is requesting and it matches the room's program
+        if program_id is not None and self.program_id == program_id:
+            return True
+        
+        # Allow same-department sharing if department matches
+        if self.department_id is not None and department_id is not None:
+            if self.department_id == department_id:
+                return True
+        
+        # If no specific program match and no department sharing, deny access
+        return False
 
 
 @dataclass
@@ -87,9 +121,16 @@ class Course:
     program_code: Optional[str] = None
     department_id: Optional[int] = None
     qualified_faculty_ids: Set[int] = field(default_factory=set)
+
+    def is_lab(self) -> bool:
+        """Return True when this course must be scheduled as a lab block."""
+        return (self.course_type or "").strip().lower() == "lab"
     
     def get_hours_needed(self) -> int:
-        """Get total hours needed per week"""
+        """Get hours required for a single scheduled occurrence."""
+        if self.is_lab():
+            # Business rule: each lab course appears once per week as one 2-slot block.
+            return 2
         return self.hours_per_week
 
 
@@ -102,11 +143,21 @@ class Section:
     batch_id: int
     program_code: Optional[str] = None
     department_id: Optional[int] = None
+    current_semester: Optional[int] = None
+    batch_code: Optional[str] = None
     course_ids: List[int] = field(default_factory=list)  # Courses to schedule
     
     def get_full_name(self) -> str:
         """Get full section identifier"""
-        return f"{self.program_code or 'UNK'}-{self.name}"
+        base_name = f"{self.program_code or 'UNK'}-{self.name}"
+        qualifiers = []
+        if self.current_semester is not None:
+            qualifiers.append(f"Sem {self.current_semester}")
+        elif self.batch_code:
+            qualifiers.append(self.batch_code)
+        if qualifiers:
+            return f"{base_name} ({', '.join(qualifiers)})"
+        return base_name
 
 
 @dataclass
@@ -205,11 +256,11 @@ class SchedulingProblem:
             for course_id in section.course_ids:
                 course = self.course_map.get(course_id)
                 if course:
-                    if course.course_type == "Lab":
-                        # Labs are scheduled as continuous multi-hour blocks
+                    if course.is_lab():
+                        # Each lab course is scheduled once per week as one 2-slot block.
                         instances.append((section.id, course_id, course.get_hours_needed()))
                     else:
-                        # Theory courses are scheduled as distinct 1-hour slots individually
+                        # Theory courses are scheduled as distinct 1-hour slots individually.
                         for _ in range(course.get_hours_needed()):
                             instances.append((section.id, course_id, 1))
         return instances

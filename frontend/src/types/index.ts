@@ -187,7 +187,7 @@ export interface RoomPayload {
 // ── Timetable ──────────────────────────────────────────────────────────────
 
 export type Day = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday';
-export type TimeSlot = '09:00-10:00' | '10:00-11:00' | '11:00-12:00' | '01:00-02:00' | '02:00-03:00';
+export type TimeSlot = string;
 
 export interface TimetableEntry {
     id: number;
@@ -202,6 +202,7 @@ export interface TimetableEntry {
 export interface GenerateSchedulePayload {
     department_id: number;
     strict_mode?: boolean;
+    engine?: 'auto' | 'hybrid' | 'ortools';
 }
 
 export interface GenerateScheduleResult {
@@ -221,6 +222,9 @@ export interface GenerateScheduleResult {
 
 export interface TimetableViewResponse {
     data: TimetableEntry[];
+    breaks: ScheduleBreak[];
+    time_slots: ScheduleTimeSlot[];
+    working_days: DayOfWeek[];
     department: string;
     total: number;
 }
@@ -228,6 +232,14 @@ export interface TimetableViewResponse {
 export interface GroupedTimetableResponse {
     data: Record<string, TimetableEntry[]>;
     department: string;
+}
+
+export interface SchedulingStats {
+    total_entries: number;
+    conflicts: number;
+    optimization: number;
+    course_type_dist: Array<{ name: string; value: number }>;
+    room_dist: Array<{ name: string; value: number }>;
 }
 
 // ── Schedule Settings ─────────────────────────────────────────────────────────

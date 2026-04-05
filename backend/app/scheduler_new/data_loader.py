@@ -2,6 +2,7 @@
 DataLoader - Loads scheduling data from SQLAlchemy models
 """
 
+import re
 from typing import List, Optional, Dict, Set
 from collections import defaultdict
 from .. import db
@@ -146,7 +147,6 @@ class DataLoader:
                 if not code:
                     return set()
                 # Split by common separators and filter meaningful words
-                import re
                 words = re.split(r'[.\s,_\-]+', code.upper())
                 # Filter out short words but keep abbreviations (2+ chars)
                 return {w for w in words if len(w) >= 2}
@@ -191,7 +191,6 @@ class DataLoader:
                 course_sem = c.semester
                 if course_sem is None and c.semester_name:
                     # Attempt to extract digit from string like "Semester 3", "3", "III"
-                    import re
                     digits = re.findall(r'\d+', str(c.semester_name))
                     if digits:
                         course_sem = int(digits[0])

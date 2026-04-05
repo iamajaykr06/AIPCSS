@@ -1,3 +1,5 @@
+import re
+
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 
@@ -63,7 +65,6 @@ def update_schedule_settings():
                     errors.append(f"time slot {i+1} must have 'start' and 'end' fields")
                     continue
                 # Basic time format validation (HH:MM)
-                import re
                 if not re.match(r'^\d{2}:\d{2}$', str(slot['start'])) or \
                    not re.match(r'^\d{2}:\d{2}$', str(slot['end'])):
                     errors.append(f"time slot {i+1} has invalid time format (use HH:MM)")
@@ -83,7 +84,6 @@ def update_schedule_settings():
                 if 'start' not in brk or 'end' not in brk:
                     errors.append(f"break {i+1} must have 'start' and 'end' fields")
                     continue
-                import re
                 if not re.match(r'^\d{2}:\d{2}$', str(brk['start'])) or \
                    not re.match(r'^\d{2}:\d{2}$', str(brk['end'])):
                     errors.append(f"break {i+1} has invalid time format (use HH:MM)")
@@ -100,14 +100,12 @@ def update_schedule_settings():
 
     # Validate and update start/end times
     if 'start_time' in data:
-        import re
         if not re.match(r'^\d{2}:\d{2}$', str(data['start_time'])):
             errors.append("start_time must be in HH:MM format")
         else:
             settings.start_time = data['start_time']
 
     if 'end_time' in data:
-        import re
         if not re.match(r'^\d{2}:\d{2}$', str(data['end_time'])):
             errors.append("end_time must be in HH:MM format")
         else:

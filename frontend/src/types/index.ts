@@ -1,6 +1,6 @@
 // ── Auth ────────────────────────────────────────────────────────────────────
 
-export type UserRole = 'admin' | 'dept_head' | 'viewer';
+export type UserRole = 'admin' | 'dept_head' | 'teacher' | 'viewer';
 
 export interface User {
     id: number;

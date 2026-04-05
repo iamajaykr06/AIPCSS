@@ -469,16 +469,16 @@ def generate_with_greedy(dept, dept_id, strict_mode):
                                     # Program-scoped labs: only assign to matching program.
                                     if (
                                         course.course_type == 'Lab' and
-                                        getattr(room, 'program_id', None) and
+                                        room.program_id and
                                         room.program_id != program.id
                                     ):
                                         continue
-                                    
-                                with db.session.no_autoflush:
-                                    if all(not check_conflicts(day, s, room_id=room.id) for s in block_slots):
-                                        if rscore > max_room_score:
-                                            max_room_score = rscore
-                                            best_room = room
+
+                                    with db.session.no_autoflush:
+                                        if all(not check_conflicts(day, s, room_id=room.id) for s in block_slots):
+                                            if rscore > max_room_score:
+                                                max_room_score = rscore
+                                                best_room = room
                                 
                                 if not best_room: continue
 
@@ -570,16 +570,19 @@ def view_timetable(dept_id):
 
     result = []
     for e in entries:
+        course = courses.get(e.course_id)
+        teacher = teachers.get(e.teacher_id)
+        room = rooms.get(e.room_id)
         result.append({
             'id': e.id,
             'day': e.day,
             'timeslot': e.timeslot,
             'sections': [{'id': s.id, 'name': s.name} for s in e.sections],
-            'course': {'id': e.course_id, 'name': courses.get(e.course_id, {}).name if e.course_id in courses else 'Unknown',
-                       'type': courses.get(e.course_id, {}).course_type if e.course_id in courses else None},
-            'teacher': {'id': e.teacher_id, 'name': teachers.get(e.teacher_id, {}).name if e.teacher_id in teachers else 'Unknown'},
-            'room': {'id': e.room_id, 'name': rooms.get(e.room_id, {}).name if e.room_id in rooms else 'Unknown',
-                     'capacity': rooms.get(e.room_id, {}).capacity if e.room_id in rooms else None},
+            'course': {'id': e.course_id, 'name': course.name if course else 'Unknown',
+                       'type': course.course_type if course else None},
+            'teacher': {'id': e.teacher_id, 'name': teacher.name if teacher else 'Unknown'},
+            'room': {'id': e.room_id, 'name': room.name if room else 'Unknown',
+                     'capacity': room.capacity if room else None},
         })
 
     # Fetch schedule settings to include breaks

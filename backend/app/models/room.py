@@ -13,3 +13,6 @@ class Room(db.Model):
     # Relationships
     department = db.relationship('Department', backref='rooms')
     program = db.relationship('Program', backref='assigned_rooms')
+
+    def __repr__(self):
+        return f'<Room {self.name}>'

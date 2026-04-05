@@ -26,7 +26,7 @@ def create_app(env=None):
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
-    socketio.init_app(app, cors_allowed_origins="*")
+    socketio.init_app(app, cors_allowed_origins=app.config['CORS_ORIGINS'])
     CORS(app, resources={r"/api/*": {"origins": app.config['CORS_ORIGINS']}},
          supports_credentials=True)
 

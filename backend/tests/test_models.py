@@ -10,7 +10,7 @@ def test_department_model(app):
 def test_teacher_qualification_link(app):
     with app.app_context():
         t = Teacher(name="Dr. Smith", email="smith@test.com")
-        c = Course(name="Bio", code="B1", credits=3)
+        c = Course(name="Bio", code="B1", department_code="SCI")
         t.qualified_courses.append(c)
         assert c in t.qualified_courses
         assert t in c.qualified_teachers

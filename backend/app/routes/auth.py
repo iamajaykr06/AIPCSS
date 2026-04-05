@@ -177,3 +177,44 @@ def deactivate_user(user_id):
     user.is_active = False
     db.session.commit()
     return jsonify({"message": "User deactivated"}), 200
+
+
+@auth_bp.route('/users/<int:user_id>/activate', methods=['PUT'])
+@roles_required('admin')
+def activate_user(user_id):
+    """Admin only: reactivate a deactivated user account."""
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    user.is_active = True
+    db.session.commit()
+    return jsonify({"message": "User activated", "user": user.to_dict()}), 200
+
+
+@auth_bp.route('/change-password', methods=['PUT'])
+@jwt_required()
+def change_password():
+    """Allow the currently logged-in user to change their password."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Request body must be JSON"}), 400
+
+    current_password = data.get('current_password', '')
+    new_password = data.get('new_password', '')
+
+    if not current_password or not new_password:
+        return jsonify({"error": "current_password and new_password are required"}), 422
+    if len(new_password) < 8:
+        return jsonify({"error": "New password must be at least 8 characters"}), 422
+
+    identity = get_jwt_identity()
+    user = User.query.filter_by(email=identity).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    if not user.check_password(current_password):
+        return jsonify({"error": "Current password is incorrect"}), 401
+
+    user.set_password(new_password)
+    db.session.commit()
+    return jsonify({"message": "Password changed successfully"}), 200

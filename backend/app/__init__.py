@@ -36,15 +36,11 @@ def create_app(env=None):
     # tables when the critical `users` table is missing.
     if env in ("development", "testing"):
         with app.app_context():
-            # Ensure model metadata is registered before create_all().
-            from . import models  # noqa: F401
+            from . import models
             try:
-                from sqlalchemy import inspect
-                if "users" not in inspect(db.engine).get_table_names():
-                    db.create_all()
-            except Exception:
-                # If inspection fails, let runtime surface the real DB error.
-                pass
+                db.create_all()
+            except Exception as e:
+                app.logger.error(f"Auto-migration failed: {str(e)}")
 
     # ── Blueprints ────────────────────────────────────────────────────────────
     from .routes.auth import auth_bp
@@ -58,6 +54,9 @@ def create_app(env=None):
 
     from .routes.curriculum import curriculum_bp
     app.register_blueprint(curriculum_bp, url_prefix='/api/curriculum')
+
+    from .routes.workload import workload_bp
+    app.register_blueprint(workload_bp, url_prefix='/api/workload')
 
     from .routes.settings import settings_bp
     app.register_blueprint(settings_bp, url_prefix='/api/settings')

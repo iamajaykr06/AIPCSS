@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 
 from io import BytesIO
+import re
 import pandas as pd
 from ..models import Department, Program, Batch, Section, Teacher, Course, Room
 from .. import db
@@ -309,6 +310,18 @@ def delete_batch(batch_id):
 # SECTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _section_dict(s):
+    return {
+        'id': s.id,
+        'name': s.name,
+        'student_count': s.student_count,
+        'batch_id': s.batch_id,
+        'batch_name': s.batch.name if s.batch else None,
+        'program_name': s.batch.program.name if s.batch and s.batch.program else None,
+        'department_id': s.batch.program.department_id if s.batch and s.batch.program else None
+    }
+
+
 @resources_bp.route('/sections', methods=['GET'])
 @jwt_required()
 def get_sections():
@@ -317,7 +330,7 @@ def get_sections():
     if batch_id:
         query = query.filter_by(batch_id=batch_id)
     result = paginate(query.order_by(Section.name))
-    items = [{'id': s.id, 'name': s.name, 'student_count': s.student_count, 'batch_id': s.batch_id} for s in result.items]
+    items = [_section_dict(s) for s in result.items]
     return jsonify({"data": items, "meta": pagination_meta(result)}), 200
 
 
@@ -327,7 +340,7 @@ def get_section(section_id):
     s = db.session.get(Section, section_id)
     if not s:
         return jsonify({'error': 'Section not found'}), 404
-    return jsonify({'id': s.id, 'name': s.name, 'student_count': s.student_count, 'batch_id': s.batch_id}), 200
+    return jsonify(_section_dict(s)), 200
 
 
 @resources_bp.route('/sections', methods=['POST'])
@@ -543,6 +556,87 @@ def remove_expertise(teacher_id, course_id):
 # ══════════════════════════════════════════════════════════════════════════════
 # COURSES
 # ══════════════════════════════════════════════════════════════════════════════
+def _normalize_optional_string(value):
+    if value is None or pd.isna(value):
+        return None
+    cleaned = str(value).strip()
+    return cleaned or None
+
+
+def _parse_semester_value(value):
+    if value is None or pd.isna(value):
+        return None
+
+    if isinstance(value, (int, float)) and not pd.isna(value):
+        return int(value)
+
+    digits = re.findall(r'\d+', str(value))
+    if digits:
+        return int(digits[0])
+
+    roman_map = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8}
+    sem_upper = str(value).strip().upper().replace('SEMESTER', '').strip()
+    return roman_map.get(sem_upper)
+
+
+def _parse_program_semester(program_value):
+    normalized_program = _normalize_optional_string(program_value)
+    if not normalized_program:
+        return None, None
+
+    match = re.search(r'(\d+)\s*$', normalized_program)
+    if not match:
+        return normalized_program, None
+
+    semester = int(match.group(1))
+    program_code = normalized_program[:match.start()].strip()
+    return program_code or normalized_program, semester
+
+
+def _parse_non_negative_int(value, field_name):
+    if value is None or pd.isna(value) or str(value).strip() == '':
+        return 0
+
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name} must be a non-negative integer")
+
+    if parsed < 0:
+        raise ValueError(f"{field_name} must be a non-negative integer")
+
+    return parsed
+
+
+def _infer_course_type(course_type, lecture_hours, tutorial_hours, practical_hours):
+    normalized_type = _normalize_optional_string(course_type)
+    if normalized_type in ('Theory', 'Lab'):
+        return normalized_type
+    if practical_hours > 0 and lecture_hours == 0 and tutorial_hours == 0:
+        return 'Lab'
+    return 'Theory'
+
+
+def _resolve_course_department(dept_code=None, program_code=None):
+    normalized_dept_code = _normalize_optional_string(dept_code)
+    if normalized_dept_code:
+        dept = Department.query.filter_by(code=normalized_dept_code).first()
+        if not dept:
+            raise ValueError(f"Department not found with code='{normalized_dept_code}'")
+        return dept
+
+    normalized_program_code = _normalize_optional_string(program_code)
+    if normalized_program_code:
+        program = Program.query.filter_by(code=normalized_program_code).first()
+        if not program or not program.department_id:
+            raise ValueError(f"Program not found with code='{normalized_program_code}'")
+        dept = db.session.get(Department, program.department_id)
+        if not dept:
+            raise ValueError(f"Department not found for program '{normalized_program_code}'")
+        return dept
+
+    raise ValueError("Missing required field: DeptCode or Program")
+
 
 def _course_dict(c):
     return {
@@ -552,8 +646,12 @@ def _course_dict(c):
         'semester': c.semester,
         'course_type': c.course_type,
         'department_id': c.department_id,
-        'program_code': c.program_code,
-        'department_code': c.department_code,
+        'program_id': c.program_id,
+        'program_name': c.program.name if c.program else None,
+        'lecture_hours': c.lecture_hours,
+        'tutorial_hours': c.tutorial_hours,
+        'practical_hours': c.practical_hours,
+        'weekly_hours': c.weekly_hours,
     }
 
 
@@ -593,6 +691,12 @@ def add_course():
         errors.append("department_id is required")
     if data.get('course_type') and data['course_type'] not in ('Theory', 'Lab'):
         errors.append("course_type must be 'Theory' or 'Lab'")
+    try:
+        lecture_hours = _parse_non_negative_int(data.get('lecture_hours'), 'lecture_hours')
+        tutorial_hours = _parse_non_negative_int(data.get('tutorial_hours'), 'tutorial_hours')
+        practical_hours = _parse_non_negative_int(data.get('practical_hours'), 'practical_hours')
+    except ValueError as exc:
+        errors.append(str(exc))
     if errors:
         return jsonify({'error': 'Validation failed', 'details': errors}), 422
 
@@ -602,14 +706,22 @@ def add_course():
     if Course.query.filter_by(code=data['code'].strip()).first():
         return jsonify({'error': f"Course with code '{data['code']}' already exists"}), 409
 
+    program = None
+    if data.get('program_id'):
+        program = db.session.get(Program, data['program_id'])
+    elif data.get('program_code'):
+        program = Program.query.filter_by(code=data['program_code'].strip()).first()
+
     c = Course(
         name=data['name'].strip(),
         code=data['code'].strip(),
         semester=data.get('semester', 1),
         course_type=data.get('course_type', 'Theory'),
         department_id=data['department_id'],
-        department_code=dept.code,
-        program_code=data.get('program_code'),
+        program_id=program.id if program else None,
+        lecture_hours=lecture_hours,
+        tutorial_hours=tutorial_hours,
+        practical_hours=practical_hours,
     )
     db.session.add(c)
     db.session.commit()
@@ -637,10 +749,30 @@ def update_course(course_id):
         if data['course_type'] not in ('Theory', 'Lab'):
             return jsonify({'error': "course_type must be 'Theory' or 'Lab'"}), 422
         c.course_type = data['course_type']
+    if 'program_id' in data:
+        c.program_id = data['program_id']
+    elif 'program_code' in data:
+        code = _normalize_optional_string(data['program_code'])
+        if code:
+            program = Program.query.filter_by(code=code).first()
+            if program:
+                c.program_id = program.id
+
     if 'department_id' in data:
-        if not db.session.get(Department, data['department_id']):
+        dept = db.session.get(Department, data['department_id'])
+        if not dept:
             return jsonify({'error': 'Department not found'}), 404
         c.department_id = data['department_id']
+    
+    try:
+        if 'lecture_hours' in data:
+            c.lecture_hours = _parse_non_negative_int(data.get('lecture_hours'), 'lecture_hours')
+        if 'tutorial_hours' in data:
+            c.tutorial_hours = _parse_non_negative_int(data.get('tutorial_hours'), 'tutorial_hours')
+        if 'practical_hours' in data:
+            c.practical_hours = _parse_non_negative_int(data.get('practical_hours'), 'practical_hours')
+    except ValueError as exc:
+        return jsonify({'error': 'Validation failed', 'details': [str(exc)]}), 422
 
     db.session.commit()
     return jsonify({'message': 'Course updated', 'course': _course_dict(c)}), 200
@@ -924,6 +1056,23 @@ def bulk_import_teachers():
         # Normalize column names to lowercase to be more flexible
         df.columns = [c.lower().strip() for c in df.columns]
         
+        # Pre-check: validate all course codes exist before processing
+        unresolved_codes = []
+        for index, row in df.iterrows():
+            course_codes_val = row.get('course_codes')
+            if pd.notna(course_codes_val):
+                course_codes = [c.strip() for c in str(course_codes_val).replace(';', ',').split(',') if c.strip()]
+                for code in course_codes:
+                    if not Course.query.filter_by(code=code).first():
+                        unresolved_codes.append({"row": index + 2, "code": code})
+        
+        if unresolved_codes:
+            return jsonify({
+                "error": f"Found {len(unresolved_codes)} unresolved course codes",
+                "unresolved": unresolved_codes[:20],  # First 20
+                "hint": "Import courses BEFORE teachers to ensure course codes exist"
+            }), 422
+        
         success = 0
         errors = []
         
@@ -982,59 +1131,69 @@ def bulk_import_courses():
         return jsonify({"error": "No file uploaded"}), 400
     
     try:
-        df = pd.read_excel(BytesIO(file.read()))
+        file_bytes = file.read()
+        df = pd.read_excel(BytesIO(file_bytes))
+        df.columns = [str(column).strip() for column in df.columns]
+        if 'Course Code' not in df.columns and 'code' not in df.columns and 'Code' not in df.columns:
+            df = pd.read_excel(BytesIO(file_bytes), header=3)
+            df.columns = [str(column).strip() for column in df.columns]
         success = 0
         errors = []
+        current_program = None
         
         for index, row in df.iterrows():
             try:
-                name = row.get('Name')
-                code = row.get('code')
+                name = _normalize_optional_string(row.get('Name') or row.get('Course'))
+                code = _normalize_optional_string(row.get('code') or row.get('Code') or row.get('Course Code'))
                 semester_name = row.get('Semester')
-                course_type = row.get('Type', 'Theory')
-                program_code = row.get('Program')
-                dept_code = row.get('DeptCode')
-                
-                if pd.isna(name) or pd.isna(code) or pd.isna(dept_code):
-                    raise Exception("Missing required field: Name, code, or DeptCode")
-                
-                # Parse semester as integer from semester_name (e.g., "Semester 3" -> 3, "III" -> 3)
-                semester = None
-                if pd.notna(semester_name):
-                    # Try to extract digit from string like "Semester 3", "3"
-                    import re
-                    digits = re.findall(r'\d+', str(semester_name))
-                    if digits:
-                        semester = int(digits[0])
-                    else:
-                        # Try roman numerals: I, II, III, IV, V, VI, VII, VIII
-                        roman_map = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8}
-                        sem_upper = str(semester_name).strip().upper().replace('SEMESTER', '').strip()
-                        if sem_upper in roman_map:
-                            semester = roman_map[sem_upper]
-                
-                # Lookup department
-                dept = Department.query.filter_by(code=str(dept_code).strip()).first()
-                if not dept:
-                    raise Exception(f"Department not found with code='{dept_code}'")
-                
-                # Check for existing course
-                existing = Course.query.filter_by(code=str(code).strip()).first()
-                if existing:
-                    success += 1
-                    continue
-                
-                course = Course(
-                    name=str(name).strip(),
-                    code=str(code).strip(),
-                    semester=semester,  # Store as integer
-                    semester_name=str(semester_name).strip() if pd.notna(semester_name) else None,
-                    course_type=str(course_type).strip() if pd.notna(course_type) else 'Theory',
-                    program_code=str(program_code).strip() if pd.notna(program_code) else None,
-                    department_code=str(dept_code).strip(),
-                    department_id=dept.id
+                program_cell = _normalize_optional_string(row.get('Program'))
+                if program_cell:
+                    current_program = program_cell
+                else:
+                    program_cell = current_program
+
+                program_code_from_program, semester_from_program = _parse_program_semester(program_cell)
+                explicit_program_code = _normalize_optional_string(row.get('ProgramCode'))
+                program_code = explicit_program_code or program_code_from_program
+                semester = _parse_semester_value(semester_name) or semester_from_program
+                lecture_hours = _parse_non_negative_int(row.get('L'), 'L')
+                tutorial_hours = _parse_non_negative_int(row.get('T'), 'T')
+                practical_hours = _parse_non_negative_int(row.get('P'), 'P')
+                course_type = _infer_course_type(
+                    row.get('Type'),
+                    lecture_hours,
+                    tutorial_hours,
+                    practical_hours,
                 )
-                db.session.add(course)
+                dept = _resolve_course_department(
+                    dept_code=row.get('DeptCode'),
+                    program_code=program_code,
+                )
+
+                if not name or not code:
+                    raise Exception("Missing required field: course name or code")
+
+                existing = Course.query.filter_by(code=code).first()
+                if existing:
+                    course = existing
+                else:
+                    course = Course(code=code)
+                    db.session.add(course)
+
+                program_obj = None
+                if program_code:
+                    program_obj = Program.query.filter_by(code=program_code).first()
+
+                course.name = name
+                course.code = code
+                course.semester = semester
+                course.semester_name = _normalize_optional_string(semester_name)
+                course.course_type = course_type
+                course.program_id = program_obj.id if program_obj else None
+                course.department_id = dept.id
+                course.lecture_hours = lecture_hours
+                course.tutorial_hours = tutorial_hours
+                course.practical_hours = practical_hours
                 success += 1
             except Exception as e:
                 errors.append(f"Row {index+2}: {str(e)}")

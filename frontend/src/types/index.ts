@@ -96,6 +96,9 @@ export interface Section {
     name: string;
     student_count: number;
     batch_id: number;
+    batch_name?: string;
+    program_name?: string;
+    department_id?: number | null;
 }
 
 export interface SectionPayload {

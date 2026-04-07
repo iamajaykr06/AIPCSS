@@ -6,7 +6,8 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 import logging
 import time
-from typing import Optional
+from typing import Optional, List, Dict, Any
+from collections import defaultdict
 
 from .. import db, socketio
 from ..models import TimetableEntry, Department, ScheduleSettings, Section
@@ -21,7 +22,7 @@ except ModuleNotFoundError:
     ORTOOLS_AVAILABLE = False
 
 scheduler_bp = Blueprint('scheduler_new', __name__)
-AUTO_HYBRID_CLASS_THRESHOLD = 300
+AUTO_HYBRID_CLASS_THRESHOLD = 1000  # Increased from 300 to allow OR-Tools for larger problems
 
 
 def emit_progress(department_id: int, percentage: int, message: str):
@@ -46,6 +47,130 @@ def _validate_problem(problem):
     if not problem.timeslots:
         return jsonify({"status": "failure", "schedule": [], "error": "No timeslots configured"}), 400
     return None
+
+
+def _pre_schedule_feasibility_check(problem) -> List[Dict[str, Any]]:
+    """Check if scheduling is feasible BEFORE running the solver. Returns list of warnings."""
+    warnings = []
+    
+    # 1. Check every section has courses
+    for section in problem.sections:
+        if not section.course_ids:
+            warnings.append({
+                "type": "section_no_courses",
+                "section": section.get_full_name(),
+                "message": f"Section '{section.get_full_name()}' has 0 courses assigned"
+            })
+    
+    # 2. Check every course has qualified faculty
+    for section in problem.sections:
+        for course_id in section.course_ids:
+            course = problem.course_map.get(course_id)
+            if course and not course.qualified_faculty_ids:
+                warnings.append({
+                    "type": "course_no_faculty",
+                    "course": course.code,
+                    "course_name": course.name,
+                    "message": f"Course '{course.code}' has NO qualified faculty"
+                })
+    
+    # 3. Check total required hours vs available room-slots per section
+    total_timeslots = len(problem.timeslots)
+    for section in problem.sections:
+        required = 0
+        for course_id in section.course_ids:
+            course = problem.course_map.get(course_id)
+            if course:
+                required += course.get_hours_needed()
+        if required > total_timeslots:
+            warnings.append({
+                "type": "section_overload",
+                "section": section.get_full_name(),
+                "required_hours": required,
+                "available_slots": total_timeslots,
+                "message": f"Section '{section.get_full_name()}' needs {required} hours but only {total_timeslots} slots exist"
+            })
+    
+    # 4. Check lab room capacity
+    lab_course_count = 0
+    for section in problem.sections:
+        for course_id in section.course_ids:
+            course = problem.course_map.get(course_id)
+            if course and course.is_lab():
+                lab_course_count += 1
+    
+    lab_rooms = sum(1 for r in problem.rooms if "lab" in (r.room_type or "").lower())
+    if lab_course_count > 0 and lab_rooms == 0:
+        warnings.append({
+            "type": "no_lab_rooms",
+            "lab_courses": lab_course_count,
+            "message": f"No lab rooms configured for {lab_course_count} lab courses"
+        })
+    
+    # 5. Check faculty total capacity
+    total_required = 0
+    for section in problem.sections:
+        for course_id in section.course_ids:
+            course = problem.course_map.get(course_id)
+            if course:
+                total_required += course.get_hours_needed()
+    
+    total_faculty_capacity = sum(f.max_hours_per_week for f in problem.faculty)
+    if total_required > total_faculty_capacity:
+        warnings.append({
+            "type": "faculty_overload",
+            "total_required_hours": total_required,
+            "total_faculty_capacity": total_faculty_capacity,
+            "message": f"Total required {total_required} hours > faculty capacity {total_faculty_capacity} hours"
+        })
+    
+    # 6. Check current_semester is set for all sections
+    for section in problem.sections:
+        if section.current_semester is None:
+            warnings.append({
+                "type": "missing_semester",
+                "section": section.get_full_name(),
+                "message": f"Section '{section.get_full_name()}' has no semester set - NO courses will be scheduled"
+            })
+    
+    return warnings
+
+
+def _verify_completeness(result, problem) -> Dict[str, Any]:
+    """Verify that ALL section-course pairs got their required hours."""
+    # Count scheduled hours per (section, course)
+    scheduled_hours = defaultdict(int)
+    for entry in result.schedule:
+        course = problem.course_map.get(entry.course_id)
+        hours = course.get_hours_needed() if course and course.is_lab() else 1
+        scheduled_hours[(entry.section_id, entry.course_id)] += hours
+    
+    # Check against required hours
+    missing = []
+    for section in problem.sections:
+        for course_id in section.course_ids:
+            course = problem.course_map.get(course_id)
+            if not course:
+                continue
+            required = course.get_hours_needed()
+            allocated = scheduled_hours.get((section.id, course_id), 0)
+            if allocated < required:
+                missing.append({
+                    "section": section.get_full_name(),
+                    "course": course.code,
+                    "course_name": course.name,
+                    "required_hours": required,
+                    "allocated_hours": allocated,
+                    "missing_hours": required - allocated
+                })
+    
+    return {
+        "is_complete": len(missing) == 0,
+        "total_section_courses": sum(len(s.course_ids) for s in problem.sections),
+        "fully_scheduled": sum(len(s.course_ids) for s in problem.sections) - len(missing),
+        "incomplete": len(missing),
+        "missing_details": missing
+    }
 
 
 def _build_scheduler(problem, requested_engine, time_limit, debug_mode):
@@ -118,7 +243,7 @@ def _save_schedule_entries(result, department_id, problem):
     for entry in result.schedule:
         section = sections.get(entry.section_id)
         course = courses.get(entry.course_id)
-        duration = 2 if course and course.course_type == "Lab" else 1
+        duration = course.get_hours_needed() if course and course.is_lab() else 1
         day_slots = per_day_slots.get(entry.timeslot.day, [])
         start_index = next(
             (
@@ -187,6 +312,22 @@ def generate():
         if invalid_problem:
             return invalid_problem
 
+        # Pre-scheduling feasibility check
+        feasibility_warnings = _pre_schedule_feasibility_check(problem)
+        if feasibility_warnings:
+            logger.warning("Pre-scheduling validation warnings: %s", feasibility_warnings)
+            # Return warnings but allow user to proceed if they want
+            # Critical warnings should block scheduling
+            critical_warnings = [w for w in feasibility_warnings if w["type"] in ["section_no_courses", "no_lab_rooms"]]
+            if critical_warnings:
+                return jsonify({
+                    "status": "failure",
+                    "error": "Pre-scheduling validation failed",
+                    "validation_errors": feasibility_warnings,
+                    "schedule": [],
+                    "stats": {}
+                }), 422
+
         scheduler, engine_name, total_classes = _build_scheduler(
             problem,
             requested_engine,
@@ -200,6 +341,16 @@ def generate():
         )
 
         result = scheduler.solve()
+        
+        # Post-schedule completeness verification
+        completeness = _verify_completeness(result, problem)
+        if not completeness["is_complete"]:
+            result.success = False
+            if not result.error_message:
+                result.error_message = f"{completeness['incomplete']} courses have incomplete scheduling"
+            result.stats["completeness_report"] = completeness
+            logger.warning("Incomplete scheduling: %s courses missing hours", completeness['incomplete'])
+        
         response_status = _result_status(result)
 
         if result.schedule:
@@ -286,6 +437,22 @@ def generate_timetable():
                 "stats": {}
             }), status
 
+        # Pre-scheduling feasibility check
+        feasibility_warnings = _pre_schedule_feasibility_check(problem)
+        if feasibility_warnings:
+            logger.warning("Pre-scheduling validation warnings: %s", feasibility_warnings)
+            critical_warnings = [w for w in feasibility_warnings if w["type"] in ["section_no_courses", "no_lab_rooms"]]
+            if critical_warnings:
+                emit_progress(department_id or 0, 100, "Validation failed")
+                return jsonify({
+                    "status": "failure",
+                    "error": "Pre-scheduling validation failed",
+                    "validation_errors": feasibility_warnings,
+                    "schedule": [],
+                    "conflicts": {},
+                    "stats": {}
+                }), 422
+
         scheduler, engine_name, total_classes = _build_scheduler(
             problem,
             requested_engine,
@@ -310,6 +477,16 @@ def generate_timetable():
             emit_progress(department_id or 0, 10 + int(pct * 0.8), msg)
 
         result = scheduler.solve(progress_callback=progress_callback)
+        
+        # Post-schedule completeness verification
+        completeness = _verify_completeness(result, problem)
+        if not completeness["is_complete"]:
+            result.success = False
+            if not result.error_message:
+                result.error_message = f"{completeness['incomplete']} courses have incomplete scheduling"
+            result.stats["completeness_report"] = completeness
+            logger.warning("Incomplete scheduling: %s courses missing hours", completeness['incomplete'])
+        
         response_status = _result_status(result)
 
         if result.schedule:
@@ -357,7 +534,7 @@ def get_scheduler_stats():
         room_capacity = total_timeslots * total_rooms
         faculty_capacity = sum(f.max_hours_per_week for f in problem.faculty)
 
-        total_classes = sum(len(section.course_ids) for section in problem.sections)
+        total_classes = len(problem.get_section_courses())
 
         return jsonify({
             "status": "success",

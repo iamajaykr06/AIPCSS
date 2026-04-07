@@ -1,6 +1,6 @@
 import React from 'react'
 import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react'
-import { useToast } from '@/context/ToastContext'
+import { useToast } from '@/context/useToast'
 import type { ToastType } from '@/types'
 
 const icons: Record<ToastType, React.ReactNode> = {

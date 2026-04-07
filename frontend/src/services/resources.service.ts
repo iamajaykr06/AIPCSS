@@ -252,3 +252,28 @@ export const roomService = {
         return res.data
     }
 }
+
+// ── Workload ────────────────────────────────────────────────────────────────
+
+export const workloadService = {
+    async getSectionWorkload(sectionId: number) {
+        const res = await api.get(`/workload/sections/${sectionId}`)
+        return res.data
+    },
+    async assign(sectionId: number, courseId: number, teacherId: number) {
+        const res = await api.post('/workload/assign', { section_id: sectionId, course_id: courseId, teacher_id: teacherId })
+        return res.data
+    },
+    async unassign(sectionId: number, courseId: number) {
+        const res = await api.post('/workload/unassign', { section_id: sectionId, course_id: courseId })
+        return res.data
+    },
+    async bulkImport(file: File) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.post('/workload/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        return res.data
+    }
+}

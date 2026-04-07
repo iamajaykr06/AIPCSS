@@ -125,18 +125,30 @@ class GeneticSchedulerEngine:
         # MRV Heuristic: Sort variables by Most Constrained First (fewest domain options)
         self.variables.sort(key=lambda var: sum(len(opt["faculties"]) * len(opt["rooms"]) for opt in self.domains.get((var.section_id, var.course_id, var.hours_needed), [])))
 
-    def _get_random_domain_sample(self, var, max_samples=10) -> List[DomainValue]:
+    def _get_random_domain_sample(self, var, max_samples=10, forced_teacher=None) -> List[DomainValue]:
+        """Get random domain samples, optionally forcing a specific teacher."""
         domain = self.domains.get((var.section_id, var.course_id, var.hours_needed), [])
         if not domain:
             return []
+        
         samples = []
         for _ in range(max_samples):
             opt = random.choice(domain)
+            
+            if forced_teacher is not None:
+                # Only use this option if it contains the forced teacher
+                if forced_teacher not in opt["faculties"]:
+                    continue
+                faculty_id = forced_teacher
+            else:
+                faculty_id = random.choice(opt["faculties"])
+            
             samples.append(DomainValue(
-                faculty_id=random.choice(opt["faculties"]),
+                faculty_id=faculty_id,
                 room_id=random.choice(opt["rooms"]),
                 timeslot=opt["timeslot"]
             ))
+        
         return samples
 
     def _evaluate(self, individual: List[Optional[DomainValue]]) -> Tuple[int, Dict[str, int]]:
@@ -160,6 +172,9 @@ class GeneticSchedulerEngine:
         # Track load for soft constraint evaluation
         faculty_load = defaultdict(int)
         
+        # Track Teacher-Course-Section consistency
+        section_course_faculty: Dict[Tuple[int, int], int] = {}
+        
         for i, var in enumerate(self.variables):
             val = individual[i]
             if val is None:
@@ -171,6 +186,16 @@ class GeneticSchedulerEngine:
             if not slot_keys:
                 conflicts += 500
                 continue
+            
+            # Teacher-Course-Section consistency check
+            sc_key = (var.section_id, var.course_id)
+            if sc_key in section_course_faculty:
+                assigned_faculty_id = section_course_faculty[sc_key]
+                if val.faculty_id != assigned_faculty_id:
+                    conflicts += 200  # High penalty for teacher inconsistency
+                    detailed_conflicts['teacher_consistency'] += 1
+            else:
+                section_course_faculty[sc_key] = val.faculty_id
             
             # Repetition Constraints: Ensure 1-hour theory constraints don't repeat uniformly on the exact same day for the batch
             if var.hours_needed == 1:
@@ -237,21 +262,98 @@ class GeneticSchedulerEngine:
         
         return conflicts, dict(detailed_conflicts)
 
+    def _enforce_consistency_in_individual(self, individual: List[Optional[DomainValue]]) -> List[Optional[DomainValue]]:
+        """
+        Enforce teacher-course-section consistency in an individual.
+        For each (section, course), ensure all occurrences use the same teacher.
+        """
+        fixed = list(individual)
+        section_course_faculty: Dict[Tuple[int, int], int] = {}
+        
+        # First pass: identify the most common teacher for each (section, course)
+        teacher_votes: Dict[Tuple[int, int], Dict[int, int]] = defaultdict(lambda: defaultdict(int))
+        for i, var in enumerate(self.variables):
+            val = fixed[i]
+            if val:
+                sc_key = (var.section_id, var.course_id)
+                teacher_votes[sc_key][val.faculty_id] += 1
+        
+        # Determine the dominant teacher for each (section, course)
+        for sc_key, votes in teacher_votes.items():
+            if votes:
+                dominant_teacher = max(votes, key=votes.get)
+                section_course_faculty[sc_key] = dominant_teacher
+        
+        # Second pass: fix inconsistencies
+        for i, var in enumerate(self.variables):
+            val = fixed[i]
+            if not val:
+                continue
+            
+            sc_key = (var.section_id, var.course_id)
+            assigned_teacher = section_course_faculty.get(sc_key)
+            
+            if assigned_teacher and val.faculty_id != assigned_teacher:
+                # Need to fix this - try to find a domain value with the correct teacher
+                domain = self.domains.get((var.section_id, var.course_id, var.hours_needed), [])
+                found = False
+                for opt in domain:
+                    if assigned_teacher in opt["faculties"]:
+                        # Found a matching option - update to use correct teacher
+                        fixed[i] = DomainValue(
+                            faculty_id=assigned_teacher,
+                            room_id=random.choice(opt["rooms"]),
+                            timeslot=opt["timeslot"]
+                        )
+                        found = True
+                        break
+                
+                if not found:
+                    # Cannot fix - mark as None (will get penalty in evaluation)
+                    fixed[i] = None
+        
+        return fixed
+
     def _generate_random_individual(self) -> List[Optional[DomainValue]]:
+        """Generate a random individual with teacher-course-section consistency."""
         individual = []
+        section_course_faculty: Dict[Tuple[int, int], int] = {}
+        
         for var in self.variables:
             domain = self.domains.get((var.section_id, var.course_id, var.hours_needed), [])
-            if domain:
+            if not domain:
+                individual.append(None)
+                continue
+            
+            sc_key = (var.section_id, var.course_id)
+            assigned_teacher = section_course_faculty.get(sc_key)
+            
+            if assigned_teacher is not None:
+                # Use the already-assigned teacher for this (section, course)
+                valid_opts = [opt for opt in domain if assigned_teacher in opt["faculties"]]
+                if valid_opts:
+                    opt = random.choice(valid_opts)
+                    individual.append(DomainValue(
+                        faculty_id=assigned_teacher,
+                        room_id=random.choice(opt["rooms"]),
+                        timeslot=opt["timeslot"]
+                    ))
+                else:
+                    # Cannot use assigned teacher - mark as None
+                    individual.append(None)
+            else:
+                # First occurrence - randomly select and record teacher
                 opt = random.choice(domain)
+                teacher = random.choice(opt["faculties"])
+                section_course_faculty[sc_key] = teacher
                 individual.append(DomainValue(
-                    faculty_id=random.choice(opt["faculties"]),
+                    faculty_id=teacher,
                     room_id=random.choice(opt["rooms"]),
                     timeslot=opt["timeslot"]
                 ))
-            else:
-                individual.append(None)
-        return individual
         
+        return individual
+
     def _crossover_single_point(self, parent1: List[Optional[DomainValue]], parent2: List[Optional[DomainValue]]) -> Tuple[List[Optional[DomainValue]], List[Optional[DomainValue]]]:
         """Single-point crossover"""
         if len(self.variables) < 2:
@@ -295,11 +397,24 @@ class GeneticSchedulerEngine:
             return self._crossover_uniform(parent1, parent2)
         
     def _mutate(self, individual: List[Optional[DomainValue]]) -> List[Optional[DomainValue]]:
-        """Mutation with adaptive rate"""
+        """Mutation with adaptive rate, respecting teacher consistency."""
         mutated = list(individual)
+        
+        # First, determine teacher assignments from current individual
+        section_course_faculty: Dict[Tuple[int, int], int] = {}
+        for i, var in enumerate(self.variables):
+            val = mutated[i]
+            if val:
+                sc_key = (var.section_id, var.course_id)
+                if sc_key not in section_course_faculty:
+                    section_course_faculty[sc_key] = val.faculty_id
+        
         for i, var in enumerate(self.variables):
             if random.random() < self.current_mutation_rate:
-                sampled = self._get_random_domain_sample(var, 5)
+                sc_key = (var.section_id, var.course_id)
+                assigned_teacher = section_course_faculty.get(sc_key)
+                
+                sampled = self._get_random_domain_sample(var, 5, forced_teacher=assigned_teacher)
                 if sampled:
                     if len(sampled) > 1 and random.random() < 0.5:
                         current_val = mutated[i]
@@ -308,15 +423,26 @@ class GeneticSchedulerEngine:
                             mutated[i] = random.choice(available)
                     else:
                         mutated[i] = random.choice(sampled)
+        
         return mutated
     
     def _local_search_hill_climbing(self, individual: List[Optional[DomainValue]], max_iterations: int = 10) -> List[Optional[DomainValue]]:
         """
         Hill climbing local search to improve individual quality.
         Tries to fix conflicts by changing individual genes.
+        Respects teacher-course-section consistency.
         """
         current = list(individual)
         current_fitness, _ = self._evaluate(current)
+        
+        # Track teacher assignments for consistency
+        section_course_faculty: Dict[Tuple[int, int], int] = {}
+        for i, var in enumerate(self.variables):
+            val = current[i]
+            if val:
+                sc_key = (var.section_id, var.course_id)
+                if sc_key not in section_course_faculty:
+                    section_course_faculty[sc_key] = val.faculty_id
         
         for _ in range(max_iterations):
             if current_fitness == 0:
@@ -332,8 +458,12 @@ class GeneticSchedulerEngine:
                 domain = self.domains.get((var.section_id, var.course_id, var.hours_needed), [])
                 if not domain:
                     continue
-                    
-                search_domain = self._get_random_domain_sample(var, 15)
+                
+                # Get required teacher for consistency
+                sc_key = (var.section_id, var.course_id)
+                required_teacher = section_course_faculty.get(sc_key)
+                
+                search_domain = self._get_random_domain_sample(var, 15, forced_teacher=required_teacher)
                 
                 current_val = current[i]
                 for new_val in search_domain:
@@ -363,19 +493,28 @@ class GeneticSchedulerEngine:
     def _repair_individual(self, individual: List[Optional[DomainValue]]) -> List[Optional[DomainValue]]:
         """
         Repair function: fix obvious conflicts by greedy assignment with MRV.
+        Also enforces teacher-course-section consistency.
         """
         repaired = list(individual)
         faculty_schedule = set()
         room_schedule = set()
         section_schedule = set()
         
-        # First pass: identify conflicts
+        # Track teacher-course-section assignments
+        section_course_faculty: Dict[Tuple[int, int], int] = {}
+        
+        # First pass: identify conflicts and established teacher assignments
         conflict_indices = []
         for i, var in enumerate(self.variables):
             val = repaired[i]
             if val is None:
                 conflict_indices.append(i)
                 continue
+            
+            # Record teacher assignment for consistency
+            sc_key = (var.section_id, var.course_id)
+            if sc_key not in section_course_faculty:
+                section_course_faculty[sc_key] = val.faculty_id
                 
             slot_keys = self.slot_keys_cache.get((val.timeslot, var.hours_needed))
             if not slot_keys:
@@ -407,9 +546,13 @@ class GeneticSchedulerEngine:
             domain = self.domains.get((var.section_id, var.course_id, var.hours_needed), [])
             if not domain:
                 continue
-                
-            # Restrict repair to opportunistic shuffling instead of an exhaustive loop
-            search_domain = self._get_random_domain_sample(var, 50)
+            
+            # Get the required teacher for this (section, course)
+            sc_key = (var.section_id, var.course_id)
+            required_teacher = section_course_faculty.get(sc_key)
+            
+            # Restrict repair to opportunistic shuffling
+            search_domain = self._get_random_domain_sample(var, 50, forced_teacher=required_teacher)
                 
             # Find a conflict-free assignment
             for val in search_domain:

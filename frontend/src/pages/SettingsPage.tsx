@@ -4,7 +4,7 @@ import {
   AlertCircle, Check, ChevronRight, Sun, Moon, Timer, LayoutGrid,
   GraduationCap, ArrowRight, Sparkles, X, GripVertical
 } from 'lucide-react'
-import { useToast } from '@/context/ToastContext'
+import { useToast } from '@/context/useToast'
 import { settingsService } from '@/services/settings.service'
 import type { ScheduleSettings, DayOfWeek, ScheduleTimeSlot, ScheduleBreak } from '@/types'
 

@@ -1,15 +1,20 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Upload, Info, FileText } from 'lucide-react';
 import { Modal } from '../ui/Modal';
-import { useToast } from '@/context/ToastContext';
+import { useToast } from '@/context/useToast';
 import { getErrorMessage } from '@/lib/utils';
+
+interface BulkImportResult {
+    message: string;
+    errors?: string[];
+}
 
 interface BulkImportModalProps {
     isOpen: boolean;
     onClose: () => void;
     resourceName: string;
     headers: string[];
-    onImport: (file: File) => Promise<any>;
+    onImport: (file: File) => Promise<BulkImportResult>;
     onSuccess?: () => void;
     formatExamples?: { [key: string]: string };
 }
@@ -17,11 +22,19 @@ interface BulkImportModalProps {
 export function BulkImportModal({ isOpen, onClose, resourceName, headers, onImport, onSuccess, formatExamples }: BulkImportModalProps) {
     const [file, setFile] = useState<File | null>(null);
     const [importing, setImporting] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const { toast } = useToast();
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const selected = e.target.files?.[0];
         if (selected) setFile(selected);
+    };
+
+    const resetSelection = () => {
+        setFile(null);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
     };
 
     const handleUpload = async () => {
@@ -34,9 +47,12 @@ export function BulkImportModal({ isOpen, onClose, resourceName, headers, onImpo
         try {
             const res = await onImport(file);
             toast('success', res.message);
+            if (res.errors?.length) {
+                toast('warning', 'Import completed with issues', `${res.errors.length} row(s) need attention.`);
+            }
             onSuccess?.();
             onClose();
-            setFile(null);
+            resetSelection();
         } catch (err) {
             toast('error', 'Import failed', getErrorMessage(err));
         } finally {
@@ -48,11 +64,11 @@ export function BulkImportModal({ isOpen, onClose, resourceName, headers, onImpo
         <Modal
             isOpen={isOpen}
             onClose={() => !importing && onClose()}
-            title={`Bulk Import — ${resourceName}`}
+            title={`Bulk Import - ${resourceName}`}
             size="md"
             footer={
                 <>
-                    <button className="btn btn-secondary" onClick={onClose} disabled={importing}>Cancel</button>
+                    <button className="btn btn-secondary" onClick={() => !importing && onClose()} disabled={importing}>Cancel</button>
                     <button className="btn btn-primary" onClick={handleUpload} disabled={!file || importing}>
                         {importing ? <span className="spinner" style={{ width: '1rem', height: '1rem', marginRight: '0.5rem' }} /> : <Upload size={16} />}
                         {importing ? 'Importing...' : 'Upload & Process'}
@@ -74,7 +90,7 @@ export function BulkImportModal({ isOpen, onClose, resourceName, headers, onImpo
                             <span key={h} className="badge badge-blue" style={{ fontSize: '0.75rem', padding: '0.25rem 0.625rem' }}>{h}</span>
                         ))}
                     </div>
-                    
+
                     {formatExamples && (
                         <div>
                             <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', fontWeight: 600 }}>
@@ -91,25 +107,25 @@ export function BulkImportModal({ isOpen, onClose, resourceName, headers, onImpo
                     )}
                 </div>
 
-                <div 
-                    style={{ 
-                        border: '2px dashed var(--border)', 
-                        borderRadius: 'var(--radius-xl)', 
-                        padding: '2rem', 
+                <div
+                    style={{
+                        border: '2px dashed var(--border)',
+                        borderRadius: 'var(--radius-xl)',
+                        padding: '2rem',
                         textAlign: 'center',
                         background: file ? 'rgba(59, 130, 246, 0.03)' : 'transparent',
                         transition: 'all 0.2s',
                         cursor: importing ? 'not-allowed' : 'pointer',
-                        borderColor: file ? 'var(--color-primary-400)' : 'var(--border)'
+                        borderColor: file ? 'var(--color-primary-400)' : 'var(--border)',
                     }}
-                    onClick={() => !importing && document.getElementById('bulk-import-input')?.click()}
+                    onClick={() => !importing && fileInputRef.current?.click()}
                 >
-                    <input 
-                        id="bulk-import-input"
-                        type="file" 
-                        accept=".xlsx, .xls" 
-                        onChange={handleFileChange} 
-                        style={{ display: 'none' }} 
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".xlsx, .xls"
+                        onChange={handleFileChange}
+                        style={{ display: 'none' }}
                         disabled={importing}
                     />
                     {file ? (
@@ -118,7 +134,16 @@ export function BulkImportModal({ isOpen, onClose, resourceName, headers, onImpo
                             <div style={{ fontWeight: 600, color: 'var(--text-primary)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{(file.size / 1024).toFixed(1)} KB</div>
                             {!importing && (
-                                <button className="btn btn-ghost btn-sm" style={{ marginTop: '0.5rem', color: 'var(--color-primary-600)' }} onClick={(e) => { e.stopPropagation(); setFile(null); }}>Change File</button>
+                                <button
+                                    className="btn btn-ghost btn-sm"
+                                    style={{ marginTop: '0.5rem', color: 'var(--color-primary-600)' }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        resetSelection();
+                                    }}
+                                >
+                                    Change File
+                                </button>
                             )}
                         </div>
                     ) : (
@@ -137,4 +162,3 @@ export function BulkImportModal({ isOpen, onClose, resourceName, headers, onImpo
         </Modal>
     );
 }
-

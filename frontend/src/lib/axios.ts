@@ -40,6 +40,7 @@ api.interceptors.response.use(
 
                 const newToken = res.data.access_token
                 localStorage.setItem('access_token', newToken)
+                originalRequest.headers = originalRequest.headers ?? {}
                 originalRequest.headers.Authorization = `Bearer ${newToken}`
                 return api(originalRequest)
             } catch {

@@ -2,12 +2,11 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
     LayoutDashboard, Building2, GraduationCap, Users, BookOpen,
-    DoorOpen, CalendarDays, Menu, X, Sun, Moon, LogOut,
-    ChevronDown, Settings, Bell, User, Layers, Briefcase,
-    BookMarked, Cog,
+    DoorOpen, CalendarDays, Menu, Sun, Moon, LogOut,
+    ChevronDown, Layers, Briefcase, Cog, ClipboardList
 } from 'lucide-react'
-import { useAuth } from '@/context/AuthContext'
-import { useTheme } from '@/context/ThemeContext'
+import { useAuth } from '@/context/useAuth'
+import { useTheme } from '@/context/useTheme'
 import { getInitials } from '@/lib/utils'
 
 interface NavItem {
@@ -23,9 +22,9 @@ const navItems: NavItem[] = [
     { label: 'Departments', icon: <Building2 size={18} />, path: '/departments', section: 'Management' },
     { label: 'Programs', icon: <Layers size={18} />, path: '/programs', section: 'Management' },
     { label: 'Batches', icon: <GraduationCap size={18} />, path: '/batches', section: 'Management' },
-    { label: 'Sections', icon: <Users size={18} />, path: '/sections', section: 'Management' },
     { label: 'Teachers', icon: <Briefcase size={18} />, path: '/teachers', section: 'Management' },
     { label: 'Courses', icon: <BookOpen size={18} />, path: '/courses', section: 'Management' },
+    { label: 'Workload', icon: <ClipboardList size={18} />, path: '/workload', section: 'Management' },
     { label: 'Rooms', icon: <DoorOpen size={18} />, path: '/rooms', section: 'Management' },
     { label: 'Timetable', icon: <CalendarDays size={18} />, path: '/timetable', section: 'Scheduling' },
     { label: 'Settings', icon: <Cog size={18} />, path: '/settings', section: 'Configuration' },

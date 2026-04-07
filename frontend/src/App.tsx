@@ -19,6 +19,7 @@ import { TeachersPage } from '@/pages/TeachersPage'
 import { CoursesPage } from '@/pages/CoursesPage'
 import { RoomsPage } from '@/pages/RoomsPage'
 import { TimetablePage } from '@/pages/TimetablePage'
+import { WorkloadPage } from '@/pages/WorkloadPage'
 
 export default function App() {
   return (
@@ -45,6 +46,7 @@ export default function App() {
                   <Route path="/courses" element={<CoursesPage />} />
                   <Route path="/rooms" element={<RoomsPage />} />
                   <Route path="/timetable" element={<TimetablePage />} />
+                  <Route path="/workload" element={<WorkloadPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                 </Route>
               </Route>

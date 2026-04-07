@@ -30,6 +30,10 @@ class ConstraintEngine:
         self.faculty_hours: Dict[int, int] = defaultdict(int)
         self.faculty_daily_hours: Dict[int, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
         
+        # Teacher-Course-Section consistency: (section_id, course_id) -> faculty_id
+        # Ensures the same teacher teaches all instances of a course for a section
+        self.section_course_faculty: Dict[Tuple[int, int], int] = {}
+        
     def is_consistent(self, entry: ScheduleEntry) -> Tuple[bool, Optional[str]]:
         """
         Check if a proposed entry is consistent with all hard constraints.
@@ -49,28 +53,19 @@ class ConstraintEngine:
         if not faculty.is_available(entry.timeslot):
             return False, f"Faculty {faculty.name} not available at {entry.timeslot}"
         
-        # Constraint 2: Faculty qualification (check course's qualified list)
-        if course.qualified_faculty_ids and faculty.id not in course.qualified_faculty_ids:
+        # Constraint 2: Faculty qualification (strict requirement)
+        if not course.qualified_faculty_ids:
+            return False, f"No qualified faculty configured for course {course.code}"
+        if faculty.id not in course.qualified_faculty_ids:
             return False, f"Faculty {faculty.name} not qualified for course {course.code}"
         
         # Constraint 3: Room capacity
         if not room.can_accommodate(section.student_count):
             return False, f"Room {room.name} capacity ({room.capacity}) < section size ({section.student_count})"
         
-        # Constraint 4: Room type suitability (with fallback for labs)
+        # Constraint 4: Room type suitability (strict - no fallback for labs)
         if not room.is_suitable_for(course.course_type):
-            # Fallback: allow labs in regular rooms if no lab rooms available with capacity
-            if course.course_type == "Lab":
-                # Check if any lab rooms have capacity for this section
-                lab_rooms_available = any(
-                    r.is_suitable_for("Lab") and r.can_accommodate(section.student_count)
-                    for r in self.problem.rooms
-                )
-                if lab_rooms_available:
-                    return False, f"Room {room.name} not suitable for Lab (lab rooms exist)"
-                # No lab rooms with capacity - allow fallback to regular rooms
-            else:
-                return False, f"Room {room.name} not suitable for {course.course_type}"
+            return False, f"Room {room.name} not suitable for {course.course_type}"
         
         # Constraint 5: No faculty overlap (same faculty, same time)
         if self.faculty_schedule[entry.faculty_id][slot_key]:
@@ -93,6 +88,17 @@ class ConstraintEngine:
         if self.faculty_hours[entry.faculty_id] >= faculty.max_hours_per_week:
             return False, f"Faculty {faculty.name} reached max weekly hours"
         
+        # Constraint 10: Teacher-Course-Section consistency
+        # If a faculty is already assigned to this course for this section,
+        # only that same faculty can teach it
+        sc_key = (entry.section_id, entry.course_id)
+        if sc_key in self.section_course_faculty:
+            assigned_faculty_id = self.section_course_faculty[sc_key]
+            if entry.faculty_id != assigned_faculty_id:
+                assigned_faculty = self.problem.faculty_map.get(assigned_faculty_id)
+                assigned_name = assigned_faculty.name if assigned_faculty else "Unknown"
+                return False, f"Course {course.code} for section {section.name} must be taught by {assigned_name} (consistency constraint)"
+        
         return True, None
     
     def add_entry(self, entry: ScheduleEntry) -> None:
@@ -106,6 +112,10 @@ class ConstraintEngine:
         
         self.faculty_hours[entry.faculty_id] += 1
         self.faculty_daily_hours[entry.faculty_id][entry.timeslot.day] += 1
+        
+        # Track teacher-course-section assignment for consistency
+        sc_key = (entry.section_id, entry.course_id)
+        self.section_course_faculty[sc_key] = entry.faculty_id
     
     def remove_entry(self, entry: ScheduleEntry) -> None:
         """Remove an entry from constraint tracking (called during backtracking)"""
@@ -118,6 +128,16 @@ class ConstraintEngine:
         
         self.faculty_hours[entry.faculty_id] -= 1
         self.faculty_daily_hours[entry.faculty_id][entry.timeslot.day] -= 1
+        
+        # Check if this was the last entry for this section-course, remove consistency tracking
+        sc_key = (entry.section_id, entry.course_id)
+        # Count remaining entries for this section-course
+        remaining_count = 0
+        for slot_dict in self.faculty_schedule[entry.faculty_id].values():
+            if sc_key in slot_dict:
+                remaining_count += 1
+        if remaining_count == 0:
+            self.section_course_faculty.pop(sc_key, None)
     
     def get_valid_faculty(self, section_id: int, course_id: int, timeslot: Timeslot) -> List[int]:
         """Get list of faculty IDs who can teach this course at this time"""
@@ -125,10 +145,26 @@ class ConstraintEngine:
         if not course:
             return []
         
+        # Check if a faculty is already assigned to this section-course
+        sc_key = (section_id, course_id)
+        assigned_faculty_id = self.section_course_faculty.get(sc_key)
+        if assigned_faculty_id is not None:
+            # Only return the already-assigned faculty if they're still valid
+            assigned_faculty = self.problem.faculty_map.get(assigned_faculty_id)
+            if assigned_faculty:
+                slot_key = (timeslot.day, timeslot.start_time)
+                # Check they don't have conflicts at this timeslot
+                if not self.faculty_schedule[assigned_faculty_id][slot_key]:
+                    # Check max hours
+                    if (self.faculty_hours[assigned_faculty_id] < assigned_faculty.max_hours_per_week and
+                        self.faculty_daily_hours[assigned_faculty_id][timeslot.day] < assigned_faculty.max_hours_per_day):
+                        return [assigned_faculty_id]
+            return []  # Assigned faculty not available, no valid faculty
+        
         valid = []
         for faculty in self.problem.faculty:
-            # Check qualification - use course's qualified_faculty_ids (allows fallback)
-            if course.qualified_faculty_ids and faculty.id not in course.qualified_faculty_ids:
+            # Strict qualification: only explicitly mapped faculty may teach a course.
+            if faculty.id not in course.qualified_faculty_ids:
                 continue
             # Check availability
             if not faculty.is_available(timeslot):
@@ -169,15 +205,6 @@ class ConstraintEngine:
                 continue
             
             valid.append(room.id)
-        
-        # Fallback for labs: if no lab rooms available, use any room with capacity
-        if not valid and course.course_type == "Lab":
-            for room in self.problem.rooms:
-                if not room.can_accommodate(section.student_count):
-                    continue
-                if self.room_schedule[room.id][slot_key]:
-                    continue
-                valid.append(room.id)
         
         return valid
     

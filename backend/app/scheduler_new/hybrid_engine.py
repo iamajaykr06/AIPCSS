@@ -21,15 +21,22 @@ class HybridSchedulerEngine:
         self._room_candidates: Dict[Tuple[int, int], List] = {}
         self._timeslot_index: Dict[Tuple[str, str], int] = {}
 
-    def _get_faculty_candidates(self, course):
-        """Cache valid faculty per course instead of rescanning the full pool."""
-        if course.id not in self._faculty_candidates:
-            candidates = [
-                faculty for faculty in self.problem.faculty
-                if not course.qualified_faculty_ids or faculty.id in course.qualified_faculty_ids
-            ]
-            self._faculty_candidates[course.id] = candidates
-        return self._faculty_candidates[course.id]
+    def _get_faculty_candidates(self, section, course):
+        """Cache valid faculty per section-course pair (checks explicit workload first)."""
+        cache_key = (section.id, course.id)
+        if cache_key not in self._faculty_candidates:
+            # 1. Check explicit workload assignment
+            assigned_id = self.problem.workload_map.get(cache_key)
+            if assigned_id:
+                candidates = [f for f in self.problem.faculty if f.id == assigned_id]
+            else:
+                # 2. Fallback to general qualifications
+                candidates = [
+                    faculty for faculty in self.problem.faculty
+                    if faculty.id in course.qualified_faculty_ids
+                ]
+            self._faculty_candidates[cache_key] = candidates
+        return self._faculty_candidates[cache_key]
 
     def _get_room_candidates(self, section, course):
         """Cache room candidates per section/course pair."""
@@ -62,6 +69,10 @@ class HybridSchedulerEngine:
             "room_slots": defaultdict(set),
             "section_course_days": defaultdict(set),
             "faculty_program_day_sessions": defaultdict(int),
+            # Teacher-course-section consistency:
+            # Once (section_id, course_id) is first assigned, all further slots
+            # for that pair must use the same teacher.
+            "section_course_faculty": {},
         }
 
     @staticmethod
@@ -149,6 +160,27 @@ class HybridSchedulerEngine:
             },
         )
 
+    def _get_failure_reason(self, section, course, weekly_section_capacity, section_demand):
+        """Explain the most likely reason a course still could not be scheduled."""
+        section_overload = max(0, section_demand - weekly_section_capacity)
+        if section_overload:
+            return (
+                f"Section requires {section_demand} weekly hours but only "
+                f"{weekly_section_capacity} teaching slots are configured "
+                f"({section_overload} hours over capacity)"
+            )
+
+        if not self._get_faculty_candidates(section, course):
+            return f"No qualified faculty configured for course {course.code}"
+
+        if not self._get_room_candidates(section, course):
+            return (
+                f"No suitable room configured for {course.course_type} "
+                f"with capacity >= {section.student_count}"
+            )
+
+        return "Could not satisfy remaining timeslot/resource constraints"
+
     def _build_failed_details(self, schedule, unassigned):
         """Convert unscheduled tuples into course-level user-facing metadata."""
         allocated_hours = defaultdict(int)
@@ -181,14 +213,7 @@ class HybridSchedulerEngine:
             allocated = allocated_hours[(section_id, course_id)]
             missing = missing_hours[(section_id, course_id)]
             section_demand = section_required_hours.get(section_id, 0)
-            section_overload = max(0, section_demand - weekly_section_capacity)
-            reason = "Could not satisfy scheduling constraints"
-            if section_overload:
-                reason = (
-                    f"Section requires {section_demand} weekly hours but only "
-                    f"{weekly_section_capacity} teaching slots are configured "
-                    f"({section_overload} hours over capacity)"
-                )
+            reason = self._get_failure_reason(section, course, weekly_section_capacity, section_demand)
             details.append({
                 "course": course.name if course else str(course_id),
                 "section": section.get_full_name() if section else str(section_id),
@@ -229,7 +254,7 @@ class HybridSchedulerEngine:
         for class_idx, (section_id, course_id, hours) in enumerate(classes):
             course = self.problem.course_map[course_id]
             section = self.problem.section_map[section_id]
-            faculty_count = len(self._get_faculty_candidates(course))
+            faculty_count = len(self._get_faculty_candidates(section, course))
             room_count = len(self._get_room_candidates(section, course))
             difficulty = 1.0 / (faculty_count * room_count + 1)
             ranked.append((difficulty, class_idx, section_id, course_id, hours))
@@ -249,8 +274,17 @@ class HybridSchedulerEngine:
             section = self.problem.section_map[section_id]
             is_lab = self._is_lab_course(course)
             program_code = section.program_code or "__unknown_program__"
-            possible_faculty = self._get_faculty_candidates(course)
+            sc_key = (section_id, course_id)
+
+            possible_faculty = self._get_faculty_candidates(section, course)
             possible_rooms = self._get_room_candidates(section, course)
+
+            # --- Teacher-course-section consistency (greedy pass) ---
+            # If a teacher has already been assigned to this (section, course)
+            # pair on a previous slot, lock all future slots to the same teacher.
+            locked_fid = state["section_course_faculty"].get(sc_key)
+            if locked_fid is not None:
+                possible_faculty = [f for f in possible_faculty if f.id == locked_fid]
 
             assigned = False
             for start_idx in valid_starts.get(hours, []):
@@ -299,6 +333,9 @@ class HybridSchedulerEngine:
                                 timeslot=timeslot_list[start_idx],
                             )
                         )
+                        # Lock this teacher for all remaining slots of the same
+                        # (section, course) – first assignment wins.
+                        state["section_course_faculty"].setdefault(sc_key, faculty.id)
                         assigned = True
                         break
 
@@ -341,6 +378,9 @@ class HybridSchedulerEngine:
                 hours,
                 is_lab,
             )
+            # Rebuild teacher-course-section lock from already-scheduled entries
+            sc_key = (entry.section_id, entry.course_id)
+            state["section_course_faculty"].setdefault(sc_key, entry.faculty_id)
 
         still_unassigned = []
 
@@ -349,8 +389,16 @@ class HybridSchedulerEngine:
             section = self.problem.section_map[section_id]
             is_lab = self._is_lab_course(course)
             program_code = section.program_code or "__unknown_program__"
-            possible_faculty = self._get_faculty_candidates(course)
+            sc_key = (section_id, course_id)
+
+            possible_faculty = self._get_faculty_candidates(section, course)
             possible_rooms = self._get_room_candidates(section, course)
+
+            # --- Teacher-course-section consistency (local-search pass) ---
+            locked_fid = state["section_course_faculty"].get(sc_key)
+            if locked_fid is not None:
+                possible_faculty = [f for f in possible_faculty if f.id == locked_fid]
+
             assigned = False
 
             for start_idx in valid_starts.get(hours, []):
@@ -399,6 +447,7 @@ class HybridSchedulerEngine:
                                 timeslot=timeslot_list[start_idx],
                             )
                         )
+                        state["section_course_faculty"].setdefault(sc_key, faculty.id)
                         assigned = True
                         break
 

@@ -8,6 +8,7 @@ from .batch import Batch
 from .section import Section
 from .timetable import TimetableEntry
 from .schedule_settings import ScheduleSettings
+from .workload import WorkloadAllocation
 
 __all__ = [
     'User',
@@ -20,4 +21,5 @@ __all__ = [
     'Room',
     'TimetableEntry',
     'ScheduleSettings',
+    'WorkloadAllocation',
 ]

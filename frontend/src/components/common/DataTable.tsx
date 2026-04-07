@@ -74,7 +74,8 @@ export function DataTable<T extends Record<string, unknown>>({
                         <thead>
                             <tr>
                                 {columns.map(col => (
-                                    <th key={String(col.key)}
+                                    <th
+                                        key={String(col.key)}
                                         style={{ cursor: col.sortable ? 'pointer' : 'default' }}
                                         onClick={() => col.sortable && onSort && onSort(col.key as keyof T)}
                                     >
@@ -82,10 +83,14 @@ export function DataTable<T extends Record<string, unknown>>({
                                             {col.label}
                                             {col.sortable && (
                                                 <span style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                                                    <ChevronUp size={10}
-                                                        style={{ color: sortKey === col.key && sortDir === 'asc' ? '#3b82f6' : 'var(--text-muted)' }} />
-                                                    <ChevronDown size={10}
-                                                        style={{ color: sortKey === col.key && sortDir === 'desc' ? '#3b82f6' : 'var(--text-muted)' }} />
+                                                    <ChevronUp
+                                                        size={10}
+                                                        style={{ color: sortKey === col.key && sortDir === 'asc' ? '#3b82f6' : 'var(--text-muted)' }}
+                                                    />
+                                                    <ChevronDown
+                                                        size={10}
+                                                        style={{ color: sortKey === col.key && sortDir === 'desc' ? '#3b82f6' : 'var(--text-muted)' }}
+                                                    />
                                                 </span>
                                             )}
                                         </div>
@@ -99,7 +104,7 @@ export function DataTable<T extends Record<string, unknown>>({
                                 <tr key={i}>
                                     {columns.map(col => (
                                         <td key={String(col.key)}>
-                                            {col.render ? col.render(row) : String(row[col.key as keyof T] ?? '—')}
+                                            {col.render ? col.render(row) : String(row[col.key as keyof T] ?? 'N/A')}
                                         </td>
                                     ))}
                                     {actions && (
@@ -127,14 +132,14 @@ export function DataTable<T extends Record<string, unknown>>({
                         <ChevronLeft size={16} />
                     </button>
                     {(() => {
-                        let startP = Math.max(1, page - 2);
-                        let endP = Math.min(totalPages, startP + 4);
+                        let startP = Math.max(1, page - 2)
+                        const endP = Math.min(totalPages, startP + 4)
                         if (endP - startP < 4) {
-                            startP = Math.max(1, endP - 4);
+                            startP = Math.max(1, endP - 4)
                         }
-                        
+
                         return Array.from({ length: endP - startP + 1 }, (_, i) => {
-                            const p = startP + i;
+                            const p = startP + i
                             return (
                                 <button
                                     key={p}
@@ -144,8 +149,8 @@ export function DataTable<T extends Record<string, unknown>>({
                                 >
                                     {p}
                                 </button>
-                            );
-                        });
+                            )
+                        })
                     })()}
                     <button
                         className="btn btn-secondary btn-sm btn-icon"

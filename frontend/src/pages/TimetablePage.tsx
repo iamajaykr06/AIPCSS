@@ -6,11 +6,11 @@ import { CSS } from '@dnd-kit/utilities'
 import { restrictToFirstScrollableAncestor } from '@dnd-kit/modifiers'
 import { schedulingService } from '@/services/scheduling.service'
 import { departmentService, teacherService, roomService, courseService, sectionService, programService, batchService } from '@/services/resources.service'
-import { useToast } from '@/context/ToastContext'
+import { useToast } from '@/context/useToast'
 import { PageLoader, Spinner, EmptyState } from '@/components/ui/Loading'
 import { Modal } from '@/components/ui/Modal'
 import { getErrorMessage, DAYS, SLOTS } from '@/lib/utils'
-import type { TimetableEntry, Department, Teacher, Room, Course, Section, Batch, GenerateScheduleResult, ScheduleBreak } from '@/types'
+import type { TimetableEntry, Department, Teacher, Room, Course, Section, Batch, Program, GenerateScheduleResult, ScheduleBreak } from '@/types'
 import { io } from 'socket.io-client'
 
 interface TimetableReadiness {
@@ -528,6 +528,9 @@ export function TimetablePage() {
     const [readiness, setReadiness] = useState<TimetableReadiness>(emptyReadiness)
     const [generationResult, setGenerationResult] = useState<GenerateScheduleResult | null>(null)
     const [batches, setBatches] = useState<Batch[]>([])
+    const [programs, setPrograms] = useState<Program[]>([])
+    const [selectedProgramId, setSelectedProgramId] = useState<number | null>(null)
+    const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null)
     const [workingDays, setWorkingDays] = useState<string[]>([...DAYS])
     const [timeSlots, setTimeSlots] = useState<string[]>([...SLOTS])
     const [breaks, setBreaks] = useState<ScheduleBreak[]>([])
@@ -690,10 +693,17 @@ export function TimetablePage() {
         if (selectedDeptId) {
             setGenerationResult(null)
             setFormData({ teacher_id: '', room_id: '', course_id: '', section_id: '' })
+            setSelectedProgramId(null)
+            setSelectedBatchId(null)
             fetchTimetable(selectedDeptId)
             loadReadiness(selectedDeptId)
+            // Load programs for filter
+            programService.list(selectedDeptId, 1, 500)
+                .then(res => setPrograms(res.data || []))
+                .catch(() => setPrograms([]))
         } else {
             setReadiness(emptyReadiness)
+            setPrograms([])
         }
     }, [fetchTimetable, loadReadiness, selectedDeptId])
 
@@ -899,8 +909,35 @@ export function TimetablePage() {
         }
     }
 
+    // Compute which batch IDs belong to the selected program (for program filter)
+    const programBatchIds = useMemo(() => {
+        if (!selectedProgramId) return null   // null means "all batches"
+        const ids = new Set(batches.filter(b => b.program_id === selectedProgramId).map(b => b.id))
+        return ids
+    }, [batches, selectedProgramId])
+
+    // Batches visible in the Batch timetable view (respects program + batch filter)
+    const visibleBatches = useMemo(() => {
+        let list = batches
+        if (programBatchIds) list = list.filter(b => programBatchIds.has(b.id))
+        if (selectedBatchId) list = list.filter(b => b.id === selectedBatchId)
+        return list
+    }, [batches, programBatchIds, selectedBatchId])
+
     const filteredTimetable = useMemo(() => {
         let items = timetable
+
+        // Filter by program / batch (match entries whose sections belong to visible batches)
+        if (programBatchIds || selectedBatchId) {
+            const allowedBatchIds = new Set(visibleBatches.map(b => b.id))
+            items = items.filter(entry =>
+                entry.sections?.some(sec => {
+                    const fullSection = readiness.sections.find(s => s.id === sec.id)
+                    return fullSection ? allowedBatchIds.has(fullSection.batch_id) : false
+                })
+            )
+        }
+
         if (filterType === 'Teacher' && filterId) items = items.filter(e => e.teacher?.id === filterId)
         if (filterType === 'Room' && filterId) items = items.filter(e => e.room?.id === filterId)
 
@@ -913,7 +950,7 @@ export function TimetablePage() {
             )
         }
         return items
-    }, [timetable, filterType, filterId, searchQuery])
+    }, [timetable, filterType, filterId, searchQuery, programBatchIds, selectedBatchId, visibleBatches, readiness.sections])
 
     // Find all entries that have conflicts with ANY other entry in the ENTIRE timetable
     // Not just the ones in the same cell (e.g. teacher double booked in two different rooms at same time)
@@ -1183,17 +1220,60 @@ export function TimetablePage() {
                         Generate, review, and fine-tune department schedules with fewer conflicts
                     </p>
                 </div>
-                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+                    {/* ── Department selector ──────────────────────────────── */}
                     <select
                         value={selectedDeptId || ''}
                         onChange={e => { setSelectedDeptId(Number(e.target.value)); setFilterType('All'); setFilterId(null) }}
                         className="input select"
                         style={{ width: '180px' }}
+                        title="Filter by Department"
                     >
                         {departments.map(d => (
                             <option key={d.id} value={d.id}>{d.name}</option>
                         ))}
                     </select>
+
+                    {/* ── Program filter ─────────────────────────────────── */}
+                    {programs.length > 0 && (
+                        <select
+                            value={selectedProgramId ?? ''}
+                            onChange={e => {
+                                const val = e.target.value ? Number(e.target.value) : null
+                                setSelectedProgramId(val)
+                                setSelectedBatchId(null)   // reset batch when program changes
+                            }}
+                            className="input select"
+                            style={{ width: '160px' }}
+                            title="Filter by Program"
+                        >
+                            <option value="">All Programs</option>
+                            {programs.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                        </select>
+                    )}
+
+                    {/* ── Batch filter (only shows batches of selected program) ── */}
+                    {batches.length > 0 && (
+                        <select
+                            value={selectedBatchId ?? ''}
+                            onChange={e => setSelectedBatchId(e.target.value ? Number(e.target.value) : null)}
+                            className="input select"
+                            style={{ width: '160px' }}
+                            title="Filter by Batch"
+                        >
+                            <option value="">All Batches</option>
+                            {(selectedProgramId
+                                ? batches.filter(b => b.program_id === selectedProgramId)
+                                : batches
+                            ).map(b => (
+                                <option key={b.id} value={b.id}>{b.name}</option>
+                            ))}
+                        </select>
+                    )}
+
+                    {/* ── Teacher / Room view filter ─────────────────────── */}
                     <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '0.5rem', padding: '2px' }}>
                         <select
                             value={filterType}
@@ -1226,17 +1306,56 @@ export function TimetablePage() {
                             </select>
                         )}
                     </div>
+
+                    {/* ── Search ────────────────────────────────────────── */}
                     <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                         <Search size={16} style={{ position: 'absolute', left: '0.75rem', color: 'var(--text-muted)' }} />
                         <input
                             type="text"
                             placeholder="Search timetable..."
                             className="input"
-                            style={{ paddingLeft: '2.5rem', width: '220px' }}
+                            style={{ paddingLeft: '2.5rem', width: '200px' }}
                             value={searchQuery}
                             onChange={e => setSearchQuery(e.target.value)}
                         />
                     </div>
+
+                    {/* ── Active filter chips ───────────────────────────── */}
+                    {(selectedProgramId || selectedBatchId) && (
+                        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                            {selectedProgramId && (
+                                <span
+                                    title="Click to clear program filter"
+                                    onClick={() => { setSelectedProgramId(null); setSelectedBatchId(null) }}
+                                    style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                                        fontSize: '0.75rem', fontWeight: 600,
+                                        color: '#1d4ed8', background: 'rgba(59,130,246,0.12)',
+                                        border: '1px solid rgba(59,130,246,0.3)', borderRadius: '999px',
+                                        padding: '0.2rem 0.65rem', cursor: 'pointer',
+                                    }}
+                                >
+                                    📚 {programs.find(p => p.id === selectedProgramId)?.name ?? 'Program'} ×
+                                </span>
+                            )}
+                            {selectedBatchId && (
+                                <span
+                                    title="Click to clear batch filter"
+                                    onClick={() => setSelectedBatchId(null)}
+                                    style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                                        fontSize: '0.75rem', fontWeight: 600,
+                                        color: '#047857', background: 'rgba(16,185,129,0.12)',
+                                        border: '1px solid rgba(16,185,129,0.3)', borderRadius: '999px',
+                                        padding: '0.2rem 0.65rem', cursor: 'pointer',
+                                    }}
+                                >
+                                    🎓 {batches.find(b => b.id === selectedBatchId)?.name ?? 'Batch'} ×
+                                </span>
+                            )}
+                        </div>
+                    )}
+
                     <button
                         className="btn btn-secondary"
                         onClick={handleExport}
@@ -1617,7 +1736,7 @@ export function TimetablePage() {
 
                     <BatchTimetableView
                         timetable={filteredTimetable}
-                        batches={batches}
+                        batches={visibleBatches}
                         sections={readiness.sections}
                         teachers={readiness.teachers}
                         workingDays={workingDays}

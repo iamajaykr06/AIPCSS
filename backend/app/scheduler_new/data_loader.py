@@ -3,11 +3,11 @@ DataLoader - Loads scheduling data from SQLAlchemy models
 """
 
 import re
-from typing import List, Optional, Dict, Set
+from typing import List, Optional, Dict, Set, Tuple
 from collections import defaultdict
 from sqlalchemy.orm import joinedload, selectinload
 from .. import db
-from ..models import Teacher, Course, Section, Room, ScheduleSettings, Batch, Program
+from ..models import Teacher, Course, Section, Room, ScheduleSettings, Batch, Program, WorkloadAllocation, TimetableEntry
 from .models import Faculty, Room as SchedulerRoom, Course as SchedulerCourse, Section as SchedulerSection, Timeslot
 
 
@@ -82,6 +82,29 @@ class DataLoader:
         return roman_map.get(sem_upper)
 
     @staticmethod
+    def _safe_int(value: Optional[int]) -> int:
+        """Coerce nullable ORM values into non-negative integers."""
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @classmethod
+    def _resolve_course_hours(cls, course: Course) -> int:
+        """Prefer explicit L/T/P workload and keep legacy defaults as fallback."""
+        lecture_hours = cls._safe_int(getattr(course, "lecture_hours", 0))
+        tutorial_hours = cls._safe_int(getattr(course, "tutorial_hours", 0))
+        practical_hours = cls._safe_int(getattr(course, "practical_hours", 0))
+        explicit_total = lecture_hours + tutorial_hours + practical_hours
+
+        if explicit_total > 0:
+            if (course.course_type or "").strip().lower() == "lab":
+                return practical_hours or explicit_total
+            return explicit_total
+
+        return 2 if course.course_type == "Lab" else 3
+
+    @staticmethod
     def _deduplicate_sections(sections: List[Section]) -> List[Section]:
         """
         Collapse exact duplicate section rows caused by repeated imports.
@@ -115,27 +138,61 @@ class DataLoader:
                     relevant_teachers.append(teacher)
             teachers = relevant_teachers
         
+        # GLOBAL BUSY-SLOT DETECTION:
+        # Load all existing timetable entries for other departments to prevent 
+        # double-booking teachers who teach across departments.
+        global_busy_map = defaultdict(lambda: defaultdict(set)) # teacher_id -> day -> set(timeslots)
+        
+        other_dept_entries = TimetableEntry.query.filter(TimetableEntry.department_id != self.department_id).all()
+        for entry in other_dept_entries:
+            global_busy_map[entry.teacher_id][entry.day].add(entry.timeslot)
+
         faculty_list = []
         for teacher in teachers:
-            # Build availability map
+            # 1. Base availability from settings
             availability = {}
             if teacher.availability:
                 for day, slots in teacher.availability.items():
                     availability[day] = set(slots) if isinstance(slots, list) else {slots}
             else:
-                # If no availability set, teacher is available all times
-                availability = None  # None means "always available"
+                # If no availability set, teacher is initially available all times
+                # We'll populate this from the timeslots later if needed, but for now 
+                # None means "always available". 
+                availability = None
+            
+            # 2. Subtract Busy slots from other departments
+            busy_in_other_depts = global_busy_map.get(teacher.id)
+            if busy_in_other_depts:
+                # If availability was None (always free), we must manifest it to subtract
+                if availability is None:
+                    # In our system, if availability is None, the engine assumes all slots are OK.
+                    # To block specific slots, we MUST create a set of "Allowed" slots.
+                    # Actually, the Faculty dataclass's is_available logic:
+                    # return timeslot.slot_id in day_slots or not day_slots
+                    # So we need to provide the whitelist.
+                    availability = {}
+                    # We'll let the engine handle the "None" case if there are no busy slots.
+                    # But if there ARE busy slots, we must build the whitelist.
+                    
+                # NOTE: If we manifest availability here, we need the list of ALL possible slots.
+                # For now, I'll add a 'busy_slots' attribute to the Faculty dataclass and 
+                # update the Faculty.is_available logic.
             
             # Get qualified course IDs
             qualified_ids = {c.id for c in teacher.qualified_courses}
             
-            faculty_list.append(Faculty(
+            faculty = Faculty(
                 id=teacher.id,
                 name=teacher.name,
                 email=teacher.email,
                 qualified_course_ids=qualified_ids,
-                availability=availability
-            ))
+                availability=availability,
+                max_hours_per_day=getattr(teacher, 'max_hours_per_day', 6) or 6,
+                max_hours_per_week=getattr(teacher, 'max_hours_per_week', 30) or 30
+            )
+            # Custom attribute for the engine to check
+            setattr(faculty, 'global_busy_slots', busy_in_other_depts)
+            faculty_list.append(faculty)
         
         return faculty_list
     
@@ -173,25 +230,18 @@ class DataLoader:
         
         teachers = Teacher.query.options(selectinload(Teacher.qualified_courses)).all()
         course_faculty_map = defaultdict(set)
-        all_faculty_ids = set()
         for teacher in teachers:
-            all_faculty_ids.add(teacher.id)
             for course in teacher.qualified_courses:
                 course_faculty_map[course.id].add(teacher.id)
         
         course_list = []
         
         for course in courses:
-            # Determine hours based on course type
-            hours = 2 if course.course_type == "Lab" else 3
+            hours = self._resolve_course_hours(course)
             
             # Get qualified faculty for this course
             qualified_ids = course_faculty_map.get(course.id, set())
-            
-            # Fallback: if no qualified faculty, allow any department faculty to teach
-            if not qualified_ids and all_faculty_ids:
-                qualified_ids = all_faculty_ids
-            
+
             course_list.append(SchedulerCourse(
                 id=course.id,
                 name=course.name,
@@ -199,14 +249,25 @@ class DataLoader:
                 course_type=course.course_type or "Theory",
                 hours_per_week=hours,
                 program_code=course.program_code,
+                program_id=getattr(course, 'program_id', None),
                 department_id=course.department_id,
                 qualified_faculty_ids=qualified_ids
             ))
         
         return course_list
     
-    def load_sections(self) -> List[SchedulerSection]:
-        """Load sections from database"""
+    def load_workloads(self, section_ids: List[int]) -> Dict[Tuple[int, int], int]:
+        """
+        Loads the explicit Teacher-Course-Section mappings. 
+        Only these courses will be scheduled.
+        """
+        allocations = WorkloadAllocation.query.filter(
+            WorkloadAllocation.section_id.in_(section_ids)
+        ).all()
+        return {(a.section_id, a.course_id): a.teacher_id for a in allocations}
+
+    def load_sections(self) -> Tuple[List[SchedulerSection], Dict[Tuple[int, int], int]]:
+        """Load sections from database and their assigned workloads"""
         query = Section.query.options(
             joinedload(Section.batch).joinedload(Batch.program)
         )
@@ -217,83 +278,47 @@ class DataLoader:
             )
         
         sections = self._deduplicate_sections(query.all())
-        department_ids = {
-            section.batch.program.department_id
-            for section in sections
-            if section.batch and section.batch.program
-        }
+        if not sections:
+            return [], {}
 
-        if not department_ids:
-            return []
-
-        course_query = Course.query
-        if self.department_id:
-            course_query = course_query.filter(Course.department_id == self.department_id)
-        else:
-            course_query = course_query.filter(Course.department_id.in_(department_ids))
-
-        all_department_courses = course_query.all()
-        courses_by_department = defaultdict(list)
-        course_tokens = {}
-        course_semesters = {}
-
-        for course in all_department_courses:
-            courses_by_department[course.department_id].append(course)
-            course_tokens[course.id] = self._normalize_program_code(course.program_code)
-            course_semesters[course.id] = self._resolve_course_semester(course)
+        section_ids = [s.id for s in sections]
+        workload_map = self.load_workloads(section_ids)
         
+        # Group workload by section for quick lookup
+        workload_by_section = defaultdict(list)
+        for (sec_id, crs_id), teacher_id in workload_map.items():
+            workload_by_section[sec_id].append(crs_id)
+
         section_list = []
         for section in sections:
             program = section.batch.program if section.batch else None
-            if not program:
+            # If no program metadata, we still process the section if it has workloads
+            program_code = program.code if program else "UNK"
+            program_id = program.id if program else None
+            
+            # The heart of the change: We ONLY schedule courses that have a workload entry.
+            course_ids = list(set(workload_by_section.get(section.id, [])))
+            
+            if not course_ids:
+                # If no courses are assigned to this section, skip it from scheduling
                 continue
 
-            # Get courses for this section's program and semester
-            program_code = program.code
-            current_semester = section.batch.current_semester
-            section_tokens = self._normalize_program_code(program_code)
-            dept_courses = courses_by_department.get(program.department_id, [])
-            course_ids = []
-            
-            for c in dept_courses:
-                # Match program
-                similarity = self._calculate_program_similarity(
-                    c.program_code,
-                    program_code,
-                    course_tokens.get(c.id),
-                    section_tokens
-                )
-                # Ensure they actually mapped correctly (don't accidentally match None to None and give all courses)
-                is_exact_match = (c.program_code and program_code and c.program_code == program_code)
-                
-                if similarity < 0.3 and not is_exact_match:
-                    # Also fallback: only match if both are completely empty and within same department
-                    if not (not c.program_code and not program_code and c.department_id == program.department_id):
-                        continue
-                
-                course_sem = course_semesters.get(c.id)
-                if course_sem is not None and current_semester is not None:
-                    if course_sem != current_semester:
-                        continue
-                
-                course_ids.append(c.id)
-            
-            # Remove duplicates
-            course_ids = list(set(course_ids))
-            
             section_list.append(SchedulerSection(
                 id=section.id,
                 name=section.name,
                 student_count=section.student_count,
                 batch_id=section.batch_id,
                 program_code=program_code,
-                department_id=program.department_id,
-                current_semester=current_semester,
-                batch_code=section.batch.code,
+                program_id=program_id,
+                department_id=program.department_id if program else None,
+                current_semester=section.batch.current_semester if section.batch else None,
+                batch_code=section.batch.code if section.batch else None,
                 course_ids=course_ids
             ))
         
-        return section_list
+        return section_list, workload_map
+
+        return section_list, workload_map
     
     def load_timeslots(self) -> List[Timeslot]:
         """Generate timeslots from settings"""
@@ -337,7 +362,7 @@ class DataLoader:
         """Load complete scheduling problem"""
         from .models import SchedulingProblem
         
-        sections = self.load_sections()
+        sections, workload_map = self.load_sections()
         
         # Build program map for course loading
         section_program_map = {}
@@ -358,5 +383,6 @@ class DataLoader:
             courses=courses,
             faculty=faculty,
             rooms=rooms,
-            timeslots=timeslots
+            timeslots=timeslots,
+            workload_map=workload_map
         )

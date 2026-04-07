@@ -45,6 +45,14 @@ class Faculty:
     
     def is_available(self, timeslot: Timeslot) -> bool:
         """Check if faculty is available for given timeslot"""
+        # 1. Check Global Cross-Dept Busy Slots (from TimetableEntry)
+        busy_slots = getattr(self, 'global_busy_slots', None)
+        if busy_slots:
+            day_busy = busy_slots.get(timeslot.day)
+            if day_busy and timeslot.slot_id in day_busy:
+                return False
+                
+        # 2. Check local availability settings
         if not self.availability:
             return True
         day_slots = self.availability.get(timeslot.day, set())
@@ -52,7 +60,7 @@ class Faculty:
     
     def can_teach(self, course_id: int) -> bool:
         """Check if faculty is qualified to teach course"""
-        return not self.qualified_course_ids or course_id in self.qualified_course_ids
+        return course_id in self.qualified_course_ids
 
 
 @dataclass
@@ -119,6 +127,7 @@ class Course:
     course_type: str = "Theory"
     hours_per_week: int = 3
     program_code: Optional[str] = None
+    program_id: Optional[int] = None
     department_id: Optional[int] = None
     qualified_faculty_ids: Set[int] = field(default_factory=set)
 
@@ -129,8 +138,8 @@ class Course:
     def get_hours_needed(self) -> int:
         """Get hours required for a single scheduled occurrence."""
         if self.is_lab():
-            # Business rule: each lab course appears once per week as one 2-slot block.
-            return 2
+            # Labs are scheduled once per week as a single practical block.
+            return max(1, self.hours_per_week)
         return self.hours_per_week
 
 
@@ -142,6 +151,7 @@ class Section:
     student_count: int
     batch_id: int
     program_code: Optional[str] = None
+    program_id: Optional[int] = None
     department_id: Optional[int] = None
     current_semester: Optional[int] = None
     batch_code: Optional[str] = None
@@ -244,6 +254,8 @@ class SchedulingProblem:
         self.course_map = {c.id: c for c in self.courses}
         self.faculty_map = {f.id: f for f in self.faculty}
         self.room_map = {r.id: r for r in self.rooms}
+    # Explicit Workload Allocation: (section_id, course_id) -> teacher_id
+    workload_map: Dict[Tuple[int, int], int] = field(default_factory=dict)
     
     def get_section_courses(self) -> List[Tuple[int, int, int]]:
         """

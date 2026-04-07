@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { departmentService, teacherService, courseService, roomService } from '@/services/resources.service'
 import { schedulingService } from '@/services/scheduling.service'
-import { useAuth } from '@/context/AuthContext'
+import { useAuth } from '@/context/useAuth'
 import { Skeleton } from '@/components/ui/Loading'
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,

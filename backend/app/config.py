@@ -5,8 +5,8 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 class Config:
     """Base Configuration."""
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'change-this-in-production-please'
-    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or 'jwt-change-this-in-production'
+    SECRET_KEY = os.environ.get('SECRET_KEY') or 'change-this-in-production-please-32b'
+    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or 'jwt-change-this-in-production-32b'
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)
     SQLALCHEMY_TRACK_MODIFICATIONS = False

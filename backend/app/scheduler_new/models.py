@@ -81,16 +81,23 @@ class Room:
     
     def is_suitable_for(self, course_type: str) -> bool:
         """Check if room is suitable for course type"""
-        course_type_lower = course_type.lower() if course_type else ""
-        room_type_lower = self.room_type.lower() if self.room_type else ""
+        if not course_type or course_type.lower() == "theory":
+            return True
+            
+        course_type_lower = course_type.lower().strip()
+        room_type_lower = (self.room_type or "").lower().strip()
         
-        if course_type_lower == "lab":
-            return "lab" in room_type_lower
-        
+        # If the course specifies a specialized type, the room must match it.
+        # We look for the course_type keyword within the room_type string.
+        # Example: "Computer Lab" contains "Lab"
+        if course_type_lower in room_type_lower:
+            return True
+            
+        # Specific fallbacks or legacy checks
         if course_type_lower in ["moot court", "moot"]:
             return "moot" in room_type_lower or "court" in room_type_lower
-        
-        return True
+            
+        return False
     
     def can_be_used_by_program(self, program_id: Optional[int], department_id: Optional[int]) -> bool:
         """

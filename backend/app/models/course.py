@@ -15,18 +15,20 @@ class Course(db.Model):
     lecture_hours = db.Column(db.Integer, nullable=False, default=0)
     tutorial_hours = db.Column(db.Integer, nullable=False, default=0)
     practical_hours = db.Column(db.Integer, nullable=False, default=0)
+    weekly_hours = db.Column(db.Integer, nullable=True)  # Explicit hours from Excel
     
     @property
     def program_code(self):
         return self.program.code if self.program else None
 
-    @property
-    def weekly_hours(self):
-        return (
-            int(self.lecture_hours or 0)
-            + int(self.tutorial_hours or 0)
-            + int(self.practical_hours or 0)
-        )
+    def get_hours_needed(self):
+        """Returns the total hours used for scheduling validation/logic."""
+        if self.weekly_hours is not None and self.weekly_hours > 0:
+            return self.weekly_hours
+        total_ltp = (self.lecture_hours or 0) + (self.tutorial_hours or 0) + (self.practical_hours or 0)
+        if total_ltp > 0:
+            return total_ltp
+        return 2 if (self.course_type or '').lower() == "lab" else 3
 
     def __repr__(self):
         return f'<Course {self.code or self.name}>'

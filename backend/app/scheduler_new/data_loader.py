@@ -91,18 +91,12 @@ class DataLoader:
 
     @classmethod
     def _resolve_course_hours(cls, course: Course) -> int:
-        """Prefer explicit L/T/P workload and keep legacy defaults as fallback."""
-        lecture_hours = cls._safe_int(getattr(course, "lecture_hours", 0))
-        tutorial_hours = cls._safe_int(getattr(course, "tutorial_hours", 0))
-        practical_hours = cls._safe_int(getattr(course, "practical_hours", 0))
-        explicit_total = lecture_hours + tutorial_hours + practical_hours
-
-        if explicit_total > 0:
-            if (course.course_type or "").strip().lower() == "lab":
-                return practical_hours or explicit_total
-            return explicit_total
-
-        return 2 if course.course_type == "Lab" else 3
+        """Use the Course model's logic to determine required hours."""
+        if hasattr(course, 'get_hours_needed'):
+            return course.get_hours_needed()
+        
+        # Fallback if model doesn't have the method yet
+        return 2 if (course.course_type or '').lower() == "lab" else 3
 
     @staticmethod
     def _deduplicate_sections(sections: List[Section]) -> List[Section]:

@@ -301,7 +301,7 @@ class HybridSchedulerEngine:
                         continue
                     if state["faculty_daily_hours"][faculty.id][day] + hours > faculty.max_hours_per_day:
                         continue
-                    if not is_lab and state["faculty_program_day_sessions"][(faculty.id, program_code, day)] >= 1:
+                    if not is_lab and state["faculty_program_day_sessions"][(faculty.id, program_code, day)] >= 3:
                         continue
                     if any(slot_idx in state["faculty_slots"][faculty.id] for slot_idx in slots_needed):
                         continue
@@ -415,7 +415,7 @@ class HybridSchedulerEngine:
                         continue
                     if state["faculty_daily_hours"][faculty.id][day] + hours > faculty.max_hours_per_day:
                         continue
-                    if not is_lab and state["faculty_program_day_sessions"][(faculty.id, program_code, day)] >= 1:
+                    if not is_lab and state["faculty_program_day_sessions"][(faculty.id, program_code, day)] >= 3:
                         continue
                     if any(slot_idx in state["faculty_slots"][faculty.id] for slot_idx in slots_needed):
                         continue

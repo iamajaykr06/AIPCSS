@@ -15,6 +15,10 @@ class Course(db.Model):
     lecture_hours = db.Column(db.Integer, nullable=False, default=0)
     tutorial_hours = db.Column(db.Integer, nullable=False, default=0)
     practical_hours = db.Column(db.Integer, nullable=False, default=0)
+    
+    @property
+    def program_code(self):
+        return self.program.code if self.program else None
 
     @property
     def weekly_hours(self):

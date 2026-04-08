@@ -175,3 +175,76 @@ def bulk_import_workload():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
+@workload_bp.route('/auto-assign-all', methods=['POST'])
+@roles_required('admin')
+def auto_assign_all_workload():
+    """ Automatically assigns the first qualified teacher to every unassigned course in every section. """
+    sections = Section.query.all()
+    success_count = 0
+    
+    for section in sections:
+        if not section.batch:
+            continue
+            
+        program_id = section.batch.program_id
+        semester = section.batch.current_semester
+        courses = Course.query.filter_by(program_id=program_id, semester=semester).all()
+        
+        for course in courses:
+            # Check if already assigned
+            existing = WorkloadAllocation.query.filter_by(
+                section_id=section.id,
+                course_id=course.id
+            ).first()
+            
+            if not existing:
+                # SMART LOAD BALANCING: Pick the qualified teacher with the lowest current workload
+                # Get all qualified teachers
+                qualified = course.qualified_teachers.all()
+                if qualified:
+                    # Sort by current workload count
+                    teacher = min(qualified, key=lambda t: WorkloadAllocation.query.filter_by(teacher_id=t.id).count())
+                    alloc = WorkloadAllocation(
+                        section_id=section.id,
+                        course_id=course.id,
+                        teacher_id=teacher.id
+                    )
+                    db.session.add(alloc)
+                    success_count += 1
+    
+    db.session.commit()
+    return jsonify({"message": f"Successfully created {success_count} auto-assignments"}), 200
+@workload_bp.route('/rebalance-all', methods=['POST'])
+@roles_required('admin')
+def rebalance_all_workload():
+    """ Clears all workload allocations and re-assigns them using smart load balancing. """
+    # 1. Clear all
+    WorkloadAllocation.query.delete()
+    
+    # 2. Re-assign
+    sections = Section.query.all()
+    success_count = 0
+    
+    for section in sections:
+        if not section.batch: continue
+        program_id = section.batch.program_id
+        semester = section.batch.current_semester
+        
+        # Get courses for this batch's program and semester
+        courses = Course.query.filter_by(program_id=program_id, semester=semester).all()
+        
+        for course in courses:
+            qualified = course.qualified_teachers.all()
+            if qualified:
+                # Pick teacher with lowest current count in this new session. 
+                teacher = min(qualified, key=lambda t: WorkloadAllocation.query.filter_by(teacher_id=t.id).count())
+                alloc = WorkloadAllocation(
+                    section_id=section.id,
+                    course_id=course.id,
+                    teacher_id=teacher.id
+                )
+                db.session.add(alloc)
+                success_count += 1
+    
+    db.session.commit()
+    return jsonify({"message": f"Successfully rebalanced {success_count} assignments for all batches"}), 200

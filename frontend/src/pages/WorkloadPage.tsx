@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react'
-import { Check, ClipboardList, Search, User, UserPlus, X, GraduationCap as BatchIcon, Filter, ArrowLeft, Upload } from 'lucide-react'
+import { Check, ClipboardList, Search, User, UserPlus, X, GraduationCap as BatchIcon, Filter, ArrowLeft, Upload, Zap, RefreshCw } from 'lucide-react'
 import { sectionService, workloadService, departmentService, teacherService } from '@/services/resources.service'
 import { useToast } from '@/context/useToast'
 import { PageLoader, ErrorState } from '@/components/ui/Loading'
@@ -134,6 +134,34 @@ export function WorkloadPage() {
         }
     }
 
+    const handleAutoAssign = async () => {
+        if (!window.confirm("Auto-assign teachers for ALL batches & sections? (Only unassigned courses will be affected)")) return
+        setLoading(true)
+        try {
+            const res = await workloadService.autoAssignAll()
+            toast('success', res.message)
+            await loadResources()
+        } catch (err) {
+            toast('error', 'Auto-assignment failed')
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    const handleRebalance = async () => {
+        if (!window.confirm("🛑 CRITICAL ACTION: This will DELETE ALL current assignments (including those from Bulk Import!) and recreate them evenly across all faculty to solve teacher-overload issues. Is this what you want?")) return
+        setLoading(true)
+        try {
+            const res = await workloadService.rebalanceAll()
+            toast('success', res.message || 'Workload rebalanced successfully')
+            await loadResources()
+        } catch (err) {
+            toast('error', 'Rebalance failed')
+        } finally {
+            setLoading(false)
+        }
+    }
+
     if (loading) return <PageLoader />
 
     return (
@@ -159,9 +187,47 @@ export function WorkloadPage() {
                     </div>
                 </div>
                 {viewMode === 'selection' && (
-                    <button className="btn btn-secondary" onClick={() => setImportModalOpen(true)}>
-                        <Upload size={14} /> Bulk Import Assignments
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+                        <button 
+                            className="btn" 
+                            onClick={handleRebalance}
+                            title="RESET & OPTIMIZE: This will clear all 582 current assignments and re-assign them across all sections evenly to solve teacher-overload issues."
+                            style={{ 
+                                background: 'linear-gradient(135deg, #f97316 0%, #dc2626 100%)', 
+                                color: 'white',
+                                border: 'none',
+                                fontWeight: 700,
+                                boxShadow: '0 4px 12px rgba(220, 38, 38, 0.3)',
+                                padding: '0.75rem 1.25rem',
+                                borderRadius: '10px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                transition: 'transform 0.2s ease'
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                            onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                        >
+                            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} /> 
+                            <span>Smart Rebalance (Reset All)</span>
+                        </button>
+                        <button 
+                            className="btn" 
+                            onClick={handleAutoAssign}
+                            style={{ 
+                                background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)', 
+                                color: 'white',
+                                border: 'none',
+                                fontWeight: 700,
+                                boxShadow: '0 4px 14px 0 rgba(234, 88, 12, 0.3)'
+                            }}
+                        >
+                            <Zap size={14} fill="white" /> Auto-Assign All
+                        </button>
+                        <button className="btn btn-secondary" onClick={() => setImportModalOpen(true)}>
+                            <Upload size={14} /> Bulk Import Assignments
+                        </button>
+                    </div>
                 )}
             </div>
 

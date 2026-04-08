@@ -49,7 +49,9 @@ class Faculty:
         busy_slots = getattr(self, 'global_busy_slots', None)
         if busy_slots:
             day_busy = busy_slots.get(timeslot.day)
-            if day_busy and timeslot.slot_id in day_busy:
+            # Match the label used in TimetableEntry (HH:MM-HH:MM)
+            label = f"{timeslot.start_time}-{timeslot.end_time}"
+            if day_busy and label in day_busy:
                 return False
                 
         # 2. Check local availability settings
@@ -243,6 +245,9 @@ class SchedulingProblem:
     rooms: List[Room]
     timeslots: List[Timeslot]
     
+    # Explicit Workload Allocation: (section_id, course_id) -> teacher_id
+    workload_map: Dict[Tuple[int, int], int] = field(default_factory=dict)
+
     # Lookup maps for O(1) access
     section_map: Dict[int, Section] = field(init=False)
     course_map: Dict[int, Course] = field(init=False)
@@ -254,9 +259,7 @@ class SchedulingProblem:
         self.course_map = {c.id: c for c in self.courses}
         self.faculty_map = {f.id: f for f in self.faculty}
         self.room_map = {r.id: r for r in self.rooms}
-    # Explicit Workload Allocation: (section_id, course_id) -> teacher_id
-    workload_map: Dict[Tuple[int, int], int] = field(default_factory=dict)
-    
+
     def get_section_courses(self) -> List[Tuple[int, int, int]]:
         """
         Get all (section_id, course_id, hours_needed) combinations to schedule.

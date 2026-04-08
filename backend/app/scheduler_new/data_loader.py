@@ -145,6 +145,7 @@ class DataLoader:
         
         other_dept_entries = TimetableEntry.query.filter(TimetableEntry.department_id != self.department_id).all()
         for entry in other_dept_entries:
+            # Match by (day, timeslot_label)
             global_busy_map[entry.teacher_id][entry.day].add(entry.timeslot)
 
         faculty_list = []

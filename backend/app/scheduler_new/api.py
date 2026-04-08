@@ -221,92 +221,101 @@ def _build_scheduler(problem, requested_engine, time_limit, debug_mode):
 
 def _save_schedule_entries(result, department_id, problem):
     """Persist generated entries with one section prefetch instead of per-row lookups."""
-    if department_id:
-        entry_ids = [
-            entry_id for (entry_id,) in db.session.query(TimetableEntry.id)
-            .filter_by(department_id=department_id)
-            .all()
-        ]
-    else:
-        entry_ids = [entry_id for (entry_id,) in db.session.query(TimetableEntry.id).all()]
+    try:
+        # Delete old entries
+        if department_id:
+            entry_ids = [
+                entry_id for (entry_id,) in db.session.query(TimetableEntry.id)
+                .filter_by(department_id=department_id)
+                .all()
+            ]
+        else:
+            entry_ids = [entry_id for (entry_id,) in db.session.query(TimetableEntry.id).all()]
 
-    if entry_ids:
-        db.session.execute(
-            entry_sections.delete().where(entry_sections.c.entry_id.in_(entry_ids))
-        )
-
-    if department_id:
-        TimetableEntry.query.filter_by(department_id=department_id).delete()
-    else:
-        TimetableEntry.query.delete()
-
-    section_ids = {entry.section_id for entry in result.schedule}
-    sections = {
-        section.id: section
-        for section in Section.query.filter(Section.id.in_(section_ids)).all()
-    } if section_ids else {}
-    course_ids = {entry.course_id for entry in result.schedule}
-    courses = {
-        course.id: course
-        for course in problem.course_map.values()
-        if course.id in course_ids
-    } if result.schedule else {}
-    day_order = {
-        "Monday": 1,
-        "Tuesday": 2,
-        "Wednesday": 3,
-        "Thursday": 4,
-        "Friday": 5,
-        "Saturday": 6,
-        "Sunday": 7,
-    }
-    ordered_timeslots = sorted(
-        problem.timeslots,
-        key=lambda slot: (day_order.get(slot.day, 99), slot.start_time)
-    )
-    per_day_slots = {}
-    for slot in ordered_timeslots:
-        per_day_slots.setdefault(slot.day, []).append(slot)
-
-    timetable_entries = []
-    for entry in result.schedule:
-        section = sections.get(entry.section_id)
-        course = courses.get(entry.course_id)
-        duration = course.get_hours_needed() if course and course.is_lab() else 1
-        day_slots = per_day_slots.get(entry.timeslot.day, [])
-        start_index = next(
-            (
-                index for index, slot in enumerate(day_slots)
-                if slot.start_time == entry.timeslot.start_time and slot.end_time == entry.timeslot.end_time
-            ),
-            None
-        )
-        slot_labels = []
-        if start_index is not None:
-            for offset in range(duration):
-                slot_index = start_index + offset
-                if slot_index >= len(day_slots):
-                    break
-                slot = day_slots[slot_index]
-                slot_labels.append(f"{slot.start_time}-{slot.end_time}")
-        if not slot_labels:
-            slot_labels = [f"{entry.timeslot.start_time}-{entry.timeslot.end_time}"]
-
-        for slot_label in slot_labels:
-            timetable_entry = TimetableEntry(
-                day=entry.timeslot.day,
-                timeslot=slot_label,
-                course_id=entry.course_id,
-                teacher_id=entry.faculty_id,
-                room_id=entry.room_id,
-                department_id=department_id
+        if entry_ids:
+            db.session.execute(
+                entry_sections.delete().where(
+                    entry_sections.c.entry_id.in_(entry_ids)
+                )
             )
-            if section:
-                timetable_entry.sections.append(section)
-            timetable_entries.append(timetable_entry)
 
-    db.session.add_all(timetable_entries)
-    db.session.commit()
+        if department_id:
+            TimetableEntry.query.filter_by(department_id=department_id).delete()
+        else:
+            TimetableEntry.query.delete()
+
+        # Build new entries
+        section_ids = {entry.section_id for entry in result.schedule}
+        sections = {
+            section.id: section
+            for section in Section.query.filter(Section.id.in_(section_ids)).all()
+        } if section_ids else {}
+        course_ids = {entry.course_id for entry in result.schedule}
+        courses = {
+            course.id: course
+            for course in problem.course_map.values()
+            if course.id in course_ids
+        } if result.schedule else {}
+        day_order = {
+            "Monday": 1,
+            "Tuesday": 2,
+            "Wednesday": 3,
+            "Thursday": 4,
+            "Friday": 5,
+            "Saturday": 6,
+            "Sunday": 7,
+        }
+        ordered_timeslots = sorted(
+            problem.timeslots,
+            key=lambda slot: (day_order.get(slot.day, 99), slot.start_time)
+        )
+        per_day_slots = {}
+        for slot in ordered_timeslots:
+            per_day_slots.setdefault(slot.day, []).append(slot)
+
+        timetable_entries = []
+        for entry in result.schedule:
+            section = sections.get(entry.section_id)
+            course = courses.get(entry.course_id)
+            duration = course.get_hours_needed() if course and course.is_lab() else 1
+            day_slots = per_day_slots.get(entry.timeslot.day, [])
+            start_index = next(
+                (
+                    index for index, slot in enumerate(day_slots)
+                    if slot.start_time == entry.timeslot.start_time and slot.end_time == entry.timeslot.end_time
+                ),
+                None
+            )
+            slot_labels = []
+            if start_index is not None:
+                for offset in range(duration):
+                    slot_index = start_index + offset
+                    if slot_index >= len(day_slots):
+                        break
+                    slot = day_slots[slot_index]
+                    slot_labels.append(f"{slot.start_time}-{slot.end_time}")
+            if not slot_labels:
+                slot_labels = [f"{entry.timeslot.start_time}-{entry.timeslot.end_time}"]
+
+            for slot_label in slot_labels:
+                timetable_entry = TimetableEntry(
+                    day=entry.timeslot.day,
+                    timeslot=slot_label,
+                    course_id=entry.course_id,
+                    teacher_id=entry.faculty_id,
+                    room_id=entry.room_id,
+                    department_id=department_id
+                )
+                if section:
+                    timetable_entry.sections.append(section)
+                timetable_entries.append(timetable_entry)
+
+        db.session.add_all(timetable_entries)
+        db.session.commit()
+
+    except Exception:
+        db.session.rollback()
+        raise
 
 
 def _result_status(result):
@@ -347,7 +356,12 @@ def generate():
             logger.warning("Pre-scheduling validation warnings: %s", feasibility_warnings)
             # Return warnings but allow user to proceed if they want
             # Critical warnings should block scheduling
-            critical_warnings = [w for w in feasibility_warnings if w["type"] in ["section_no_courses", "no_lab_rooms"]]
+            critical_warnings = [w for w in feasibility_warnings if w["type"] in [
+                "section_no_courses",
+                "no_lab_rooms",
+                "faculty_overload",
+                "section_overload",
+            ]]
             if critical_warnings:
                 return jsonify({
                     "status": "failure",

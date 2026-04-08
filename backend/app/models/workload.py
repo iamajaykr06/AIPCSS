@@ -6,6 +6,9 @@ class WorkloadAllocation(db.Model):
     This replaces fuzzy matching and qualification-based guessing.
     """
     __tablename__ = 'workload_allocations'
+    __table_args__ = (
+        db.UniqueConstraint('section_id', 'course_id', name='_section_course_uc'),
+    )
     
     id = db.Column(db.Integer, primary_key=True)
     

@@ -66,11 +66,26 @@ def assign_workload():
     data = request.get_json()
     if not data:
         return jsonify({"error": "Data required"}), 400
-    
+
     required = ['section_id', 'course_id', 'teacher_id']
     for field in required:
         if not data.get(field):
             return jsonify({"error": f"Missing field: {field}"}), 422
+
+    # Validate teacher exists
+    teacher = db.session.get(Teacher, data['teacher_id'])
+    if not teacher:
+        return jsonify({"error": f"Teacher {data['teacher_id']} not found"}), 404
+
+    # Validate course exists and teacher is qualified (optional but recommended)
+    course = db.session.get(Course, data['course_id'])
+    if course:
+        qualified_ids = [t.id for t in course.qualified_teachers.all()]
+        if qualified_ids and data['teacher_id'] not in qualified_ids:
+            return jsonify({
+                "error": f"Teacher {teacher.name} is not qualified for course {course.code}",
+                "warning": "Cross-department assignment — proceed only if intentional"
+            }), 422
 
     # Check if assignment already exists
     existing = WorkloadAllocation.query.filter_by(

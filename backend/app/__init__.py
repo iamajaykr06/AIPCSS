@@ -16,11 +16,14 @@ def create_app(env=None):
     app = Flask(__name__)
 
     # Load configuration
-    from .config import config
+    from .config import config, Config
     import os
     if env is None:
         env = os.environ.get('FLASK_ENV', 'development')
     app.config.from_object(config[env])
+
+    # Validate secrets are configured
+    Config.validate()
 
     # ── Extensions ────────────────────────────────────────────────────────────
     db.init_app(app)

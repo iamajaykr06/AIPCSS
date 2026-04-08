@@ -7,6 +7,9 @@ const api = axios.create({
     },
 })
 
+// Track in-flight refresh to prevent concurrent 401 retries
+let refreshPromise: Promise<string> | null = null
+
 // Request interceptor — attach JWT access token
 api.interceptors.request.use(config => {
     const token = localStorage.getItem('access_token')
@@ -30,7 +33,19 @@ api.interceptors.response.use(
         ) {
             originalRequest._retry = true
 
-            try {
+            // If a refresh is already in-flight, wait for it
+            if (refreshPromise) {
+                try {
+                    const token = await refreshPromise
+                    originalRequest.headers.Authorization = `Bearer ${token}`
+                    return api(originalRequest)
+                } catch {
+                    return Promise.reject(error)
+                }
+            }
+
+            // Start new refresh
+            refreshPromise = (async () => {
                 const refreshToken = localStorage.getItem('refresh_token')
                 if (!refreshToken) throw new Error('No refresh token')
 
@@ -40,15 +55,23 @@ api.interceptors.response.use(
 
                 const newToken = res.data.access_token
                 localStorage.setItem('access_token', newToken)
-                originalRequest.headers = originalRequest.headers ?? {}
-                originalRequest.headers.Authorization = `Bearer ${newToken}`
+                return newToken
+            })().finally(() => {
+                refreshPromise = null
+            })
+
+            try {
+                const token = await refreshPromise
+                originalRequest.headers.Authorization = `Bearer ${token}`
                 return api(originalRequest)
             } catch {
+                refreshPromise = null
                 // Refresh failed — clear auth state
                 localStorage.removeItem('access_token')
                 localStorage.removeItem('refresh_token')
                 localStorage.removeItem('user')
                 window.location.href = '/login'
+                return Promise.reject(error)
             }
         }
 

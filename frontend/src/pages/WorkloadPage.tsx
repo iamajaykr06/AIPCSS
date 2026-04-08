@@ -191,7 +191,7 @@ export function WorkloadPage() {
                         <button 
                             className="btn" 
                             onClick={handleRebalance}
-                            title="RESET & OPTIMIZE: This will clear all 582 current assignments and re-assign them across all sections evenly to solve teacher-overload issues."
+                            title="RESET & OPTIMIZE: This will DELETE ALL current assignments (including those from Bulk Import!) and recreate them evenly across all faculty to solve teacher-overload issues. Is this what you want?"
                             style={{ 
                                 background: 'linear-gradient(135deg, #f97316 0%, #dc2626 100%)', 
                                 color: 'white',

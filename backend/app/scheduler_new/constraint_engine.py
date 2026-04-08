@@ -144,16 +144,22 @@ class ConstraintEngine:
         course = self.problem.course_map.get(course_id)
         if not course:
             return []
-        
-        # Check if a faculty is already assigned to this section-course
+
+        # 1. Check in-memory assignment from this solve session
         sc_key = (section_id, course_id)
         assigned_faculty_id = self.section_course_faculty.get(sc_key)
+
+        # 2. Check explicit workload_map from WorkloadAllocation table
+        if assigned_faculty_id is None:
+            assigned_faculty_id = self.problem.workload_map.get(sc_key)
+
         if assigned_faculty_id is not None:
-            # Only return the already-assigned faculty if they're still valid
             assigned_faculty = self.problem.faculty_map.get(assigned_faculty_id)
             if assigned_faculty:
+                # Check availability (was missing before)
+                if not assigned_faculty.is_available(timeslot):
+                    return []
                 slot_key = (timeslot.day, timeslot.start_time)
-                # Check they don't have conflicts at this timeslot
                 if not self.faculty_schedule[assigned_faculty_id][slot_key]:
                     # Check max hours
                     if (self.faculty_hours[assigned_faculty_id] < assigned_faculty.max_hours_per_week and

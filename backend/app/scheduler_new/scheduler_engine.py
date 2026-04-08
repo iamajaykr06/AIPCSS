@@ -14,7 +14,7 @@ from .models import ScheduleEntry, SchedulingProblem, Timeslot
 from .constraint_engine import ConstraintEngine
 
 
-dataclass
+@dataclass
 class AssignmentVariable:
     """Represents a class that needs to be scheduled"""
     section_id: int
@@ -26,7 +26,7 @@ class AssignmentVariable:
         return hash((self.section_id, self.course_id, self.hours_needed))
 
 
-dataclass
+@dataclass
 class DomainValue:
     """A possible assignment: (faculty, room, timeslot)"""
     faculty_id: int
@@ -37,14 +37,14 @@ class DomainValue:
         return hash((self.faculty_id, self.room_id, self.timeslot))
 
 
-dataclass
+@dataclass
 class ScheduleResult:
     """Result of scheduling attempt"""
     success: bool
     schedule: List[ScheduleEntry] = field(default_factory=list)
     error_message: Optional[str] = None
     conflicts: Dict[str, int] = field(default_factory=dict)
-    stats: Dict[str, any] = field(default_factory=dict)
+    stats: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> Dict:
         return {
@@ -93,13 +93,25 @@ class SchedulerEngine:
         for section in self.problem.sections:
             for course_id in section.course_ids:
                 course = self.problem.course_map.get(course_id)
-                if course:
-                    hours = course.get_hours_needed()
+                if not course:
+                    continue
+
+                if course.is_lab():
+                    # Labs: one block per week
                     instances.append(AssignmentVariable(
                         section_id=section.id,
                         course_id=course_id,
-                        hours_needed=hours
+                        hours_needed=course.get_hours_needed()
                     ))
+                else:
+                    # Theory/Tutorial: split into individual 1-hour slots
+                    # (matches OR-Tools, Hybrid, Greedy behavior)
+                    for _ in range(course.get_hours_needed()):
+                        instances.append(AssignmentVariable(
+                            section_id=section.id,
+                            course_id=course_id,
+                            hours_needed=1
+                        ))
         return instances
     
     def _compute_static_domain(self, var: AssignmentVariable) -> List[DomainValue]:

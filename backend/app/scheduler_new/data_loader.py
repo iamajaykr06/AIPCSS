@@ -158,20 +158,26 @@ class DataLoader:
             # 2. Subtract Busy slots from other departments
             busy_in_other_depts = global_busy_map.get(teacher.id)
             if busy_in_other_depts:
-                # If availability was None (always free), we must manifest it to subtract
+                # If availability was None (always free), we must manifest it to subtract busy slots
                 if availability is None:
-                    # In our system, if availability is None, the engine assumes all slots are OK.
-                    # To block specific slots, we MUST create a set of "Allowed" slots.
-                    # Actually, the Faculty dataclass's is_available logic:
-                    # return timeslot.slot_id in day_slots or not day_slots
-                    # So we need to provide the whitelist.
+                    # Build availability from ALL configured timeslots
                     availability = {}
-                    # We'll let the engine handle the "None" case if there are no busy slots.
-                    # But if there ARE busy slots, we must build the whitelist.
-                    
-                # NOTE: If we manifest availability here, we need the list of ALL possible slots.
-                # For now, I'll add a 'busy_slots' attribute to the Faculty dataclass and 
-                # update the Faculty.is_available logic.
+                    if self.settings.time_slots and self.settings.working_days:
+                        for day in self.settings.working_days:
+                            slot_ids = set()
+                            for slot in self.settings.time_slots:
+                                slot_ids.add(f"{day}_{slot['start']}")
+                            availability[day] = slot_ids
+
+                # Subtract busy slots from availability
+                for day, busy_labels in busy_in_other_depts.items():
+                    if day not in availability:
+                        availability[day] = set()
+                    # Convert label format "09:15-10:05" → slot_id "Monday_09:15"
+                    for label in busy_labels:
+                        start = label.split('-')[0] if '-' in label else label
+                        slot_id = f"{day}_{start}"
+                        availability[day].discard(slot_id)
             
             # Get qualified course IDs
             qualified_ids = {c.id for c in teacher.qualified_courses}
@@ -311,8 +317,6 @@ class DataLoader:
                 course_ids=course_ids
             ))
         
-        return section_list, workload_map
-
         return section_list, workload_map
     
     def load_timeslots(self) -> List[Timeslot]:

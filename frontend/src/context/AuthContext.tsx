@@ -1,4 +1,4 @@
-import React, { useState, useCallback, type ReactNode } from 'react'
+import React, { useState, useCallback, useEffect, type ReactNode } from 'react'
 import type { User } from '@/types'
 import { authService } from '@/services/auth.service'
 import { AuthContext } from './auth-context'
@@ -29,8 +29,8 @@ function readStoredUser(): User | null {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const [user, setUser] = useState<User | null>(() => readStoredUser())
-    const isLoading = false
+    const [user, setUser] = useState<User | null>(null)
+    const [isLoading, setIsLoading] = useState(true)
 
     const login = useCallback(async (email: string, password: string) => {
         const data = await authService.login({ email, password })
@@ -47,6 +47,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const logout = useCallback(() => {
         clearStoredAuth()
         setUser(null)
+    }, [])
+
+    useEffect(() => {
+        // Validate stored token on mount
+        async function validateToken() {
+            try {
+                const stored = readStoredUser()
+                if (!stored) {
+                    setIsLoading(false)
+                    return
+                }
+                // Call server to verify token is still valid
+                const response = await authService.getMe()
+                setUser(response.user)
+            } catch {
+                // Token expired or invalid
+                clearStoredAuth()
+                setUser(null)
+            } finally {
+                setIsLoading(false)
+            }
+        }
+        validateToken()
     }, [])
 
     return (

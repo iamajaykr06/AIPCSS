@@ -239,13 +239,8 @@ def generate_timetable():
         return jsonify({'error': 'department_id is required'}), 422
 
     dept = db.session.get(Department, dept_id)
-    print(f"DEBUG: Generating timetable for dept {dept_id}")
     if not dept:
         return jsonify({'error': 'Department not found'}), 404
-
-    # Clear existing schedule for this department
-    _delete_department_timetable_entries(dept_id)
-    db.session.commit()
 
     if use_ortools:
         return generate_with_ortools(dept, dept_id, strict_mode)
@@ -310,6 +305,9 @@ def generate_with_ortools(dept, dept_id, strict_mode):
                 'status': 'Finalizing...'
             })
         
+        # Delete old entries only after successful solve
+        _delete_department_timetable_entries(dept_id)
+
         # Save all generated entries
         successful_entries = 0
         section_ids = {entry_data.section_id for entry_data in result.schedule}

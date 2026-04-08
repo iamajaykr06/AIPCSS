@@ -988,7 +988,7 @@ def bulk_import_batches():
     res, status = _bulk_import_logic(
         file, 
         Batch, 
-        {'name': 'Name', 'code': 'Code', 'academic_year': 'AcademicYear'},  # Changed from 'Year' to 'AcademicYear'
+        {'name': 'Name', 'code': 'Code', 'academic_year': 'AcademicYear', 'current_semester': 'CurrentSemester'},
         'code',
         lookup_configs={'program_id': (Program, 'code', 'ProgramCode')}
     )
@@ -1123,6 +1123,52 @@ def bulk_import_teachers():
         db.session.rollback()
         return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
 
+@resources_bp.route('/teachers/import-course-bindings', methods=['POST'])
+@roles_required('admin')
+def import_teacher_course_bindings():
+    """Re-sync faculty course qualifications from Excel without touching other data."""
+    file = request.files.get('file')
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    try:
+        df = pd.read_excel(BytesIO(file.read()))
+        df.columns = [c.lower().strip() for c in df.columns]
+        success = 0
+        errors = []
+
+        for index, row in df.iterrows():
+            try:
+                email = row.get('email')
+                if pd.isna(email):
+                    continue
+                t = Teacher.query.filter_by(email=str(email).strip()).first()
+                if not t:
+                    errors.append(f"Row {index+2}: Teacher not found: {email}")
+                    continue
+
+                course_codes_val = row.get('course_codes')
+                if pd.notna(course_codes_val):
+                    course_codes = [c.strip() for c in str(course_codes_val).replace(';', ',').split(',') if c.strip()]
+                    matched = 0
+                    for course_code in course_codes:
+                        course = Course.query.filter_by(code=course_code).first()
+                        if course and course not in t.qualified_courses:
+                            t.qualified_courses.append(course)
+                            matched += 1
+                    success += matched
+            except Exception as e:
+                errors.append(f"Row {index+2}: {str(e)}")
+
+        db.session.commit()
+        return jsonify({
+            "message": f"Added {success} course bindings",
+            "errors": errors
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
 @resources_bp.route('/courses/import', methods=['POST'])
 @roles_required('admin')
 def bulk_import_courses():
@@ -1159,6 +1205,13 @@ def bulk_import_courses():
                 lecture_hours = _parse_non_negative_int(row.get('L'), 'L')
                 tutorial_hours = _parse_non_negative_int(row.get('T'), 'T')
                 practical_hours = _parse_non_negative_int(row.get('P'), 'P')
+                weekly_hours = None
+                if pd.notna(row.get('WeeklyHours')):
+                    try:
+                        weekly_hours = int(row.get('WeeklyHours'))
+                    except (ValueError, TypeError):
+                        pass
+                
                 course_type = _infer_course_type(
                     row.get('Type'),
                     lecture_hours,
@@ -1194,6 +1247,7 @@ def bulk_import_courses():
                 course.lecture_hours = lecture_hours
                 course.tutorial_hours = tutorial_hours
                 course.practical_hours = practical_hours
+                course.weekly_hours = weekly_hours
                 success += 1
             except Exception as e:
                 errors.append(f"Row {index+2}: {str(e)}")

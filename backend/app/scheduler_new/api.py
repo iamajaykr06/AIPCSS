@@ -35,7 +35,7 @@ def emit_progress(department_id: int, percentage: int, message: str):
 
 
 def _validate_problem(problem):
-    """Return a response tuple if the scheduling input is incomplete."""
+    """Return a response tuple if the scheduling input is incomplete or infeasible."""
     if not problem.sections:
         return jsonify({"status": "failure", "schedule": [], "error": "No sections found to schedule"}), 400
     if not problem.courses:
@@ -46,6 +46,32 @@ def _validate_problem(problem):
         return jsonify({"status": "failure", "schedule": [], "error": "No rooms found"}), 400
     if not problem.timeslots:
         return jsonify({"status": "failure", "schedule": [], "error": "No timeslots configured"}), 400
+
+    # FEASIBILITY CHECKS
+    total_classes = problem.get_section_courses()
+    if not total_classes:
+        return jsonify({
+            "status": "failure", "schedule": [],
+            "error": "No section-course assignments found. Check that Batch.current_semester is set and program codes match."
+        }), 400
+
+    # Check faculty capacity
+    faculty_capacity = sum(f.max_hours_per_week for f in problem.faculty)
+    required_hours = sum(hours for _, _, hours in total_classes)
+    if faculty_capacity < required_hours:
+        return jsonify({
+            "status": "failure", "schedule": [],
+            "error": f"Insufficient faculty capacity: {required_hours} hours needed, {faculty_capacity} available."
+        }), 400
+
+    # Check room capacity
+    room_slot_capacity = len(problem.timeslots) * len(problem.rooms)
+    if room_slot_capacity < len(total_classes):
+        return jsonify({
+            "status": "failure", "schedule": [],
+            "error": f"Insufficient room capacity: {len(total_classes)} classes need slots, {room_slot_capacity} available."
+        }), 400
+
     return None
 
 
@@ -174,20 +200,23 @@ def _verify_completeness(result, problem) -> Dict[str, Any]:
 
 
 def _build_scheduler(problem, requested_engine, time_limit, debug_mode):
-    """Choose the engine automatically unless the caller explicitly overrides it."""
+    """Choose the engine automatically unless the caller explicitly overrides it. Prefer OR-Tools."""
     normalized_engine = str(requested_engine or "auto").strip().lower()
     total_classes = len(problem.get_section_courses())
 
+    # E6/C8: Always try OR-Tools first if available, unless Hybrid is explicitly requested
     if normalized_engine == "ortools" and ORTOOLS_AVAILABLE:
         return OrtoolsSchedulerEngine(problem=problem, time_limit_seconds=time_limit, debug=debug_mode), "ortools", total_classes
 
     if normalized_engine == "hybrid":
         return HybridSchedulerEngine(problem=problem, debug=debug_mode), "hybrid", total_classes
 
-    if not ORTOOLS_AVAILABLE or total_classes > AUTO_HYBRID_CLASS_THRESHOLD:
-        return HybridSchedulerEngine(problem=problem, debug=debug_mode), "hybrid", total_classes
+    # Auto mode: Use OR-Tools if available (E6)
+    if ORTOOLS_AVAILABLE:
+        return OrtoolsSchedulerEngine(problem=problem, time_limit_seconds=time_limit, debug=debug_mode), "ortools", total_classes
 
-    return OrtoolsSchedulerEngine(problem=problem, time_limit_seconds=time_limit, debug=debug_mode), "ortools", total_classes
+    # Fallback to Hybrid only if OR-Tools is missing
+    return HybridSchedulerEngine(problem=problem, debug=debug_mode), "hybrid", total_classes
 
 
 def _save_schedule_entries(result, department_id, problem):

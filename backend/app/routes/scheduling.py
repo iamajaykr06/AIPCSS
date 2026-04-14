@@ -241,11 +241,36 @@ def generate_timetable():
     dept = db.session.get(Department, dept_id)
     if not dept:
         return jsonify({'error': 'Department not found'}), 404
-
     if use_ortools:
         return generate_with_ortools(dept, dept_id, strict_mode)
     else:
         return generate_with_greedy(dept, dept_id, strict_mode)
+
+@scheduling_bp.route('/generate/all', methods=['POST'])
+@roles_required('admin', 'dept_head')
+def generate_all_timetables():
+    data = request.get_json() or {}
+    strict_mode = bool(data.get('strict_mode', False))
+    use_ortools = bool(data.get('use_ortools', True))
+
+    departments = Department.query.all()
+    results = []
+    
+    for dept in departments:
+        if use_ortools:
+            res_tuple = generate_with_ortools(dept, dept.id, strict_mode)
+        else:
+            res_tuple = generate_with_greedy(dept, dept.id, strict_mode)
+            
+        # res_tuple is (jsonify(...), status_code)
+        res_json = res_tuple[0].get_json()
+        results.append(res_json)
+        
+    return jsonify({
+        'status': 'success',
+        'message': f'Generated timetables for {len(departments)} departments.',
+        'results': results
+    }), 200
 
 
 def generate_with_ortools(dept, dept_id, strict_mode):
@@ -501,29 +526,15 @@ def generate_with_greedy(dept, dept_id, strict_mode):
                 assigned_courses = list(program_sem_courses)
                 
                 for course in assigned_courses:
-                    # Find a qualified teacher for this course across university
-                    qualified_teachers = [t for t in all_teachers if course in t.qualified_courses]
+                    # Use all available teachers (load-balanced selection)
+                    available_teachers = list(all_teachers)
                     
-                    if not qualified_teachers:
-                        if strict_mode:
-                            skipped.append({
-                                'course': course.name,
-                                'section': section.name,
-                                'teacher': 'N/A',
-                                'allocated': 0,
-                                'required': None,
-                                'reason': 'No qualified teacher found (strict_mode enabled)'
-                            })
-                            break
-                        # Fallback: any teacher from university (legacy behavior)
-                        qualified_teachers = all_teachers
-                    
-                    if not qualified_teachers:
+                    if not available_teachers:
                         errors.append(f"No teachers available for course {course.name}")
                         continue
                     
                     # Deterministic teacher selection: least currently allocated load first.
-                    teacher = min(qualified_teachers, key=lambda t: teacher_load.get(t.id, 0))
+                    teacher = min(available_teachers, key=lambda t: teacher_load.get(t.id, 0))
                     
                     # Deterministic weekly hours (avoid sparse random outputs)
                     if course.course_type == 'Lab':
@@ -647,6 +658,52 @@ def generate_with_greedy(dept, dept_id, strict_mode):
 # TIMETABLE VIEWER
 # ══════════════════════════════════════════════════════════════════════════════
 
+@scheduling_bp.route('/view/all', methods=['GET'])
+@jwt_required()
+def view_all_timetable():
+    """Fetch timetable entries across all departments."""
+    entries = TimetableEntry.query.all()
+    if not entries:
+        return jsonify({'data': [], 'message': 'No timetable generated yet for any department'}), 200
+
+    course_ids = {e.course_id for e in entries}
+    teacher_ids = {e.teacher_id for e in entries}
+    room_ids = {e.room_id for e in entries}
+
+    courses = {c.id: c for c in Course.query.filter(Course.id.in_(course_ids)).all()}
+    teachers = {t.id: t for t in Teacher.query.filter(Teacher.id.in_(teacher_ids)).all()}
+    rooms = {r.id: r for r in Room.query.filter(Room.id.in_(room_ids)).all()}
+
+    result = []
+    for e in entries:
+        course = courses.get(e.course_id)
+        teacher = teachers.get(e.teacher_id)
+        room = rooms.get(e.room_id)
+        result.append({
+            'id': e.id,
+            'day': e.day,
+            'timeslot': e.timeslot,
+            'department_id': e.department_id,
+            'sections': [{'id': s.id, 'name': s.name} for s in e.sections],
+            'course': {'id': e.course_id, 'name': course.name if course else 'Unknown',
+                       'type': course.course_type if course else None},
+            'teacher': {'id': e.teacher_id, 'name': teacher.name if teacher else 'Unknown'},
+            'room': {'id': e.room_id, 'name': room.name if room else 'Unknown',
+                     'capacity': room.capacity if room else None},
+        })
+
+    settings = ScheduleSettings.get_or_create_default()
+    breaks_data = settings.breaks or []
+
+    return jsonify({
+        'data': result,
+        'breaks': breaks_data,
+        'time_slots': settings.time_slots,
+        'working_days': settings.working_days,
+        'department': 'All Departments',
+        'total': len(result)
+    }), 200
+
 @scheduling_bp.route('/view/<int:dept_id>', methods=['GET'])
 @jwt_required()
 def view_timetable(dept_id):
@@ -686,6 +743,7 @@ def view_timetable(dept_id):
             'teacher': {'id': e.teacher_id, 'name': teacher.name if teacher else 'Unknown'},
             'room': {'id': e.room_id, 'name': room.name if room else 'Unknown',
                      'capacity': room.capacity if room else None},
+            'department_id': e.department_id,
         })
 
     # Fetch schedule settings to include breaks

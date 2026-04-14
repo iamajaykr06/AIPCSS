@@ -27,19 +27,16 @@ type FormData = z.infer<typeof schema>
 export function TeachersPage() {
     const [teachers, setTeachers] = useState<Teacher[]>([])
     const [departments, setDepartments] = useState<Department[]>([])
-    const [courses, setCourses] = useState<Course[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [modalOpen, setModalOpen] = useState(false)
     const [editItem, setEditItem] = useState<Teacher | null>(null)
     const [deleteItem, setDeleteItem] = useState<Teacher | null>(null)
-    const [qualModal, setQualModal] = useState<Teacher | null>(null)
     const [saving, setSaving] = useState(false)
     const [importModalOpen, setImportModalOpen] = useState(false)
     // Availability: day -> slots[]
     const [availability, setAvailability] = useState<Record<string, string[]>>({})
     const [selectedDepts, setSelectedDepts] = useState<number[]>([])
-    const [selectedQuals, setSelectedQuals] = useState<number[]>([])
     const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>('')
     const { toast } = useToast()
 
@@ -57,14 +54,12 @@ export function TeachersPage() {
     async function load() {
         try {
             setError(null)
-            const [t, d, c] = await Promise.all([
+            const [t, d] = await Promise.all([
                 teacherService.list(undefined, 1, 200),
                 departmentService.list(1, 200),
-                courseService.list(undefined, 1, 200),
             ])
             setTeachers(t.data)
             setDepartments(d.data)
-            setCourses(c.data)
         } catch (err) {
             setError(getErrorMessage(err))
         } finally {
@@ -79,7 +74,6 @@ export function TeachersPage() {
         reset({ name: '', email: '', phone: '', department_ids: [] })
         setAvailability({})
         setSelectedDepts([])
-        setSelectedQuals([])
         setModalOpen(true)
     }
 
@@ -91,7 +85,6 @@ export function TeachersPage() {
         setValue('department_ids', (t.departments || []).map(d => d.id))
         setAvailability(t.availability || {})
         setSelectedDepts((t.departments || []).map(d => d.id))
-        setSelectedQuals((t.qualified_courses || []).map(c => c.id))
         setModalOpen(true)
     }
 
@@ -111,40 +104,14 @@ export function TeachersPage() {
         setSaving(true)
         try {
             const payload = { ...data, department_ids: selectedDepts, availability }
-            let teacherId: number
-            
             if (editItem) {
                 await teacherService.update(editItem.id, payload)
-                teacherId = editItem.id
                 toast('success', 'Teacher updated')
             } else {
-                const result = await teacherService.create(payload)
-                teacherId = result.id
+                await teacherService.create(payload)
                 toast('success', 'Teacher created')
             }
-            
-            // Handle qualifications
-            if (selectedQuals.length > 0) {
-                // Get current qualifications to avoid duplicates
-                const currentTeacher = await teacherService.get(teacherId)
-                const currentQualIds = currentTeacher.qualified_courses.map(c => c.id)
-                
-                // Add only new qualifications
-                const newQuals = selectedQuals.filter(id => !currentQualIds.includes(id))
-                
-                for (const courseId of newQuals) {
-                    try {
-                        await teacherService.addQualification(teacherId, courseId)
-                    } catch (err) {
-                        console.error('Failed to add qualification:', err)
-                    }
-                }
-                
-                if (newQuals.length > 0) {
-                    toast('success', `${newQuals.length} qualification(s) added`)
-                }
-            }
-            
+
             setModalOpen(false)
             load()
         } catch (err) {
@@ -169,36 +136,8 @@ export function TeachersPage() {
         }
     }
 
-    const addQual = async (courseId: number) => {
-        if (!qualModal) return
-        try {
-            await teacherService.addQualification(qualModal.id, courseId)
-            toast('success', 'Qualification added')
-            const updated = await teacherService.get(qualModal.id)
-            setQualModal(updated)
-            load()
-        } catch (err) {
-            toast('error', 'Failed', getErrorMessage(err))
-        }
-    }
-
-    const removeQual = async (courseId: number) => {
-        if (!qualModal) return
-        try {
-            await teacherService.removeQualification(qualModal.id, courseId)
-            toast('success', 'Qualification removed')
-            const updated = await teacherService.get(qualModal.id)
-            setQualModal(updated)
-            load()
-        } catch (err) {
-            toast('error', 'Failed', getErrorMessage(err))
-        }
-    }
-
     if (loading) return <PageLoader />
     if (error) return <ErrorState message={error} onRetry={load} />
-
-    const qualifiedIds = new Set(qualModal?.qualified_courses.map(c => c.id))
 
     return (
         <div>
@@ -206,7 +145,7 @@ export function TeachersPage() {
                 <div>
                     <h1 className="page-title">Teachers</h1>
                     <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                        Manage teaching staff, qualifications, and availability
+                        Manage teaching staff and their availability
                     </p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -270,20 +209,7 @@ export function TeachersPage() {
                                 )
                             }
                         },
-                        {
-                            key: 'qualified_courses', label: 'Qualifications', render: row => {
-                                const t = row as unknown as Teacher
-                                return (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                        <span className="badge badge-green">{t.qualified_courses.length} Courses</span>
-                                        <button className="btn btn-ghost btn-sm" style={{ fontSize: '0.75rem', padding: '0.125rem 0.5rem' }}
-                                            onClick={(e) => { e.stopPropagation(); setQualModal(t) }}>
-                                            Manage
-                                        </button>
-                                    </div>
-                                )
-                            }
-                        },
+
                     ]}
                     data={table.paginated as any}
                     search={table.search}
@@ -361,46 +287,6 @@ export function TeachersPage() {
                         </div>
                     </div>
 
-                    {/* Qualifications */}
-                    <div className="form-group">
-                        <label className="label">Qualified Courses</label>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', maxHeight: '120px', overflowY: 'auto', padding: '0.5rem', border: '1px solid var(--border)', borderRadius: '0.375rem' }}>
-                            {courses.length === 0 && (
-                                <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Loading courses...</p>
-                            )}
-                            {selectedDepts.length === 0 && (
-                                <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Select departments first to see courses</p>
-                            )}
-                            {courses
-                                .filter(c => selectedDepts.length === 0 || selectedDepts.includes(c.department_id || 0))
-                                .map(c => (
-                                <button key={c.id} type="button"
-                                    onClick={() => {
-                                        setSelectedQuals(prev => 
-                                            prev.includes(c.id) 
-                                                ? prev.filter(id => id !== c.id)
-                                                : [...prev, c.id]
-                                        )
-                                    }}
-                                    className="badge"
-                                    style={{
-                                        cursor: 'pointer', padding: '0.25rem 0.5rem', fontSize: '0.75rem',
-                                        background: selectedQuals.includes(c.id) ? '#dcfce7' : 'var(--bg)',
-                                        color: selectedQuals.includes(c.id) ? '#166534' : 'var(--text-secondary)',
-                                        border: selectedQuals.includes(c.id) ? '1px solid #86efac' : '1px solid var(--border)',
-                                    }}>
-                                    {c.code} - {c.name}
-                                </button>
-                            ))}
-                        </div>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                            {selectedQuals.length} course(s) selected
-                            {selectedDepts.length > 0 && (
-                                <span> from {selectedDepts.length} department(s)</span>
-                            )}
-                        </p>
-                    </div>
-
                     {/* Availability grid */}
                     <div className="form-group">
                         <label className="label" style={{ marginBottom: '0.75rem' }}>Availability (click to toggle)</label>
@@ -464,47 +350,6 @@ export function TeachersPage() {
                 </form>
             </Modal>
 
-            {/* Qualifications Modal */}
-            <Modal isOpen={!!qualModal} onClose={() => setQualModal(null)}
-                title={`Qualifications — ${qualModal?.name}`} size="lg"
-            >
-                {qualModal && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                        <div>
-                            <p className="label" style={{ marginBottom: '0.625rem' }}>Current qualifications</p>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                                {qualModal.qualified_courses.length === 0 && (
-                                    <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>No qualifications assigned yet</p>
-                                )}
-                                {qualModal.qualified_courses.map(c => (
-                                    <div key={c.id} className="badge badge-green" style={{ gap: '0.375rem', paddingRight: '0.375rem' }}>
-                                        {c.name}
-                                        <button onClick={() => removeQual(c.id)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', background: 'none', border: 'none', color: 'inherit', padding: 0 }}>
-                                            <X size={12} />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                        <div>
-                            <p className="label" style={{ marginBottom: '0.625rem' }}>Add qualification</p>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
-                                {courses.filter(c => !qualifiedIds.has(c.id)).map(c => (
-                                    <button key={c.id} className="badge badge-gray"
-                                        style={{ cursor: 'pointer', border: '1px dashed var(--border)' }}
-                                        onClick={() => addQual(c.id)}>
-                                        <Plus size={11} /> {c.name}
-                                    </button>
-                                ))}
-                                {courses.filter(c => !qualifiedIds.has(c.id)).length === 0 && (
-                                    <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>All courses are assigned</p>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </Modal>
-
             <ConfirmModal
                 isOpen={!!deleteItem}
                 onClose={() => setDeleteItem(null)}
@@ -518,13 +363,12 @@ export function TeachersPage() {
                 isOpen={importModalOpen}
                 onClose={() => setImportModalOpen(false)}
                 resourceName="Teachers"
-                headers={['name', 'email', 'phone', 'department_codes', 'course_codes']}
+                headers={['name', 'email', 'phone', 'department_codes']}
                 formatExamples={{
                     'name': 'Dr. John Smith',
                     'email': 'john.smith@university.edu',
                     'phone': '+1 234 567 8900',
-                    'department_codes': 'CSEIT;PHYS',
-                    'course_codes': 'CS101;MATH201;PHY303'
+                    'department_codes': 'CSEIT;PHYS'
                 }}
                 onImport={(f) => teacherService.bulkImport(f)}
                 onSuccess={load}

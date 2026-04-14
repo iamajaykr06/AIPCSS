@@ -5,7 +5,7 @@ DataLoader - Loads scheduling data from SQLAlchemy models
 import re
 from typing import List, Optional, Dict, Set, Tuple
 from collections import defaultdict
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload
 from .. import db
 from ..models import Teacher, Course, Section, Room, ScheduleSettings, Batch, Program, WorkloadAllocation, TimetableEntry
 from .models import Faculty, Room as SchedulerRoom, Course as SchedulerCourse, Section as SchedulerSection, Timeslot
@@ -121,16 +121,8 @@ class DataLoader:
         return deduplicated
     
     def load_faculty(self, course_ids: Optional[Set[int]] = None) -> List[Faculty]:
-        """Load faculty from database - only those qualified for relevant courses"""
-        teachers = Teacher.query.options(selectinload(Teacher.qualified_courses)).all()
-        
-        if course_ids:
-            relevant_teachers = []
-            for teacher in teachers:
-                qualified_ids = {c.id for c in teacher.qualified_courses}
-                if qualified_ids & course_ids:
-                    relevant_teachers.append(teacher)
-            teachers = relevant_teachers
+        """Load all faculty from database"""
+        teachers = Teacher.query.all()
         
         # GLOBAL BUSY-SLOT DETECTION:
         # Load all existing timetable entries for other departments to prevent 
@@ -151,8 +143,6 @@ class DataLoader:
                     availability[day] = set(slots) if isinstance(slots, list) else {slots}
             else:
                 # If no availability set, teacher is initially available all times
-                # We'll populate this from the timeslots later if needed, but for now 
-                # None means "always available". 
                 availability = None
             
             # 2. Subtract Busy slots from other departments
@@ -179,14 +169,10 @@ class DataLoader:
                         slot_id = f"{day}_{start}"
                         availability[day].discard(slot_id)
             
-            # Get qualified course IDs
-            qualified_ids = {c.id for c in teacher.qualified_courses}
-            
             faculty = Faculty(
                 id=teacher.id,
                 name=teacher.name,
                 email=teacher.email,
-                qualified_course_ids=qualified_ids,
                 availability=availability,
                 max_hours_per_day=getattr(teacher, 'max_hours_per_day', 6) or 6,
                 max_hours_per_week=getattr(teacher, 'max_hours_per_week', 30) or 30
@@ -229,19 +215,10 @@ class DataLoader:
         
         courses = query.all()
         
-        teachers = Teacher.query.options(selectinload(Teacher.qualified_courses)).all()
-        course_faculty_map = defaultdict(set)
-        for teacher in teachers:
-            for course in teacher.qualified_courses:
-                course_faculty_map[course.id].add(teacher.id)
-        
         course_list = []
         
         for course in courses:
             hours = self._resolve_course_hours(course)
-            
-            # Get qualified faculty for this course
-            qualified_ids = course_faculty_map.get(course.id, set())
 
             course_list.append(SchedulerCourse(
                 id=course.id,
@@ -252,7 +229,6 @@ class DataLoader:
                 program_code=course.program_code,
                 program_id=getattr(course, 'program_id', None),
                 department_id=course.department_id,
-                qualified_faculty_ids=qualified_ids
             ))
         
         return course_list

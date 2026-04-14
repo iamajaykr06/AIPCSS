@@ -1,47 +1,62 @@
-import React, { useState } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
-import { Sidebar, Header } from './Sidebar'
+import React from 'react'
+import { Outlet, useLocation, Link } from 'react-router-dom'
+import { Navbar } from './Navbar'
+import { 
+    Building2, Layers, GraduationCap, Briefcase, 
+    BookOpen, ClipboardList, DoorOpen, LayoutGrid
+} from 'lucide-react'
 
-const pageTitles: Record<string, string> = {
-    '/': 'Dashboard',
-    '/departments': 'Departments',
-    '/programs': 'Programs',
-    '/batches': 'Batches & Sections',
-    '/teachers': 'Teachers',
-    '/courses': 'Courses',
-    '/rooms': 'Rooms',
-    '/timetable': 'Timetable',
-    '/settings': 'Schedule Settings',
-}
+const managementLinks = [
+    { label: 'Departments', icon: <Building2 size={16} />, path: '/departments' },
+    { label: 'Programs', icon: <Layers size={16} />, path: '/programs' },
+    { label: 'Batches', icon: <GraduationCap size={16} />, path: '/batches' },
+    { label: 'Sections', icon: <LayoutGrid size={16} />, path: '/sections' },
+    { label: 'Teachers', icon: <Briefcase size={16} />, path: '/teachers' },
+    { label: 'Courses', icon: <BookOpen size={16} />, path: '/courses' },
+    { label: 'Workload', icon: <ClipboardList size={16} />, path: '/workload' },
+    { label: 'Rooms', icon: <DoorOpen size={16} />, path: '/rooms' },
+]
 
 export function AppLayout() {
-    const [sidebarOpen, setSidebarOpen] = useState(true)
     const location = useLocation()
-
-    const pageTitle = Object.entries(pageTitles).find(([path]) =>
-        path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)
-    )?.[1] || 'ClassScheduler'
+    
+    const isManageActive = managementLinks.some(link => location.pathname.startsWith(link.path))
 
     return (
-        <div style={{ display: 'flex', minHeight: '100vh', background: 'transparent' }}>
-            <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-            {/* Main content */}
-            <div
-                style={{
-                    flex: 1,
-                    marginLeft: sidebarOpen ? '260px' : '0',
-                    transition: 'margin-left 0.25s ease',
-                    minWidth: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                }}
-            >
-                <Header onMenuToggle={() => setSidebarOpen(p => !p)} pageTitle={pageTitle} />
-                <main style={{ flex: 1, padding: '1.5rem', maxWidth: '100%', overflowX: 'hidden' }}>
-                    <Outlet />
-                </main>
-            </div>
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: 'var(--bg-main)' }}>
+            <Navbar />
+            
+            {/* Secondary Management Tab Bar */}
+            {isManageActive && (
+                <div className="sub-navbar">
+                    <div className="sub-navbar-content">
+                        {managementLinks.map((link) => {
+                            const isActive = location.pathname.startsWith(link.path)
+                            return (
+                                <Link
+                                    key={link.path}
+                                    to={link.path}
+                                    className={`sub-nav-link ${isActive ? 'active' : ''}`}
+                                >
+                                    {link.icon}
+                                    <span>{link.label}</span>
+                                </Link>
+                            )
+                        })}
+                    </div>
+                </div>
+            )}
+            
+            <main style={{ 
+                flex: 1, 
+                padding: '1.5rem', 
+                maxWidth: '1400px', 
+                width: '100%',
+                margin: '0 auto',
+                overflowX: 'hidden' 
+            }}>
+                <Outlet />
+            </main>
         </div>
     )
 }

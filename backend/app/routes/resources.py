@@ -648,6 +648,7 @@ def _course_dict(c):
         'department_id': c.department_id,
         'program_id': c.program_id,
         'program_name': c.program.name if c.program else None,
+        'program_code': c.program.code if c.program else None,
         'lecture_hours': c.lecture_hours,
         'tutorial_hours': c.tutorial_hours,
         'practical_hours': c.practical_hours,

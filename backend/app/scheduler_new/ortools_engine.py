@@ -86,11 +86,11 @@ class OrtoolsSchedulerEngine:
             # Determine assigned faculty if a workload exists
             assigned_faculty_id = self.problem.workload_map.get((sec_id, crs_id))
             
-            # Prune invalid faculty early using course mapping or explicit workload
+            # Prune invalid faculty early using explicit workload assignment
             if assigned_faculty_id:
                 possible_f = [f for f in self.problem.faculty if f.id == assigned_faculty_id]
             else:
-                possible_f = [f for f in self.problem.faculty if f.id in course.qualified_faculty_ids]
+                possible_f = list(self.problem.faculty)  # Fallback: any faculty
             # Prune invalid rooms early - consider capacity AND program/department sharing
             possible_r = [
                 r for r in self.problem.rooms 
@@ -150,7 +150,7 @@ class OrtoolsSchedulerEngine:
             # Preference: Earlier timeslots, smaller suitable rooms
             all_combinations.sort(key=lambda x: (x[0], self.problem.room_map[x[1]].capacity))
 
-            # Use faculty-aware sampling to ensure every qualified teacher has a fair
+            # Use faculty-aware sampling to ensure every assigned teacher has a fair
             # share of combinations, preventing 'Teacher Consistency' from becoming infeasible
             # due to random sampling gaps.
             if len(all_combinations) > MAX_COMBINATIONS_PER_CLASS:
@@ -278,13 +278,17 @@ class OrtoolsSchedulerEngine:
                 course = self.problem.course_map[crs_id]
                 section = self.problem.section_map[sec_id]
                 
-                possible_f_count = len([f for f in self.problem.faculty if f.id in course.qualified_faculty_ids])
+                assigned_f_id = self.problem.workload_map.get((sec_id, crs_id))
+                if assigned_f_id:
+                    possible_f_count = len([f for f in self.problem.faculty if f.id == assigned_f_id])
+                else:
+                    possible_f_count = len(self.problem.faculty)
                 possible_r_count = len([r for r in self.problem.rooms if r.can_accommodate(section.student_count)])
                 allowed_starts = len(valid_starts.get(hrs, []))
                 
                 reason = []
                 if possible_f_count == 0:
-                    reason.append(f"No faculty qualified for course '{course.name}' (Code: {course.code})")
+                    reason.append(f"No faculty assigned for course '{course.name}' (Code: {course.code})")
                 if possible_r_count == 0:
                     reason.append(f"No room large enough for section '{section.name}' (Size: {section.student_count})")
                 if allowed_starts == 0:
@@ -294,7 +298,7 @@ class OrtoolsSchedulerEngine:
                 if reason:
                     msg += " | ".join(reason)
                 else:
-                    msg += "Qualified faculty and suitable rooms could not be aligned with the configured timeslots."
+                    msg += "Assigned faculty and suitable rooms could not be aligned with the configured timeslots."
 
                 print(f"ERROR: {msg}")
 

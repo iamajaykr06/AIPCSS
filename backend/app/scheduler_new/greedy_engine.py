@@ -66,9 +66,12 @@ class GreedySchedulerEngine:
             course = self.problem.course_map[crs_id]
             section = self.problem.section_map[sec_id]
             
-            # Count available resources
-            possible_f = [f for f in self.problem.faculty 
-                         if f.id in course.qualified_faculty_ids]
+            # Get assigned faculty from workload map
+            assigned_faculty_id = self.problem.workload_map.get((sec_id, crs_id))
+            if assigned_faculty_id:
+                possible_f = [f for f in self.problem.faculty if f.id == assigned_faculty_id]
+            else:
+                possible_f = list(self.problem.faculty)  # Fallback: any faculty
             possible_r = [r for r in self.problem.rooms 
                          if r.can_accommodate(section.student_count)]
             
@@ -93,9 +96,12 @@ class GreedySchedulerEngine:
             section = self.problem.section_map[sec_id]
             section_dept_id = section.department_id
             
-            # Get available resources
-            possible_f = [f for f in self.problem.faculty 
-                         if f.id in course.qualified_faculty_ids]
+            # Get assigned faculty from workload map
+            assigned_faculty_id_wl = self.problem.workload_map.get((sec_id, crs_id))
+            if assigned_faculty_id_wl:
+                possible_f = [f for f in self.problem.faculty if f.id == assigned_faculty_id_wl]
+            else:
+                possible_f = list(self.problem.faculty)  # Fallback: any faculty
             
             # Apply teacher-course-section consistency
             sc_key = (sec_id, crs_id)
@@ -119,9 +125,9 @@ class GreedySchedulerEngine:
                 # Track failure reason for debugging
                 failure_reason = "unknown"
                 if not possible_f:
-                    failure_reason = "no_qualified_faculty"
+                    failure_reason = "no_assigned_faculty"
                 elif assigned_faculty_id and not any(f.id == assigned_faculty_id for f in possible_f):
-                    failure_reason = "assigned_faculty_not_qualified"
+                    failure_reason = "assigned_faculty_unavailable"
                 elif not possible_r:
                     failure_reason = "no_suitable_room"
                 elif not valid_starts.get(hrs, []):

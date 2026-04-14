@@ -423,13 +423,7 @@ export function WorkloadPage() {
                                                 Pending Selection
                                             </div>
                                         )}
-                                        
-                                        {/* Qualification Warning if relevant */}
-                                        {course.teacher_id && !course.qualified_teachers.some(qt => qt.id === course.teacher_id) && (
-                                            <div className="badge badge-amber" style={{ fontSize: '0.7rem' }}>
-                                                Cross-Dept / Non-Qual
-                                            </div>
-                                        )}
+
                                     </div>
                                 </div>
                             ))}

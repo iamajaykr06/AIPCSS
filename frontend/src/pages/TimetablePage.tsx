@@ -18,7 +18,6 @@ interface TimetableReadiness {
     courses: Course[]
     rooms: Room[]
     teachers: Teacher[]
-    qualifiedTeacherCount: number
     labCoursesCount: number
     labRoomsCount: number
     blockers: string[]
@@ -30,7 +29,6 @@ const emptyReadiness: TimetableReadiness = {
     courses: [],
     rooms: [],
     teachers: [],
-    qualifiedTeacherCount: 0,
     labCoursesCount: 0,
     labRoomsCount: 0,
     blockers: [],
@@ -126,9 +124,10 @@ interface BatchTimetableViewProps {
     workingDays: string[]
     displaySlots: Array<{ key: string; label: string; isBreak: boolean }>
     onDelete: (id: number) => void
+    conflictIds?: Set<number>
 }
 
-function BatchTimetableView({ timetable, batches, sections, teachers, workingDays, displaySlots, onDelete }: BatchTimetableViewProps) {
+function BatchTimetableView({ timetable, batches, sections, teachers, workingDays, displaySlots, onDelete, conflictIds }: BatchTimetableViewProps) {
 
     // Build teacher color mapping using teacher name hash (consistent with legend)
     const teacherColors = useMemo(() => {
@@ -259,28 +258,40 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
 
     // ── Shared style helpers ───────────────────────────────────────────────
     const th = (bg: string, color: string, width?: string): React.CSSProperties => ({
-        padding: '0.45rem 0.3rem',
+        padding: '0.75rem 0.5rem',
         background: bg,
         color,
-        border: '1px solid #555',
+        border: '1px solid var(--border)',
         textAlign: 'center',
         fontWeight: 700,
-        fontSize: '0.625rem',
+        fontSize: '0.725rem',
         whiteSpace: 'nowrap',
-        ...(width ? { width } : { minWidth: '80px' }),
+        textTransform: 'uppercase',
+        letterSpacing: '0.025em',
+        ...(width ? { width } : { minWidth: '100px' }),
     })
 
     const totalCols = displaySlots.length + 1   // +1 for the Program column
 
     return (
-        <div style={{ overflowX: 'auto', padding: '0.75rem' }}>
+        <div style={{ 
+            overflowX: 'auto', 
+            padding: '1.25rem', 
+            background: 'var(--bg-card)', 
+            borderRadius: '1rem',
+            border: '1px solid var(--border)',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)'
+        }}>
             <table style={{
                 width: '100%',
-                borderCollapse: 'collapse',
-                fontSize: '0.625rem',
-                border: '2px solid #444',
-                minWidth: '860px',
+                borderCollapse: 'separate',
+                borderSpacing: 0,
+                fontSize: '0.6875rem',
+                minWidth: '1000px',
                 tableLayout: 'fixed',
+                borderRadius: '0.75rem',
+                overflow: 'hidden',
+                border: '1px solid var(--border)',
             }}>
 
                 {/* ── Column widths ─────────────────────────────────── */}
@@ -292,10 +303,11 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                 {/* ── Header row ──────────────────────────────────────── */}
                 <thead>
                     <tr>
-                        <th style={th('#388E3C', '#fff', '88px')}>Program</th>
+                        <th style={th('var(--bg)', 'var(--text-muted)', '100px')}>Batch</th>
                         {displaySlots.map(slot => {
                             return (
-                                <th key={slot.key} style={th(slot.isBreak ? '#E53935' : '#FDD835', slot.isBreak ? '#fff' : '#000')}>
+                                <th key={slot.key} style={th(slot.isBreak ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg)', slot.isBreak ? '#ef4444' : 'var(--text-primary)')}>
+                                    <div style={{ fontSize: '0.65rem', fontWeight: 600, opacity: 0.7 }}>Slot</div>
                                     {slot.label}
                                 </th>
                             )
@@ -313,17 +325,22 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                 <td
                                     colSpan={totalCols}
                                     style={{
-                                        padding: '0.35rem 0.5rem',
-                                        background: '#FDD835',
-                                        border: '1px solid #555',
-                                        textAlign: 'center',
+                                        padding: '0.75rem 1rem',
+                                        background: 'rgba(59, 130, 246, 0.08)',
+                                        borderBottom: '1px solid var(--border)',
+                                        borderTop: '1px solid var(--border)',
+                                        textAlign: 'left',
                                         fontWeight: 800,
-                                        fontSize: '0.75rem',
-                                        color: '#000',
+                                        fontSize: '0.875rem',
+                                        color: 'var(--primary)',
                                         letterSpacing: '0.05em',
+                                        textTransform: 'uppercase',
                                     }}
                                 >
-                                    {day}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <Calendar size={16} />
+                                        {day}
+                                    </div>
                                 </td>
                             </tr>
 
@@ -332,41 +349,40 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                 const batchKey = String(batch.id)
                                 const slotMeta = getSlotMeta(day, batchKey)
                                 // Alternate very subtle zebra stripe on batch rows
-                                const rowBg = bi % 2 === 0 ? '#FAFAFA' : '#F3F3F3'
+                                const rowBg = bi % 2 === 0 ? 'var(--bg-card)' : 'var(--bg)'
 
                                 return (
                                     <tr key={batch.id} style={{ height: '56px' }}>
 
                                         {/* Program / batch label */}
                                         <td style={{
-                                            padding: '0.35rem 0.3rem',
-                                            background: '#E8F5E9',
-                                            border: '1px solid #555',
+                                            padding: '0.75rem 0.5rem',
+                                            background: 'var(--bg)',
+                                            borderRight: '1px solid var(--border)',
+                                            borderBottom: '1px solid var(--border)',
                                             textAlign: 'center',
                                             verticalAlign: 'middle',
                                             fontWeight: 700,
-                                            fontSize: '0.5625rem',
-                                            color: '#1B5E20',
-                                            lineHeight: 1.3,
                                         }}>
-                                            <div style={{ fontWeight: 800 }}>{batch.name}</div>
+                                            <div style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '0.75rem' }}>{batch.name}</div>
                                             {batch.academic_year && (
-                                                <div style={{ fontWeight: 400, color: '#555', fontSize: '0.5rem' }}>
+                                                <div style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: '0.625rem', marginTop: '0.1rem' }}>
                                                     {batch.academic_year}
                                                 </div>
                                             )}
                                             {batchRooms[batchKey] && (
                                                 <div style={{
-                                                    marginTop: '2px',
+                                                    marginTop: '0.4rem',
                                                     fontWeight: 600,
-                                                    color: '#2E7D32',
-                                                    fontSize: '0.5625rem',
-                                                    background: 'rgba(46,125,50,0.1)',
-                                                    borderRadius: '3px',
-                                                    padding: '0 3px',
+                                                    color: 'var(--primary)',
+                                                    fontSize: '0.625rem',
+                                                    background: 'rgba(59, 130, 246, 0.08)',
+                                                    border: '1px solid rgba(59, 130, 246, 0.15)',
+                                                    borderRadius: '6px',
+                                                    padding: '2px 6px',
                                                     display: 'inline-block',
                                                 }}>
-                                                    {batchRooms[batchKey]}
+                                                    📍 {batchRooms[batchKey]}
                                                 </div>
                                             )}
                                         </td>
@@ -382,15 +398,13 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                             if (isBreakSlot) {
                                                 return (
                                                     <td key={slot.key} style={{
-                                                        border: '1px solid #555',
-                                                        background: '#FFFF00',
+                                                        borderRight: '1px solid var(--border)',
+                                                        borderBottom: '1px solid var(--border)',
+                                                        background: 'rgba(0, 0, 0, 0.02)',
                                                         textAlign: 'center',
-                                                        fontWeight: 800,
-                                                        fontSize: '0.5625rem',
-                                                        color: '#333',
                                                         verticalAlign: 'middle',
                                                     }}>
-                                                        {slot.label}
+                                                        {/* Removed repetitive text to reduce noise */}
                                                     </td>
                                                 )
                                             }
@@ -399,7 +413,8 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                             if (!entry) {
                                                 return (
                                                     <td key={slot.key} colSpan={colSpan} style={{
-                                                        border: '1px solid #ddd',
+                                                        borderRight: '1px solid var(--border)',
+                                                        borderBottom: '1px solid var(--border)',
                                                         background: rowBg,
                                                     }} />
                                                 )
@@ -416,18 +431,24 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                 ? teacherColors.get(entry.teacher.id) || '#E0E0E0'
                                                 : '#E0E0E0'
 
+                                            const hasConflict = entry.id && conflictIds?.has(entry.id)
+
                                             return (
                                                 <td
                                                     key={slot.key}
                                                     colSpan={colSpan}
-                                                    title={`${entry.course?.name} | ${entry.teacher?.name} | ${entry.room?.name}`}
+                                                    title={hasConflict ? `CONFLICT: ${entry.course?.name} has a scheduling clash!` : `${entry.course?.name} | ${entry.teacher?.name} | ${entry.room?.name}`}
                                                     style={{
-                                                        padding: '0.3rem 0.25rem',
-                                                        border: '1px solid #555',
-                                                        background: bgColor,
+                                                        padding: '0.5rem 0.625rem',
+                                                        borderRight: '1px solid var(--border)',
+                                                        borderBottom: '1px solid var(--border)',
+                                                        background: hasConflict ? 'rgba(239, 68, 68, 0.1)' : bgColor,
                                                         verticalAlign: 'top',
                                                         position: 'relative',
-                                                        borderLeft: `4px solid ${teacherColor}`,
+                                                        borderLeft: `5px solid ${hasConflict ? '#ef4444' : teacherColor}`,
+                                                        boxShadow: hasConflict ? 'inset 0 0 0 1px rgba(239, 68, 68, 0.4)' : 'none',
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
                                                     }}
                                                 >
                                                     {/* Multi-span badge */}
@@ -506,12 +527,12 @@ export function TimetablePage() {
     const [departments, setDepartments] = useState<Department[]>([])
     const [genProgress, setGenProgress] = useState<number>(0)
     const [genStatus, setGenStatus] = useState<string>('')
-    const [selectedDeptId, setSelectedDeptId] = useState<number | null>(null)
+    const [selectedDeptId, setSelectedDeptId] = useState<number | 'all' | null>('all')
     const [timetable, setTimetable] = useState<TimetableEntry[]>([])
     const [loading, setLoading] = useState(true)
     const [generating, setGenerating] = useState(false)
     const [viewType, setViewType] = useState<'Grid' | 'List' | 'Batch'>('Batch')
-    const [filterType, setFilterType] = useState<'All' | 'Teacher' | 'Room'>('All')
+    const [filterType, setFilterType] = useState<'All' | 'Teacher' | 'Room' | 'Section'>('All')
     const [filterId, setFilterId] = useState<number | null>(null)
     const [entryModalOpen, setEntryModalOpen] = useState(false)
     const [selectedSlot, setSelectedSlot] = useState<{ day: string, slot: string } | null>(null)
@@ -522,7 +543,7 @@ export function TimetablePage() {
     const [saving, setSaving] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
     const [resolutionModalOpen, setResolutionModalOpen] = useState(false)
-    const [strictMode, setStrictMode] = useState(false)
+
     const [suggestingEntry, setSuggestingEntry] = useState<TimetableEntry | null>(null)
     const [readinessLoading, setReadinessLoading] = useState(false)
     const [readiness, setReadiness] = useState<TimetableReadiness>(emptyReadiness)
@@ -534,6 +555,8 @@ export function TimetablePage() {
     const [workingDays, setWorkingDays] = useState<string[]>([...DAYS])
     const [timeSlots, setTimeSlots] = useState<string[]>([...SLOTS])
     const [breaks, setBreaks] = useState<ScheduleBreak[]>([])
+    const [activeTab, setActiveTab] = useState<'Schedule' | 'Faculty' | 'Readiness'>('Schedule')
+    const [compactView, setCompactView] = useState(false)
 
     // Form state for manual entry
     const [formData, setFormData] = useState({
@@ -575,9 +598,7 @@ export function TimetablePage() {
                 const res = await departmentService.list(1, 100)
                 const depts = res.data || []
                 setDepartments(depts)
-                if (depts.length > 0) {
-                    setSelectedDeptId(depts[0].id)
-                }
+                setSelectedDeptId('all')
             } catch (err) {
                 toast('error', 'Failed to load departments', getErrorMessage(err))
             } finally {
@@ -587,10 +608,12 @@ export function TimetablePage() {
         fetchDepts()
     }, [toast])
 
-    const fetchTimetable = useCallback(async (deptId: number) => {
+    const fetchTimetable = useCallback(async (deptId: number | 'all') => {
         setLoading(true)
         try {
-            const res = await schedulingService.viewTimetable(deptId)
+            const res = deptId === 'all'
+                ? await schedulingService.viewAllTimetables()
+                : await schedulingService.viewTimetable(deptId)
             setTimetable(res.data || [])
             setWorkingDays(res.working_days?.length ? res.working_days : [...DAYS])
             const nextTimeSlots = res.time_slots?.map(slot => `${slot.start}-${slot.end}`) || []
@@ -607,8 +630,8 @@ export function TimetablePage() {
         }
     }, [])
 
-    const loadDepartmentSections = useCallback(async (deptId: number): Promise<{ sections: Section[], batches: Batch[] }> => {
-        const programRes = await programService.list(deptId, 1, 500)
+    const loadDepartmentSections = useCallback(async (deptId: number | 'all'): Promise<{ sections: Section[], batches: Batch[] }> => {
+        const programRes = await programService.list(deptId === 'all' ? undefined : deptId, 1, 500)
         const programs = programRes.data || []
         if (programs.length === 0) return { sections: [], batches: [] }
 
@@ -626,24 +649,20 @@ export function TimetablePage() {
         return { sections: sectionResults.flatMap(result => result.data || []), batches: allBatches }
     }, [])
 
-    const loadReadiness = useCallback(async (deptId: number): Promise<TimetableReadiness> => {
+    const loadReadiness = useCallback(async (deptId: number | 'all'): Promise<TimetableReadiness> => {
         setReadinessLoading(true)
         try {
             const [sectionResult, courseRes, roomRes, teacherRes] = await Promise.all([
                 loadDepartmentSections(deptId),
-                courseService.list(deptId, 1, 500),
+                courseService.list(deptId === 'all' ? undefined : deptId, 1, 500),
                 roomService.list(undefined, 1, 500),
-                teacherService.list(undefined, 1, 500),
+                teacherService.list(deptId === 'all' ? undefined : deptId, 1, 500),
             ])
 
             const sectionData = sectionResult.sections
             const deptCourses = courseRes.data || []
-            const deptRooms = (roomRes.data || []).filter(room => !room.department_id || room.department_id === deptId)
+            const deptRooms = (roomRes.data || []).filter(room => !room.department_id || deptId === 'all' || room.department_id === deptId)
             const allTeachers = teacherRes.data || []
-            const deptCourseIds = new Set(deptCourses.map(course => course.id))
-            const qualifiedTeacherCount = allTeachers.filter(teacher =>
-                teacher.qualified_courses?.some(course => deptCourseIds.has(course.id))
-            ).length
             const labCoursesCount = deptCourses.filter(course => course.course_type === 'Lab').length
             const labRoomsCount = deptRooms.filter(room => room.room_type.toLowerCase().includes('lab')).length
 
@@ -655,9 +674,6 @@ export function TimetablePage() {
             if (deptRooms.length === 0) blockers.push('No rooms are available for this department.')
             if (allTeachers.length === 0) blockers.push('No teachers are available in the system.')
 
-            if (allTeachers.length > 0 && qualifiedTeacherCount === 0) {
-                warnings.push('No teacher is qualified for the department courses yet. Strict mode will fail.')
-            }
             if (labCoursesCount > 0 && labRoomsCount === 0) {
                 warnings.push('Lab courses exist, but no lab rooms are available for this department.')
             }
@@ -667,7 +683,6 @@ export function TimetablePage() {
                 courses: deptCourses,
                 rooms: deptRooms,
                 teachers: allTeachers,
-                qualifiedTeacherCount,
                 labCoursesCount,
                 labRoomsCount,
                 blockers,
@@ -690,7 +705,7 @@ export function TimetablePage() {
     }, [loadDepartmentSections, toast])
 
     useEffect(() => {
-        if (selectedDeptId) {
+        if (selectedDeptId !== null) {
             setGenerationResult(null)
             setFormData({ teacher_id: '', room_id: '', course_id: '', section_id: '' })
             setSelectedProgramId(null)
@@ -698,7 +713,7 @@ export function TimetablePage() {
             fetchTimetable(selectedDeptId)
             loadReadiness(selectedDeptId)
             // Load programs for filter
-            programService.list(selectedDeptId, 1, 500)
+            programService.list(selectedDeptId === 'all' ? undefined : selectedDeptId, 1, 500)
                 .then(res => setPrograms(res.data || []))
                 .catch(() => setPrograms([]))
         } else {
@@ -730,30 +745,53 @@ export function TimetablePage() {
             toast('error', 'Generation blocked', readiness.blockers[0])
             return
         }
-        if (strictMode && readiness.qualifiedTeacherCount === 0) {
-            toast('error', 'Strict mode cannot run', 'Assign at least one qualified teacher or turn off strict mode.')
-            return
-        }
+
         setGenerating(true)
         setGenProgress(0)
         setGenStatus('Initializing AI engine...')
         setGenerationResult(null)
         try {
             toast('info', 'Generation started', 'AI is calculating the optimal schedule...')
-            const result = await schedulingService.generateTimetable({
-                department_id: selectedDeptId,
-                strict_mode: strictMode,
-            })
-            setGenerationResult(result)
-            const skipped = result.incomplete_workloads?.length || 0
-            if (result.status === 'partial_success' || skipped > 0) {
-                toast(
-                    'warning',
-                    'Generated with warnings',
-                    `Created ${result.entries_created} entries, ${skipped} workloads incomplete.`
-                )
+            if (selectedDeptId === 'all') {
+                const res: any = await schedulingService.generateAllTimetables({})
+                const results = res.results || []
+                
+                const totalCreated = results.reduce((sum: number, r: any) => sum + (r.entries_created || 0), 0)
+                const totalSkipped = results.reduce((sum: number, r: any) => sum + (r.incomplete_workloads?.length || 0), 0)
+                
+                const combinedResult: GenerateScheduleResult = {
+                    status: totalSkipped > 0 ? 'partial_success' : 'success',
+                    entries_created: totalCreated,
+                    incomplete_workloads: results.flatMap((r: any) => r.incomplete_workloads || []),
+                    errors: results.flatMap((r: any) => r.errors || []),
+                    message: res.message || `Generated ${totalCreated} entries across all departments.`
+                }
+                setGenerationResult(combinedResult)
+                
+                if (combinedResult.status === 'partial_success' || totalSkipped > 0) {
+                    toast(
+                        'warning',
+                        'Generated with warnings',
+                        `Created ${totalCreated} entries, ${totalSkipped} workloads incomplete.`
+                    )
+                } else {
+                    toast('success', 'Success', 'All timetables generated successfully!')
+                }
             } else {
-                toast('success', 'Success', 'Timetable generated successfully!')
+                const result = await schedulingService.generateTimetable({
+                    department_id: selectedDeptId,
+                })
+                setGenerationResult(result)
+                const skipped = result.incomplete_workloads?.length || 0
+                if (result.status === 'partial_success' || skipped > 0) {
+                    toast(
+                        'warning',
+                        'Generated with warnings',
+                        `Created ${result.entries_created} entries, ${skipped} workloads incomplete.`
+                    )
+                } else {
+                    toast('success', 'Success', 'Timetable generated successfully!')
+                }
             }
             await Promise.all([
                 fetchTimetable(selectedDeptId),
@@ -800,14 +838,28 @@ export function TimetablePage() {
             toast('error', 'No department selected', 'Please select a department first.')
             return
         }
-        if (!window.confirm('Are you sure you want to clear the entire timetable for this department?')) return
-        try {
-            await schedulingService.clearTimetable(selectedDeptId)
-            toast('success', 'Cleared', 'Timetable has been removed.')
-            setTimetable([])
-            setGenerationResult(null)
-        } catch (err) {
-            toast('error', 'Error', getErrorMessage(err))
+        
+        if (selectedDeptId === 'all') {
+            if (!window.confirm('Are you sure you want to clear the entire timetable for ALL departments?')) return
+            try {
+                // Delete one by one if backend doesn't support /clear/all
+                await Promise.all(departments.map(d => schedulingService.clearTimetable(d.id)))
+                toast('success', 'Cleared', 'All timetables have been removed.')
+                setTimetable([])
+                setGenerationResult(null)
+            } catch (err) {
+                toast('error', 'Error', getErrorMessage(err))
+            }
+        } else {
+            if (!window.confirm('Are you sure you want to clear the entire timetable for this department?')) return
+            try {
+                await schedulingService.clearTimetable(selectedDeptId)
+                toast('success', 'Cleared', 'Timetable has been removed.')
+                setTimetable([])
+                setGenerationResult(null)
+            } catch (err) {
+                toast('error', 'Error', getErrorMessage(err))
+            }
         }
     }
 
@@ -862,11 +914,25 @@ export function TimetablePage() {
 
         setSaving(true)
         try {
+            let deptIdToUse: number;
+            if (selectedDeptId === 'all') {
+                const section = sections.find(s => s.id === parseInt(formData.section_id));
+                if (!section) throw new Error('Could not determine department for this section');
+                // We need the department ID. The section only has batch_id. 
+                // We might need to find the batch, then the program, then the department.
+                const batch = batches.find(b => b.id === section.batch_id);
+                const program = programs.find(p => p.id === batch?.program_id);
+                if (!program?.department_id) throw new Error('Could not determine department');
+                deptIdToUse = program.department_id;
+            } else {
+                deptIdToUse = selectedDeptId as number;
+            }
+
             await schedulingService.createEntry({
                 ...formData,
                 day: selectedSlot.day,
                 timeslot: selectedSlot.slot,
-                department_id: selectedDeptId,
+                department_id: deptIdToUse,
                 teacher_id: parseInt(formData.teacher_id),
                 course_id: parseInt(formData.course_id),
                 room_id: parseInt(formData.room_id),
@@ -938,6 +1004,7 @@ export function TimetablePage() {
             )
         }
 
+        if (filterType === 'Section' && filterId) items = items.filter(e => e.sections?.some(s => s.id === filterId))
         if (filterType === 'Teacher' && filterId) items = items.filter(e => e.teacher?.id === filterId)
         if (filterType === 'Room' && filterId) items = items.filter(e => e.room?.id === filterId)
 
@@ -1160,12 +1227,8 @@ export function TimetablePage() {
     )
 
     const suggestedTeachers = useMemo(() => {
-        if (!selectedCourse) return teachers
-        const matchingTeachers = teachers.filter(teacher =>
-            teacher.qualified_courses?.some(course => course.id === selectedCourse.id)
-        )
-        return matchingTeachers.length > 0 ? matchingTeachers : teachers
-    }, [teachers, selectedCourse])
+        return teachers
+    }, [teachers])
 
     const suggestedRooms = useMemo(() => {
         return rooms.filter(room => {
@@ -1180,27 +1243,20 @@ export function TimetablePage() {
     useEffect(() => {
         if (!entryModalOpen) return
 
-        if (formData.teacher_id && !suggestedTeachers.some(teacher => teacher.id === Number(formData.teacher_id))) {
+        if (formData.teacher_id && !suggestedTeachers.some(t => t.id === Number(formData.teacher_id))) {
             setFormData(prev => ({ ...prev, teacher_id: '' }))
         }
-
-        if (formData.room_id && !suggestedRooms.some(room => room.id === Number(formData.room_id))) {
-            setFormData(prev => ({ ...prev, room_id: '' }))
-        }
-    }, [entryModalOpen, formData.teacher_id, formData.room_id, suggestedTeachers, suggestedRooms])
+    }, [suggestedTeachers, entryModalOpen, formData.teacher_id])
 
     const readinessTone = readiness.blockers.length > 0
-        ? { color: '#dc2626', bg: 'rgba(239, 68, 68, 0.08)', border: 'rgba(239, 68, 68, 0.2)', label: 'Blocked' }
+        ? { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.04)', border: 'rgba(239, 68, 68, 0.15)', label: 'Configuration Blocked' }
         : readiness.warnings.length > 0
-            ? { color: '#d97706', bg: 'rgba(245, 158, 11, 0.08)', border: 'rgba(245, 158, 11, 0.2)', label: 'Needs Attention' }
-            : { color: '#059669', bg: 'rgba(16, 185, 129, 0.08)', border: 'rgba(16, 185, 129, 0.2)', label: 'Ready' }
+            ? { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.04)', border: 'rgba(245, 158, 11, 0.15)', label: 'Needs Attention' }
+            : { color: '#10b981', bg: 'rgba(16, 185, 129, 0.04)', border: 'rgba(16, 185, 129, 0.15)', label: 'System Ready' }
 
     const visibleEntryCount = filteredTimetable.length
     const conflictCount = entriesWithConflicts.size
-    const generationDisabled = !selectedDeptId || generating || readinessLoading || readiness.blockers.length > 0 || (strictMode && readiness.qualifiedTeacherCount === 0)
-    const hasQualifiedTeacherForSelectedCourse = selectedCourse
-        ? teachers.some(teacher => teacher.qualified_courses?.some(course => course.id === selectedCourse.id))
-        : false
+    const generationDisabled = !selectedDeptId || generating || readinessLoading || readiness.blockers.length > 0
     const unscheduledSectionCounts = useMemo(() => {
         const counts = new Map<string, number>()
         for (const item of generationResult?.incomplete_workloads || []) {
@@ -1212,187 +1268,280 @@ export function TimetablePage() {
     if (loading && departments.length === 0) return <PageLoader />
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <div className="page-header">
-                <div>
-                    <h1 className="page-title">Class Timetable</h1>
-                    <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                        Generate, review, and fine-tune department schedules with fewer conflicts
-                    </p>
-                </div>
-                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
-                    {/* ── Department selector ──────────────────────────────── */}
-                    <select
-                        value={selectedDeptId || ''}
-                        onChange={e => { setSelectedDeptId(Number(e.target.value)); setFilterType('All'); setFilterId(null) }}
-                        className="input select"
-                        style={{ width: '180px' }}
-                        title="Filter by Department"
-                    >
-                        {departments.map(d => (
-                            <option key={d.id} value={d.id}>{d.name}</option>
-                        ))}
-                    </select>
-
-                    {/* ── Program filter ─────────────────────────────────── */}
-                    {programs.length > 0 && (
-                        <select
-                            value={selectedProgramId ?? ''}
-                            onChange={e => {
-                                const val = e.target.value ? Number(e.target.value) : null
-                                setSelectedProgramId(val)
-                                setSelectedBatchId(null)   // reset batch when program changes
-                            }}
-                            className="input select"
-                            style={{ width: '160px' }}
-                            title="Filter by Program"
-                        >
-                            <option value="">All Programs</option>
-                            {programs.map(p => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                        </select>
-                    )}
-
-                    {/* ── Batch filter (only shows batches of selected program) ── */}
-                    {batches.length > 0 && (
-                        <select
-                            value={selectedBatchId ?? ''}
-                            onChange={e => setSelectedBatchId(e.target.value ? Number(e.target.value) : null)}
-                            className="input select"
-                            style={{ width: '160px' }}
-                            title="Filter by Batch"
-                        >
-                            <option value="">All Batches</option>
-                            {(selectedProgramId
-                                ? batches.filter(b => b.program_id === selectedProgramId)
-                                : batches
-                            ).map(b => (
-                                <option key={b.id} value={b.id}>{b.name}</option>
-                            ))}
-                        </select>
-                    )}
-
-                    {/* ── Teacher / Room view filter ─────────────────────── */}
-                    <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '0.5rem', padding: '2px' }}>
-                        <select
-                            value={filterType}
-                            onChange={e => {
-                                const nextFilter = e.target.value
-                                if (nextFilter === 'All' || nextFilter === 'Teacher' || nextFilter === 'Room') {
-                                    setFilterType(nextFilter)
-                                    setFilterId(null)
-                                }
-                            }}
-                            className="input select"
-                            style={{ width: '100px', border: 'none', background: 'transparent' }}
-                        >
-                            <option value="All">All View</option>
-                            <option value="Teacher">Teacher</option>
-                            <option value="Room">Room</option>
-                        </select>
-                        {(filterType === 'Teacher' || filterType === 'Room') && (
-                            <select
-                                value={filterId || ''}
-                                onChange={e => setFilterId(Number(e.target.value))}
-                                className="input select"
-                                style={{ width: '180px', border: 'none', borderLeft: '1px solid var(--border)', background: 'transparent' }}
-                            >
-                                <option value="">Select...</option>
-                                {filterType === 'Teacher'
-                                    ? uniqueTeachers.map(t => <option key={t?.id} value={t?.id}>{t?.name}</option>)
-                                    : uniqueRooms.map(r => <option key={r?.id} value={r?.id}>{r?.name}</option>)
-                                }
-                            </select>
-                        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', animation: 'fadeIn 0.5s ease-out' }}>
+            <style>
+                {`
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(10px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                @keyframes slideUp {
+                    from { opacity: 0; transform: translateY(20px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                .select:focus {
+                    border-color: var(--primary) !important;
+                    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+                    outline: none !important;
+                }
+                .btn:hover {
+                    filter: brightness(0.95);
+                    transform: translateY(-1px);
+                }
+                .btn:active {
+                    transform: translateY(0);
+                }
+                `}
+            </style>
+            <div className="card" style={{ 
+                padding: '2rem', 
+                background: 'linear-gradient(135deg, var(--bg-card) 0%, rgba(59, 130, 246, 0.03) 100%)',
+                border: '1px solid var(--border)',
+                borderRadius: '1.25rem',
+                boxShadow: '0 4px 20px -5px rgba(0, 0, 0, 0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '1.5rem'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ 
+                            width: '2.5rem', 
+                            height: '2.5rem', 
+                            borderRadius: '10px', 
+                            background: 'var(--primary)', 
+                            color: 'white', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            boxShadow: '0 4px 12px -2px rgba(59, 130, 246, 0.25)'
+                        }}>
+                            <Calendar size={20} />
+                        </div>
+                        <div>
+                            <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.025em' }}>
+                                Timetable Central
+                            </h1>
+                            <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                                Academic Resource Management & AI Optimization
+                            </p>
+                        </div>
                     </div>
 
-                    {/* ── Search ────────────────────────────────────────── */}
-                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                        <Search size={16} style={{ position: 'absolute', left: '0.75rem', color: 'var(--text-muted)' }} />
+                    <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--bg)', padding: '4px', borderRadius: '12px', border: '1px solid var(--border)' }}>
+                        {(['Schedule', 'Faculty', 'Readiness'] as const).map(tab => (
+                            <button
+                                key={tab}
+                                onClick={() => setActiveTab(tab)}
+                                style={{
+                                    padding: '0.5rem 1rem',
+                                    borderRadius: '8px',
+                                    fontSize: '0.8125rem',
+                                    fontWeight: 700,
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    background: activeTab === tab ? 'var(--bg-card)' : 'transparent',
+                                    color: activeTab === tab ? 'var(--primary)' : 'var(--text-muted)',
+                                    boxShadow: activeTab === tab ? '0 2px 8px rgba(0,0,0,0.05)' : 'none',
+                                    transition: 'all 0.2s ease'
+                                }}
+                            >
+                                {tab}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div style={{ 
+                    display: 'flex', 
+                    gap: '1rem', 
+                    flexWrap: 'wrap', 
+                    padding: '1.25rem', 
+                    background: 'rgba(255, 255, 255, 0.4)', 
+                    borderRadius: '1rem', 
+                    border: '1px solid rgba(0, 0, 0, 0.03)',
+                    alignItems: 'center'
+                }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginLeft: '0.25rem' }}>Department Scope</label>
+                        <select
+                            value={selectedDeptId || ''}
+                            onChange={e => { 
+                                const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                                setSelectedDeptId(val); 
+                                setFilterType('All'); 
+                                setFilterId(null); 
+                            }}
+                            className="input select"
+                            style={{ width: '200px', height: '42px', borderRadius: '10px' }}
+                        >
+                            <option value="all">🌐 All Departments</option>
+                            {departments.map(d => (
+                                <option key={d.id} value={d.id}>{d.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div style={{ height: '32px', width: '1px', background: 'var(--border)', alignSelf: 'flex-end', margin: '0 0.5rem 5px 0' }} />
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginLeft: '0.25rem' }}>Curriculum Filter</label>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                            <select
+                                value={selectedProgramId ?? ''}
+                                onChange={e => {
+                                    const val = e.target.value ? Number(e.target.value) : null
+                                    setSelectedProgramId(val)
+                                    setSelectedBatchId(null)
+                                }}
+                                className="input select"
+                                style={{ width: '160px', height: '42px', borderRadius: '10px' }}
+                            >
+                                <option value="">All Programs</option>
+                                {programs.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                            </select>
+
+                            {selectedProgramId && (
+                                <select
+                                    value={selectedBatchId ?? ''}
+                                    onChange={e => {
+                                        const val = e.target.value ? Number(e.target.value) : null
+                                        setSelectedBatchId(val)
+                                    }}
+                                    className="input select"
+                                    style={{ width: '140px', height: '42px', borderRadius: '10px' }}
+                                >
+                                    <option value="">All Batches</option>
+                                    {batches
+                                        .filter(b => b.program_id === selectedProgramId)
+                                        .map(b => (
+                                            <option key={b.id} value={b.id}>{b.name}</option>
+                                        ))
+                                    }
+                                </select>
+                            )}
+
+                            {selectedBatchId && (
+                                <select
+                                    value={filterType === 'Section' ? filterId ?? '' : ''}
+                                    onChange={e => {
+                                        const val = e.target.value ? Number(e.target.value) : null
+                                        setFilterType(val ? 'Section' : 'All')
+                                        setFilterId(val)
+                                    }}
+                                    className="input select"
+                                    style={{ width: '120px', height: '42px', borderRadius: '10px' }}
+                                >
+                                    <option value="">All Sections</option>
+                                    {readiness.sections
+                                        .filter(s => s.batch_id === selectedBatchId)
+                                        .map(s => (
+                                            <option key={s.id} value={s.id}>{s.name}</option>
+                                        ))
+                                    }
+                                </select>
+                            )}
+                        </div>
+                    </div>
+
+                    <div style={{ flex: 1 }} />
+
+                    <div style={{ display: 'flex', gap: '0.75rem', alignSelf: 'flex-end', marginBottom: '2px' }}>
+                        <button 
+                            className="btn btn-ghost" 
+                            onClick={handleExport}
+                            style={{ height: '42px', borderRadius: '10px' }}
+                        >
+                            <Download size={18} /> Export
+                        </button>
+                        <button 
+                            className="btn btn-secondary" 
+                            onClick={handleClear}
+                            style={{ height: '42px', borderRadius: '10px', color: '#ef4444' }}
+                        >
+                            <Trash2 size={18} /> Clear
+                        </button>
+                        <button 
+                            className={`btn ${generating ? 'btn-secondary' : 'btn-primary'}`}
+                            onClick={handleGenerate} 
+                            disabled={generationDisabled}
+                            style={{ 
+                                height: '42px', 
+                                borderRadius: '10px', 
+                                padding: '0 1.5rem',
+                                boxShadow: generating ? 'none' : '0 4px 12px rgba(59, 130, 246, 0.3)'
+                            }}
+                        >
+                            {generating ? <Spinner size={18} /> : <Zap size={18} />}
+                            <span style={{ marginLeft: '0.5rem' }}>
+                                {generating ? 'Processing...' : (selectedDeptId === 'all' ? 'Generate All' : 'Generate Now')}
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Sub-toolbar for search and views */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                    <div style={{ position: 'relative' }}>
+                        <Search size={16} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                         <input
                             type="text"
-                            placeholder="Search timetable..."
+                            placeholder="Quick search (teacher, course, room)..."
                             className="input"
-                            style={{ paddingLeft: '2.5rem', width: '200px' }}
+                            style={{ paddingLeft: '2.75rem', width: '300px', borderRadius: '12px', border: '1px solid var(--border)', height: '40px' }}
                             value={searchQuery}
                             onChange={e => setSearchQuery(e.target.value)}
                         />
                     </div>
 
-                    {/* ── Active filter chips ───────────────────────────── */}
-                    {(selectedProgramId || selectedBatchId) && (
-                        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                            {selectedProgramId && (
-                                <span
-                                    title="Click to clear program filter"
-                                    onClick={() => { setSelectedProgramId(null); setSelectedBatchId(null) }}
-                                    style={{
-                                        display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-                                        fontSize: '0.75rem', fontWeight: 600,
-                                        color: '#1d4ed8', background: 'rgba(59,130,246,0.12)',
-                                        border: '1px solid rgba(59,130,246,0.3)', borderRadius: '999px',
-                                        padding: '0.2rem 0.65rem', cursor: 'pointer',
-                                    }}
-                                >
-                                    📚 {programs.find(p => p.id === selectedProgramId)?.name ?? 'Program'} ×
-                                </span>
-                            )}
-                            {selectedBatchId && (
-                                <span
-                                    title="Click to clear batch filter"
-                                    onClick={() => setSelectedBatchId(null)}
-                                    style={{
-                                        display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
-                                        fontSize: '0.75rem', fontWeight: 600,
-                                        color: '#047857', background: 'rgba(16,185,129,0.12)',
-                                        border: '1px solid rgba(16,185,129,0.3)', borderRadius: '999px',
-                                        padding: '0.2rem 0.65rem', cursor: 'pointer',
-                                    }}
-                                >
-                                    🎓 {batches.find(b => b.id === selectedBatchId)?.name ?? 'Batch'} ×
-                                </span>
-                            )}
-                        </div>
-                    )}
-
-                    <button
-                        className="btn btn-secondary"
-                        onClick={handleExport}
-                        disabled={!timetable.length}
-                    >
-                        <Download size={16} /> Export CSV
-                    </button>
-                    <button
-                        className="btn btn-ghost"
-                        style={{ color: '#ef4444' }}
-                        onClick={handleClear}
-                        disabled={!timetable.length}
-                    >
-                        <Trash2 size={16} /> Clear
-                    </button>
-                    <button
-                        className="btn btn-primary"
-                        onClick={handleGenerate}
-                        disabled={generationDisabled}
-                        title={readiness.blockers[0] || (strictMode && readiness.qualifiedTeacherCount === 0 ? 'Add qualified teachers or disable strict mode.' : undefined)}
-                    >
-                        {generating ? <Spinner size={16} /> : <Play size={16} />}
-                        {generating ? 'Generating...' : timetable.length ? 'Regenerate' : 'Generate'}
-                    </button>
+                    <div style={{ display: 'flex', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '3px', height: '40px' }}>
+                        <select
+                            value={filterType}
+                            onChange={e => {
+                                const nextFilter = e.target.value
+                                if (nextFilter === 'All' || nextFilter === 'Teacher' || nextFilter === 'Room' || nextFilter === 'Section') {
+                                    setFilterType(nextFilter as any)
+                                    setFilterId(null)
+                                }
+                            }}
+                            className="input select"
+                            style={{ width: '105px', border: 'none', background: 'transparent', height: '100%', fontSize: '0.8125rem', fontWeight: 600 }}
+                        >
+                            <option value="All">All Scope</option>
+                            <option value="Teacher">Teacher</option>
+                            <option value="Room">Room</option>
+                            {!selectedBatchId && <option value="Section">Section</option>}
+                        </select>
+                        {(filterType === 'Teacher' || filterType === 'Room' || (filterType === 'Section' && !selectedBatchId)) && (
+                            <select
+                                value={filterId || ''}
+                                onChange={e => setFilterId(Number(e.target.value))}
+                                className="input select"
+                                style={{ width: '180px', border: 'none', borderLeft: '1px solid var(--border)', background: 'transparent', height: '100%', fontSize: '0.8125rem' }}
+                            >
+                                <option value="">Select specific...</option>
+                            </select>
+                        )}
+                    </div>
                 </div>
             </div>
 
-            <div
-                className="card"
-                style={{
-                    padding: '1.25rem',
-                    display: 'grid',
-                    gap: '1rem',
-                    background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.03), rgba(59, 130, 246, 0.05))',
-                    border: `1px solid ${readinessTone.border}`,
-                }}
-            >
+
+            {activeTab === 'Readiness' && (
+                <div
+                    className="card"
+                    style={{
+                        padding: '1.25rem',
+                        display: 'grid',
+                        gap: '1rem',
+                        background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.03), rgba(59, 130, 246, 0.05))',
+                        border: `1px solid ${readinessTone.border}`,
+                    }}
+                >
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginBottom: '0.5rem' }}>
@@ -1413,30 +1562,9 @@ export function TimetablePage() {
                         </div>
                         <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Generation readiness</h3>
                         <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: '0.35rem', maxWidth: '680px' }}>
-                            Before generating, make sure this department has sections, courses, rooms, and qualified teachers. This panel highlights the common setup gaps that usually cause weak or incomplete timetables.
+                            Before generating, make sure this department has sections, courses, rooms, and teachers. This panel highlights the common setup gaps that usually cause weak or incomplete timetables.
                         </p>
                     </div>
-                    <label
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            fontSize: '0.8125rem',
-                            color: 'var(--text-secondary)',
-                            border: '1px solid var(--border)',
-                            borderRadius: '0.75rem',
-                            padding: '0.625rem 0.875rem',
-                            background: 'var(--bg-card)',
-                        }}
-                        title="If enabled, the scheduler will only use explicitly qualified teachers."
-                    >
-                        <input
-                            type="checkbox"
-                            checked={strictMode}
-                            onChange={(e) => setStrictMode(e.target.checked)}
-                        />
-                        Strict qualified teachers only
-                    </label>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem' }}>
@@ -1444,7 +1572,7 @@ export function TimetablePage() {
                         { label: 'Sections', value: readiness.sections.length, tone: '#2563eb' },
                         { label: 'Courses', value: readiness.courses.length, tone: '#7c3aed' },
                         { label: 'Rooms', value: readiness.rooms.length, tone: '#059669' },
-                        { label: 'Qualified Teachers', value: readiness.qualifiedTeacherCount, tone: '#d97706' },
+                        { label: 'Teachers', value: readiness.teachers.length, tone: '#d97706' },
                         { label: 'Batches', value: batches.length, tone: '#0891b2' },
                     ].map(item => (
                         <div key={item.label} className="card" style={{ padding: '0.9rem', background: 'var(--bg-card)' }}>
@@ -1499,7 +1627,8 @@ export function TimetablePage() {
                         ))}
                     </div>
                 ) : null}
-            </div>
+                </div>
+            )}
 
             {generating && (
                 <div className="card" style={{
@@ -1697,150 +1826,147 @@ export function TimetablePage() {
                 </div>
             )}
 
-            {loading ? (
-                <div style={{ height: '400px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Spinner size={32} />
-                </div>
-            ) : timetable.length === 0 ? (
-                <div className="card" style={{ padding: '4rem 2rem' }}>
-                    <EmptyState
-                        icon={<Calendar size={48} />}
-                        title="No timetable found"
-                        description={
-                            readiness.blockers.length > 0
-                                ? 'Finish the blocked setup items above, then generate the timetable.'
-                                : 'Run the AI generator to create a workable first draft for this department.'
-                        }
-                        action={
-                            <button className="btn btn-primary" onClick={handleGenerate} disabled={generationDisabled} style={{ marginTop: '1.5rem' }}>
-                                {generating ? <Spinner size={16} /> : <Play size={16} />}
-                                Generate Timetable Now
-                            </button>
-                        }
-                    />
-                </div>
-            ) : (
-                <div className="card" style={{ overflow: 'hidden' }}>
-                    <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: conflictCount > 0 ? '#d97706' : '#10b981', fontSize: '0.8125rem', fontWeight: 600 }}>
-                                {conflictCount > 0 ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
-                                {conflictCount > 0 ? `${conflictCount} conflict${conflictCount > 1 ? 's' : ''} need attention` : 'Conflict-free schedule'}
-                            </div>
-                            <span style={{ height: '1rem', width: '1px', background: 'var(--border)' }} />
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
-                                <BookOpen size={16} /> {visibleEntryCount} shown of {timetable.length} total entries
-                            </div>
+            {activeTab === 'Schedule' && (
+                <>
+                    {loading ? (
+                        <div style={{ height: '400px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Spinner size={32} />
                         </div>
-                    </div>
+                    ) : timetable.length === 0 ? (
+                        <div className="card" style={{ padding: '4rem 2rem' }}>
+                            <EmptyState
+                                icon={<Calendar size={48} />}
+                                title="No timetable found"
+                                 description={
+                                    readiness.blockers.length > 0
+                                        ? 'Finish the blocked setup items above, then generate the timetable.'
+                                        : selectedDeptId === 'all' 
+                                            ? 'Run the AI generator to create a workable first draft for all departments in the university.'
+                                            : 'Run the AI generator to create a workable first draft for this department.'
+                                }
+                                action={
+                                    <button className="btn btn-primary" onClick={handleGenerate} disabled={generationDisabled} style={{ marginTop: '1.5rem' }}>
+                                        {generating ? <Spinner size={16} /> : <Play size={16} />}
+                                        {selectedDeptId === 'all' ? 'Generate All Timetables' : 'Generate Timetable Now'}
+                                    </button>
+                                }
+                            />
+                        </div>
+                    ) : (
+                        <div className="card" style={{ overflow: 'hidden' }}>
+                            <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: conflictCount > 0 ? '#d97706' : '#10b981', fontSize: '0.8125rem', fontWeight: 600 }}>
+                                        {conflictCount > 0 ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+                                        {conflictCount > 0 ? `${conflictCount} conflict${conflictCount > 1 ? 's' : ''} need attention` : 'Conflict-free schedule'}
+                                    </div>
+                                    <span style={{ height: '1rem', width: '1px', background: 'var(--border)' }} />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                                        <BookOpen size={16} /> {visibleEntryCount} shown of {timetable.length} total entries
+                                    </div>
+                                </div>
+                            </div>
 
-                    <BatchTimetableView
-                        timetable={filteredTimetable}
-                        batches={visibleBatches}
-                        sections={readiness.sections}
-                        teachers={readiness.teachers}
-                        workingDays={workingDays}
-                        displaySlots={displaySlots}
-                        onDelete={handleDeleteEntry}
-                    />
-                </div>
+                            <BatchTimetableView
+                                timetable={filteredTimetable}
+                                batches={visibleBatches}
+                                sections={readiness.sections}
+                                teachers={readiness.teachers}
+                                workingDays={workingDays}
+                                displaySlots={displaySlots}
+                                onDelete={handleDeleteEntry}
+                                conflictIds={entriesWithConflicts}
+                            />
+                        </div>
+                    )}
+                </>
             )}
 
-            {/* Legend Tables */}
-            {timetable.length > 0 && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
-                    {/* Teachers Legend */}
-                    <div className="card" style={{ overflow: 'hidden' }}>
-                        <div style={{
-                            padding: '1rem 1.25rem',
-                            borderBottom: '1px solid var(--border)',
-                            background: 'var(--bg-card)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem'
-                        }}>
-                            <User size={18} style={{ color: '#d97706' }} />
-                            <h3 style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                                Teachers Legend
-                            </h3>
-                            <span style={{
-                                fontSize: '0.75rem',
-                                color: 'var(--text-muted)',
-                                marginLeft: 'auto'
-                            }}>
-                                {teacherLegend.length} teachers
-                            </span>
-                        </div>
-                        <div style={{ maxHeight: '400px', overflowY: 'auto', padding: '0.5rem' }}>
-                            <table style={{
-                                width: '100%',
-                                borderCollapse: 'collapse',
-                                border: '1px solid #333',
-                            }}>
-                                <thead>
-                                    <tr style={{ background: '#87CEEB' }}>
-                                        <th style={{
-                                            padding: '0.5rem',
-                                            border: '1px solid #333',
-                                            fontSize: '0.75rem',
-                                            fontWeight: 700,
-                                            textAlign: 'center',
-                                            width: '50%',
-                                        }}>Faculty Name</th>
-                                        <th style={{
-                                            padding: '0.5rem',
-                                            border: '1px solid #333',
-                                            fontSize: '0.75rem',
-                                            fontWeight: 700,
-                                            textAlign: 'center',
-                                            width: '50%',
-                                        }}>Faculty Name</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(() => {
-                                        // Build teacher color mapping using teacher name hash
-                                        const sortedTeachers = [...teacherLegend].sort((a, b) =>
-                                            a.fullName.localeCompare(b.fullName)
-                                        )
-                                        const rows: Array<{ left: typeof sortedTeachers[0] | null; right: typeof sortedTeachers[0] | null }> = []
-                                        for (let i = 0; i < sortedTeachers.length; i += 2) {
-                                            rows.push({
-                                                left: sortedTeachers[i] || null,
-                                                right: sortedTeachers[i + 1] || null,
-                                            })
-                                        }
+            {/* Legend Section */}
+            {activeTab === 'Faculty' && (
+                <div style={{ animation: 'fadeIn 0.5s ease-out' }}>
+                    <div style={{ 
+                        padding: '0.5rem 0', 
+                        marginBottom: '1.5rem',
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        gap: '0.75rem'
+                    }}>
+                        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.025em' }}>Faculty Directory</h2>
+                        <span style={{ fontSize: '0.9375rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                            {teacherLegend.length} instructors active in this view
+                        </span>
+                    </div>
 
-                                        return rows.map((row, rowIndex) => (
-                                            <tr key={rowIndex}>
-                                                <td style={{
-                                                    padding: '0.4rem 0.5rem',
-                                                    border: '1px solid #333',
-                                                    fontSize: '0.6875rem',
-                                                    textAlign: 'center',
-                                                    background: row.left ? getTeacherColor(row.left.fullName) : '#fff',
-                                                    color: '#000',
-                                                    fontWeight: 500,
-                                                }}>
-                                                    {row.left?.fullName || ''}
-                                                </td>
-                                                <td style={{
-                                                    padding: '0.4rem 0.5rem',
-                                                    border: '1px solid #333',
-                                                    fontSize: '0.6875rem',
-                                                    textAlign: 'center',
-                                                    background: row.right ? getTeacherColor(row.right.fullName) : '#fff',
-                                                    color: '#000',
-                                                    fontWeight: 500,
-                                                }}>
-                                                    {row.right?.fullName || ''}
-                                                </td>
-                                            </tr>
-                                        ))
-                                    })()}
-                                </tbody>
-                            </table>
-                        </div>
+                    <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
+                        gap: '1.25rem'
+                    }}>
+                        {teacherLegend.map((teacher) => {
+                            const tColor = getTeacherColor(teacher.fullName);
+                            return (
+                                <div 
+                                    key={teacher.id} 
+                                    className="card teacher-card"
+                                    style={{ 
+                                        padding: '1rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '1rem',
+                                        background: 'var(--bg-card)',
+                                        borderRadius: '1.25rem',
+                                        border: '1px solid var(--border)',
+                                        boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                        cursor: 'default',
+                                        position: 'relative',
+                                        overflow: 'hidden'
+                                    }}
+                                >
+                                    <div style={{ 
+                                        width: '3rem', 
+                                        height: '3rem', 
+                                        borderRadius: '12px', 
+                                        background: tColor, 
+                                        color: '#000',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '1rem',
+                                        fontWeight: 800,
+                                        boxShadow: `0 4px 12px ${tColor}33`,
+                                        zIndex: 1
+                                    }}>
+                                        {teacher.shortName || teacher.fullName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0, zIndex: 1 }}>
+                                        <div style={{ 
+                                            fontSize: '0.9375rem', 
+                                            fontWeight: 700, 
+                                            color: 'var(--text-primary)',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap'
+                                        }}>
+                                            {teacher.fullName}
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                                            Faculty ID: #{teacher.id}
+                                        </div>
+                                    </div>
+                                    <div style={{ 
+                                        position: 'absolute', 
+                                        top: 0, 
+                                        bottom: 0, 
+                                        left: 0, 
+                                        width: '4px', 
+                                        background: tColor,
+                                        opacity: 0.8
+                                    }} />
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             )}
@@ -1901,7 +2027,7 @@ export function TimetablePage() {
                             color: 'var(--text-secondary)',
                         }}
                     >
-                        Pick a course first. Teacher options will prefer qualified faculty, and room options will prefer a matching capacity and room type.
+                        Pick a course first. Room options will prefer a matching capacity and room type.
                     </div>
                     <div className="form-group">
                         <label className="label">Course</label>
@@ -1936,13 +2062,9 @@ export function TimetablePage() {
                             {suggestedTeachers.map((t: Teacher) => (
                                 <option key={t.id} value={t.id}>
                                     {t.name}
-                                    {selectedCourse && t.qualified_courses?.some(course => course.id === selectedCourse.id) ? ' - Qualified' : ''}
                                 </option>
                             ))}
                         </select>
-                        {selectedCourse && suggestedTeachers.length === teachers.length && !hasQualifiedTeacherForSelectedCourse && (
-                            <p className="error-msg">No teacher is explicitly qualified for this course yet. The list is showing all teachers as a fallback.</p>
-                        )}
                     </div>
                     <div className="form-group">
                         <label className="label">Room</label>
@@ -1994,14 +2116,18 @@ export function TimetablePage() {
                                     const suggestions: Array<{ day: TimetableEntry['day'], slot: TimetableEntry['timeslot'] }> = [];
                                     workingDays.forEach((d: string) => {
                                         timeSlots.forEach((s: string) => {
-                                            const hasConf = timetable.some((e: TimetableEntry) =>
-                                                e.id !== suggestingEntry.id &&
-                                                e.day === d &&
-                                                e.timeslot === s &&
-                                                (e.teacher?.id === suggestingEntry.teacher?.id ||
-                                                    e.room?.id === suggestingEntry.room?.id ||
-                                                    e.sections?.some((as: { id: number; name: string }) => suggestingEntry.sections?.some((es: { id: number; name: string }) => es.id === as.id)))
-                                            );
+                                            const hasConf = timetable.some((e: TimetableEntry) => {
+                                                if (e.id === suggestingEntry.id) return false;
+                                                if (e.day !== d || e.timeslot !== s) return false;
+                                                
+                                                const teacherConflict = e.teacher?.id === suggestingEntry.teacher?.id;
+                                                const roomConflict = e.room?.id === suggestingEntry.room?.id;
+                                                const sectionConflict = e.sections?.some(as => 
+                                                    suggestingEntry.sections?.some(es => es.id === as.id)
+                                                );
+
+                                                return teacherConflict || roomConflict || sectionConflict;
+                                            });
                                             if (!hasConf) suggestions.push({
                                                 day: d as TimetableEntry['day'],
                                                 slot: s as TimetableEntry['timeslot'],
@@ -2051,36 +2177,34 @@ export function TimetablePage() {
     )
 }
 
-function DraggableCard({ entry, onDelete, hasConflict, onResolve, batches, sections }: { entry: TimetableEntry, onDelete: () => void, hasConflict?: boolean, onResolve?: () => void, batches: Batch[], sections: Section[] }) {
+function DraggableCard({ entry, onDelete, hasConflict, onResolve, batches, sections }: { entry: TimetableEntry; onDelete: () => void; hasConflict?: boolean; onResolve?: () => void; batches: Batch[]; sections: Section[] }) {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: entry.id,
-    })
+    });
 
     const style = {
         transform: CSS.Translate.toString(transform),
         opacity: isDragging ? 0 : 1,
-        cursor: 'default'
-    }
+        cursor: 'default',
+    };
 
     return (
-        <div
-            ref={setNodeRef}
-            style={style}
-            className={`card ${hasConflict ? 'border-danger' : ''}`}
-        >
-            <div style={{
-                minHeight: '70px',
-                padding: '0.75rem',
-                borderLeft: `3px solid ${hasConflict ? '#ef4444' : '#3b82f6'}`,
-                background: hasConflict ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                position: 'relative',
-                borderRadius: '0.5rem',
-                border: '1px solid var(--border)',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-            }}>
+        <div ref={setNodeRef} style={style} className={`card ${hasConflict ? 'border-danger' : ''}`}>
+            <div
+                style={{
+                    minHeight: '70px',
+                    padding: '0.75rem',
+                    borderLeft: `3px solid ${hasConflict ? '#ef4444' : '#3b82f6'}`,
+                    background: hasConflict ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    position: 'relative',
+                    borderRadius: '0.5rem',
+                    border: '1px solid var(--border)',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                }}
+            >
                 <div
                     {...listeners}
                     {...attributes}
@@ -2092,7 +2216,7 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve, batches, secti
                         color: 'var(--text-muted)',
                         padding: '2px',
                         zIndex: 10,
-                        opacity: 0.6
+                        opacity: 0.6,
                     }}
                 >
                     <GripVertical size={12} />
@@ -2100,7 +2224,10 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve, batches, secti
 
                 {hasConflict && (
                     <button
-                        onClick={(e) => { e.stopPropagation(); onResolve?.() }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onResolve?.();
+                        }}
                         style={{
                             position: 'absolute',
                             bottom: '0.25rem',
@@ -2116,7 +2243,7 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve, batches, secti
                             alignItems: 'center',
                             gap: '2px',
                             fontSize: '0.5625rem',
-                            fontWeight: 600
+                            fontWeight: 600,
                         }}
                         title="Find conflict-free slot"
                     >
@@ -2126,21 +2253,26 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve, batches, secti
 
                 <div style={{ paddingRight: '1.5rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
-                        <div style={{
-                            fontSize: '0.6875rem',
-                            fontWeight: 600,
-                            color: hasConflict ? '#dc2626' : 'var(--text-primary)',
-                            overflow: 'hidden',
-                            whiteSpace: 'nowrap',
-                            textOverflow: 'ellipsis',
-                            maxWidth: '70%',
-                            lineHeight: '1.2'
-                        }}>
+                        <div
+                            style={{
+                                fontSize: '0.6875rem',
+                                fontWeight: 600,
+                                color: hasConflict ? '#dc2626' : 'var(--text-primary)',
+                                overflow: 'hidden',
+                                whiteSpace: 'nowrap',
+                                textOverflow: 'ellipsis',
+                                maxWidth: '70%',
+                                lineHeight: '1.2',
+                            }}
+                        >
                             {entry.course?.name}
                         </div>
                         <div style={{ display: 'flex', gap: '2px' }}>
                             <button
-                                onClick={(e) => { e.stopPropagation(); onDelete() }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDelete();
+                                }}
                                 style={{
                                     background: 'none',
                                     border: 'none',
@@ -2148,7 +2280,7 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve, batches, secti
                                     color: '#ef4444',
                                     cursor: 'pointer',
                                     opacity: 0.6,
-                                    fontSize: '0.75rem'
+                                    fontSize: '0.75rem',
                                 }}
                                 title="Delete entry"
                             >
@@ -2157,28 +2289,32 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve, batches, secti
                         </div>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
-                        {entry.sections?.map(s => {
-                            const fullSection = sections.find(sec => sec.id === s.id)
-                            const batch = fullSection ? batches.find(b => b.id === fullSection.batch_id) : null
+                        {entry.sections?.map((s) => {
+                            const fullSection = sections.find((sec) => sec.id === s.id);
+                            const batch = fullSection ? batches.find((b) => b.id === fullSection.batch_id) : null;
                             return (
-                                <span key={s.id} style={{
-                                    fontSize: '0.5625rem',
-                                    padding: '1px 4px',
-                                    background: 'rgba(255, 255, 255, 0.8)',
-                                    border: '1px solid var(--border)',
-                                    borderRadius: '3px',
-                                    color: 'var(--text-secondary)',
-                                    fontWeight: 500
-                                }}>
-                                    {s.name}{batch ? ` (${batch.name})` : ''}
+                                <span
+                                    key={s.id}
+                                    style={{
+                                        fontSize: '0.5625rem',
+                                        padding: '1px 4px',
+                                        background: 'rgba(255, 255, 255, 0.8)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '3px',
+                                        color: 'var(--text-secondary)',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    {s.name}
+                                    {batch ? ` (${batch.name})` : ''}
                                 </span>
-                            )
+                            );
                         })}
                     </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', fontSize: '0.5625rem', color: 'var(--text-secondary)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <User size={8} /> {entry.teacher?.name?.split(' ').map(n => n[0]).join('').toUpperCase()}
+                        <User size={8} /> {entry.teacher?.name?.split(' ').map((n) => n[0]).join('').toUpperCase()}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                         <MapPin size={8} /> {entry.room?.name}
@@ -2186,46 +2322,37 @@ function DraggableCard({ entry, onDelete, hasConflict, onResolve, batches, secti
                 </div>
             </div>
         </div>
-    )
+    );
 }
 
-function MultiHourCard({ session, onDelete, hasConflict, onResolve, batches, sections }: {
-    session: { entry: TimetableEntry, duration: number, slots: string[] },
-    onDelete: () => void,
-    hasConflict?: boolean,
-    onResolve?: () => void,
-    batches: Batch[],
-    sections: Section[]
-}) {
+function MultiHourCard({ session, onDelete, hasConflict, onResolve, batches, sections }: { session: { entry: TimetableEntry; duration: number; slots: string[] }; onDelete: () => void; hasConflict?: boolean; onResolve?: () => void; batches: Batch[]; sections: Section[] }) {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: session.entry.id,
-    })
+    });
 
     const style = {
         transform: CSS.Translate.toString(transform),
         opacity: isDragging ? 0 : 1,
-        cursor: 'default'
-    }
+        cursor: 'default',
+    };
 
     return (
-        <div
-            ref={setNodeRef}
-            style={style}
-            className={`card ${hasConflict ? 'border-danger' : ''}`}
-        >
-            <div style={{
-                minHeight: '70px',
-                padding: '0.75rem',
-                borderLeft: `3px solid ${hasConflict ? '#ef4444' : '#10b981'}`, // Green for lab courses
-                background: hasConflict ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.05)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                position: 'relative',
-                borderRadius: '0.5rem',
-                border: '1px solid var(--border)',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-            }}>
+        <div ref={setNodeRef} style={style} className={`card ${hasConflict ? 'border-danger' : ''}`}>
+            <div
+                style={{
+                    minHeight: '70px',
+                    padding: '0.75rem',
+                    borderLeft: `3px solid ${hasConflict ? '#ef4444' : '#10b981'}`,
+                    background: hasConflict ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.05)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    position: 'relative',
+                    borderRadius: '0.5rem',
+                    border: '1px solid var(--border)',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                }}
+            >
                 <div
                     {...listeners}
                     {...attributes}
@@ -2237,7 +2364,7 @@ function MultiHourCard({ session, onDelete, hasConflict, onResolve, batches, sec
                         color: 'var(--text-muted)',
                         padding: '2px',
                         zIndex: 10,
-                        opacity: 0.6
+                        opacity: 0.6,
                     }}
                 >
                     <GripVertical size={12} />
@@ -2245,7 +2372,10 @@ function MultiHourCard({ session, onDelete, hasConflict, onResolve, batches, sec
 
                 {hasConflict && (
                     <button
-                        onClick={(e) => { e.stopPropagation(); onResolve?.() }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onResolve?.();
+                        }}
                         style={{
                             position: 'absolute',
                             bottom: '0.25rem',
@@ -2261,7 +2391,7 @@ function MultiHourCard({ session, onDelete, hasConflict, onResolve, batches, sec
                             alignItems: 'center',
                             gap: '2px',
                             fontSize: '0.5625rem',
-                            fontWeight: 600
+                            fontWeight: 600,
                         }}
                         title="Find conflict-free slot"
                     >
@@ -2271,34 +2401,41 @@ function MultiHourCard({ session, onDelete, hasConflict, onResolve, batches, sec
 
                 <div style={{ paddingRight: '1.5rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
-                        <div style={{
-                            fontSize: '0.6875rem',
-                            fontWeight: 600,
-                            color: hasConflict ? '#dc2626' : '#059669', // Green for lab
-                            overflow: 'hidden',
-                            whiteSpace: 'nowrap',
-                            textOverflow: 'ellipsis',
-                            maxWidth: '70%',
-                            lineHeight: '1.2',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.25rem'
-                        }}>
+                        <div
+                            style={{
+                                fontSize: '0.6875rem',
+                                fontWeight: 600,
+                                color: hasConflict ? '#dc2626' : '#059669',
+                                overflow: 'hidden',
+                                whiteSpace: 'nowrap',
+                                textOverflow: 'ellipsis',
+                                maxWidth: '70%',
+                                lineHeight: '1.2',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.25rem',
+                            }}
+                        >
                             {session.entry.course?.name}
-                            <span style={{
-                                fontSize: '0.5625rem',
-                                padding: '1px 3px',
-                                background: '#10b981',
-                                color: 'white',
-                                borderRadius: '3px',
-                                fontWeight: 500
-                            }}>
+                            <span
+                                style={{
+                                    fontSize: '0.5625rem',
+                                    padding: '1px 3px',
+                                    background: '#10b981',
+                                    color: 'white',
+                                    borderRadius: '3px',
+                                    fontWeight: 500,
+                                }}
+                            >
                                 {session.duration}h
                             </span>
                         </div>
                         <div style={{ display: 'flex', gap: '2px' }}>
                             <button
-                                onClick={(e) => { e.stopPropagation(); onDelete() }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDelete();
+                                }}
                                 style={{
                                     background: 'none',
                                     border: 'none',
@@ -2306,7 +2443,7 @@ function MultiHourCard({ session, onDelete, hasConflict, onResolve, batches, sec
                                     color: '#ef4444',
                                     cursor: 'pointer',
                                     opacity: 0.6,
-                                    fontSize: '0.75rem'
+                                    fontSize: '0.75rem',
                                 }}
                                 title="Delete entry"
                             >
@@ -2315,31 +2452,33 @@ function MultiHourCard({ session, onDelete, hasConflict, onResolve, batches, sec
                         </div>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
-                        {session.entry.sections?.map(s => {
-                            const fullSection = sections.find(sec => sec.id === s.id)
-                            const batch = fullSection ? batches.find(b => b.id === fullSection.batch_id) : null
+                        {session.entry.sections?.map((s) => {
+                            const fullSection = sections.find((sec) => sec.id === s.id);
+                            const batch = fullSection ? batches.find((b) => b.id === fullSection.batch_id) : null;
                             return (
-                                <span key={s.id} style={{
-                                    fontSize: '0.5625rem',
-                                    padding: '1px 4px',
-                                    background: 'rgba(255, 255, 255, 0.8)',
-                                    border: '1px solid var(--border)',
-                                    borderRadius: '3px',
-                                    color: 'var(--text-secondary)',
-                                    fontWeight: 500
-                                }}>
-                                    {s.name}{batch ? ` (${batch.name})` : ''}
+                                <span
+                                    key={s.id}
+                                    style={{
+                                        fontSize: '0.5625rem',
+                                        padding: '1px 4px',
+                                        background: 'rgba(255, 255, 255, 0.8)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '3px',
+                                        color: 'var(--text-secondary)',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    {s.name}
+                                    {batch ? ` (${batch.name})` : ''}
                                 </span>
-                            )
+                            );
                         })}
                     </div>
-                    <div style={{ fontSize: '0.5625rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
-                        {session.slots.join(' - ')}
-                    </div>
+                    <div style={{ fontSize: '0.5625rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>{session.slots.join(' - ')}</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', fontSize: '0.5625rem', color: 'var(--text-secondary)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <User size={8} /> {session.entry.teacher?.name?.split(' ').map(n => n[0]).join('').toUpperCase()}
+                        <User size={8} /> {session.entry.teacher?.name?.split(' ').map((n) => n[0]).join('').toUpperCase()}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                         <MapPin size={8} /> {session.entry.room?.name}
@@ -2347,66 +2486,52 @@ function MultiHourCard({ session, onDelete, hasConflict, onResolve, batches, sec
                 </div>
             </div>
         </div>
-    )
+    );
 }
 
-function DroppableCell({ id, children, onAdd, isConflict, multiHourSession }: {
-    id: string,
-    children: React.ReactNode,
-    onAdd: () => void,
-    isConflict?: boolean,
-    multiHourSession?: { entry: TimetableEntry, duration: number, slots: string[] }
-}) {
+function DroppableCell({ id, children, onAdd, isConflict, multiHourSession }: { id: string; children: React.ReactNode; onAdd: () => void; isConflict?: boolean; multiHourSession?: { entry: TimetableEntry; duration: number; slots: string[] } }) {
     const { isOver, setNodeRef } = useDroppable({
         id: id,
-    })
+    });
 
     const style = {
         width: '100%',
         height: '100%',
         minHeight: '80px',
-        background: isOver
-            ? (isConflict ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)')
-            : 'var(--bg)',
+        background: isOver ? (isConflict ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)') : 'var(--bg)',
         borderRadius: '0.5rem',
         transition: 'all 0.2s ease',
         border: '1px solid var(--border)',
         position: 'relative' as const,
-        padding: '0.5rem'
-    }
+        padding: '0.5rem',
+    };
 
-    const childElement = React.isValidElement<{ children?: React.ReactNode }>(children) ? children : null
-    const hasEntries = React.Children.count(childElement?.props.children) > 0
+    const childElement = React.isValidElement<{ children?: React.ReactNode }>(children) ? children : null;
+    const hasEntries = React.Children.count(childElement?.props.children) > 0;
 
     return (
-        <td
-            ref={setNodeRef}
-            colSpan={multiHourSession?.duration}
-            style={{
-                padding: '0.25rem',
-                backgroundColor: 'var(--bg-main)',
-                verticalAlign: 'top',
-            }}
-        >
+        <td ref={setNodeRef} colSpan={multiHourSession?.duration} style={{ padding: '0.25rem', backgroundColor: 'var(--bg-main)', verticalAlign: 'top' }}>
             <div style={style}>
                 {isOver && isConflict && (
-                    <div style={{
-                        position: 'absolute',
-                        top: '-1.5rem',
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        background: '#ef4444',
-                        color: 'white',
-                        fontSize: '0.625rem',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        whiteSpace: 'nowrap',
-                        zIndex: 20,
-                        fontWeight: 700,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px'
-                    }}>
+                    <div
+                        style={{
+                            position: 'absolute',
+                            top: '-1.5rem',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            background: '#ef4444',
+                            color: 'white',
+                            fontSize: '0.625rem',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            whiteSpace: 'nowrap',
+                            zIndex: 20,
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                        }}
+                    >
                         <AlertCircle size={10} /> Conflict Detected
                     </div>
                 )}
@@ -2423,15 +2548,21 @@ function DroppableCell({ id, children, onAdd, isConflict, multiHourSession }: {
                             alignItems: 'center',
                             justifyContent: 'center',
                             cursor: 'pointer',
-                            transition: 'all 0.2s ease'
+                            transition: 'all 0.2s ease',
                         }}
-                        onMouseEnter={e => { e.currentTarget.style.opacity = '0.8'; e.currentTarget.style.borderColor = 'var(--primary)' }}
-                        onMouseLeave={e => { e.currentTarget.style.opacity = '0.4'; e.currentTarget.style.borderColor = 'var(--border)' }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.opacity = '0.8';
+                            e.currentTarget.style.borderColor = 'var(--primary)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.opacity = '0.4';
+                            e.currentTarget.style.borderColor = 'var(--border)';
+                        }}
                     >
                         <Plus size={20} />
                     </div>
                 )}
             </div>
         </td>
-    )
+    );
 }

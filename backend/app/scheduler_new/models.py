@@ -38,7 +38,6 @@ class Faculty:
     id: int
     name: str
     email: str
-    qualified_course_ids: Set[int] = field(default_factory=set)
     availability: Dict[str, Set[str]] = field(default_factory=dict)  # day -> set of slot_ids
     max_hours_per_day: int = 6
     max_hours_per_week: int = 30
@@ -59,10 +58,6 @@ class Faculty:
             return True
         day_slots = self.availability.get(timeslot.day, set())
         return timeslot.slot_id in day_slots or not day_slots
-    
-    def can_teach(self, course_id: int) -> bool:
-        """Check if faculty is qualified to teach course"""
-        return course_id in self.qualified_course_ids
 
 
 @dataclass
@@ -138,7 +133,6 @@ class Course:
     program_code: Optional[str] = None
     program_id: Optional[int] = None
     department_id: Optional[int] = None
-    qualified_faculty_ids: Set[int] = field(default_factory=set)
 
     def is_lab(self) -> bool:
         """Return True when this course must be scheduled as a lab block."""

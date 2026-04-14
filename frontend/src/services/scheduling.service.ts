@@ -30,9 +30,19 @@ export const schedulingService = {
         return res.data
     },
 
+    async generateAllTimetables(payload: Partial<GenerateSchedulePayload>): Promise<GenerateScheduleResult[]> {
+        const res = await api.post('/scheduling/generate/all', payload)
+        return res.data
+    },
+
     // Timetable viewing
     async viewTimetable(deptId: number): Promise<TimetableViewResponse> {
         const res = await api.get(`/scheduling/view/${deptId}`)
+        return res.data
+    },
+
+    async viewAllTimetables(): Promise<TimetableViewResponse> {
+        const res = await api.get(`/scheduling/view/all`)
         return res.data
     },
 

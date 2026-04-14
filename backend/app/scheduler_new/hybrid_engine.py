@@ -22,19 +22,16 @@ class HybridSchedulerEngine:
         self._timeslot_index: Dict[Tuple[str, str], int] = {}
 
     def _get_faculty_candidates(self, section, course):
-        """Cache valid faculty per section-course pair (checks explicit workload first)."""
+        """Cache valid faculty per section-course pair (uses explicit workload assignment)."""
         cache_key = (section.id, course.id)
         if cache_key not in self._faculty_candidates:
-            # 1. Check explicit workload assignment
+            # Use explicit workload assignment
             assigned_id = self.problem.workload_map.get(cache_key)
             if assigned_id:
                 candidates = [f for f in self.problem.faculty if f.id == assigned_id]
             else:
-                # 2. Fallback to general qualifications
-                candidates = [
-                    faculty for faculty in self.problem.faculty
-                    if faculty.id in course.qualified_faculty_ids
-                ]
+                # Fallback: any available faculty
+                candidates = list(self.problem.faculty)
             self._faculty_candidates[cache_key] = candidates
         return self._faculty_candidates[cache_key]
 
@@ -181,7 +178,7 @@ class HybridSchedulerEngine:
             )
 
         if not self._get_faculty_candidates(section, course):
-            return f"No qualified faculty configured for course {course.code}"
+            return f"No faculty assigned for course {course.code}"
 
         if not self._get_room_candidates(section, course):
             return (

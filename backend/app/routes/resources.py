@@ -412,6 +412,8 @@ def _teacher_dict(t):
         'id': t.id,
         'name': t.name,
         'email': t.email,
+        'phone': t.phone,
+        'abbreviation': t.abbreviation,
         'availability': t.availability,
         'departments': [{'id': d.id, 'name': d.name} for d in t.departments],
         'qualified_courses': [{'id': c.id, 'name': c.name, 'code': c.code} for c in t.qualified_courses],
@@ -462,6 +464,7 @@ def add_teacher():
     teacher = Teacher(
         name=data['name'].strip(),
         email=data['email'].lower().strip(),
+        abbreviation=data.get('abbreviation', '').strip() or None,
         availability=data.get('availability')
     )
 
@@ -493,6 +496,8 @@ def update_teacher(teacher_id):
         teacher.email = new_email
     if 'availability' in data:
         teacher.availability = data['availability']
+    if 'abbreviation' in data:
+        teacher.abbreviation = data['abbreviation'].strip() or None
     if 'department_ids' in data:
         teacher.departments = []
         for d_id in data['department_ids']:
@@ -610,30 +615,87 @@ def _parse_non_negative_int(value, field_name):
 
 def _infer_course_type(course_type, lecture_hours, tutorial_hours, practical_hours):
     normalized_type = _normalize_optional_string(course_type)
-    if normalized_type in ('Theory', 'Lab'):
-        return normalized_type
+    if normalized_type:
+        # Case-insensitive match
+        if normalized_type.lower() == 'theory':
+            return 'Theory'
+        elif normalized_type.lower() == 'lab' or normalized_type.lower() == 'practical':
+            return 'Lab'
     if practical_hours > 0 and lecture_hours == 0 and tutorial_hours == 0:
         return 'Lab'
     return 'Theory'
 
 
+def _fuzzy_match_program_code(raw_code):
+    """Try multiple matching strategies to find a program by code."""
+    if not raw_code:
+        return None
+    code = str(raw_code).strip()
+    
+    # 1. Exact match
+    prog = Program.query.filter_by(code=code).first()
+    if prog:
+        return prog
+    
+    # 2. Case-insensitive match
+    prog = Program.query.filter(db.func.lower(Program.code) == code.lower()).first()
+    if prog:
+        return prog
+    
+    # 3. Normalized match: remove dots, extra spaces, compress
+    normalized = re.sub(r'[.\s]+', '', code).lower()
+    for p in Program.query.all():
+        p_normalized = re.sub(r'[.\s]+', '', p.code).lower()
+        if p_normalized == normalized:
+            return p
+    
+    # 4. Substring / abbreviation match (e.g., "MIE" in "B.Tech Mining")
+    for p in Program.query.all():
+        p_words = re.sub(r'[.\s]+', ' ', p.code.lower()).strip()
+        c_words = re.sub(r'[.\s]+', ' ', code.lower()).strip()
+        # Check if key abbreviation tokens overlap
+        p_tokens = set(p_words.split())
+        c_tokens = set(c_words.split())
+        if p_tokens & c_tokens:
+            # Shared tokens found — accept if at least 2 tokens match or one is very specific
+            shared = p_tokens & c_tokens
+            specific_tokens = shared - {'b', 'tech', 'ba', 'bb', 'bc', 'd', 'm', 'll', 'a', 'b'}
+            if len(specific_tokens) >= 1 and (len(shared) >= 2 or len(specific_tokens) >= 1):
+                return p
+    
+    return None
+
+
 def _resolve_course_department(dept_code=None, program_code=None):
     normalized_dept_code = _normalize_optional_string(dept_code)
     if normalized_dept_code:
+        # 1. Exact match
         dept = Department.query.filter_by(code=normalized_dept_code).first()
+        # 2. Case-insensitive match
+        if not dept:
+            dept = Department.query.filter(db.func.lower(Department.code) == normalized_dept_code.lower()).first()
+        # 3. Trimmed uppercase match (database may store as uppercase)
+        if not dept:
+            dept = Department.query.filter_by(code=normalized_dept_code.upper()).first()
         if not dept:
             raise ValueError(f"Department not found with code='{normalized_dept_code}'")
         return dept
 
     normalized_program_code = _normalize_optional_string(program_code)
     if normalized_program_code:
+        # Try fuzzy program matching first
+        program = _fuzzy_match_program_code(normalized_program_code)
+        if program and program.department_id:
+            dept = db.session.get(Department, program.department_id)
+            if dept:
+                return dept
+        # Legacy exact match
         program = Program.query.filter_by(code=normalized_program_code).first()
-        if not program or not program.department_id:
-            raise ValueError(f"Program not found with code='{normalized_program_code}'")
-        dept = db.session.get(Department, program.department_id)
-        if not dept:
-            raise ValueError(f"Department not found for program '{normalized_program_code}'")
-        return dept
+        if program and program.department_id:
+            dept = db.session.get(Department, program.department_id)
+            if not dept:
+                raise ValueError(f"Department not found for program '{normalized_program_code}'")
+            return dept
 
     raise ValueError("Missing required field: DeptCode or Program")
 
@@ -954,6 +1016,7 @@ def _bulk_import_logic(file, model_class, field_mapping, unique_field=None, look
                 db.session.add(obj)
                 success += 1
             except Exception as e:
+                db.session.rollback()
                 errors.append(f"Row {index+2}: {str(e)}")
         
         db.session.commit()
@@ -986,14 +1049,64 @@ def bulk_import_programs():
 @roles_required('admin')
 def bulk_import_batches():
     file = request.files.get('file')
-    res, status = _bulk_import_logic(
-        file, 
-        Batch, 
-        {'name': 'Name', 'code': 'Code', 'academic_year': 'AcademicYear', 'current_semester': 'CurrentSemester'},
-        'code',
-        lookup_configs={'program_id': (Program, 'code', 'ProgramCode')}
-    )
-    return jsonify(res), status
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    try:
+        from datetime import datetime
+        df = pd.read_excel(BytesIO(file.read()))
+        success = 0
+        errors = []
+
+        for index, row in df.iterrows():
+            try:
+                name = row.get('Name')
+                code = row.get('Code')
+                academic_year = row.get('AcademicYear')
+                program_code = row.get('ProgramCode')
+
+                if pd.isna(name) or pd.isna(code) or pd.isna(program_code):
+                    raise Exception("Missing required field: Name, Code, or ProgramCode")
+
+                if Batch.query.filter_by(code=str(code).strip()).first():
+                    success += 1
+                    continue
+
+                prog = Program.query.filter_by(code=str(program_code).strip()).first()
+                if not prog:
+                    raise Exception(f"Program not found with code='{program_code}'")
+
+                # Compute current_semester from Year column if available
+                current_semester = None
+                year_val = row.get('Year')
+                sem_val = row.get('CurrentSemester')
+                if pd.notna(sem_val):
+                    current_semester = int(sem_val)
+                elif pd.notna(year_val):
+                    now = datetime.utcnow()
+                    start_year = int(year_val)
+                    start_half = 1
+                    current_year_half = 0 if now.month <= 6 else 1
+                    elapsed_halves = ((now.year - start_year) * 2) + (current_year_half - start_half)
+                    current_semester = max(1, min(8, elapsed_halves + 1))
+
+                batch = Batch(
+                    name=str(name).strip(),
+                    code=str(code).strip(),
+                    academic_year=str(academic_year).strip() if pd.notna(academic_year) else None,
+                    program_id=prog.id,
+                    current_semester=current_semester,
+                )
+                db.session.add(batch)
+                success += 1
+            except Exception as e:
+                errors.append(f"Row {index+2}: {str(e)}")
+
+        db.session.commit()
+        return jsonify({"message": f"Successfully processed {success} batches", "errors": errors}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
 
 @resources_bp.route('/sections/import', methods=['POST'])
 @roles_required('admin')
@@ -1057,7 +1170,7 @@ def bulk_import_teachers():
         # Normalize column names to lowercase to be more flexible
         df.columns = [c.lower().strip() for c in df.columns]
         
-        # Pre-check: validate all course codes exist before processing
+        # Pre-check: warn about unresolved course codes but do NOT block the import
         unresolved_codes = []
         for index, row in df.iterrows():
             course_codes_val = row.get('course_codes')
@@ -1068,13 +1181,10 @@ def bulk_import_teachers():
                         unresolved_codes.append({"row": index + 2, "code": code})
         
         if unresolved_codes:
-            return jsonify({
-                "error": f"Found {len(unresolved_codes)} unresolved course codes",
-                "unresolved": unresolved_codes[:20],  # First 20
-                "hint": "Import courses BEFORE teachers to ensure course codes exist"
-            }), 422
+            print(f"[WARN] {len(unresolved_codes)} unresolved course codes found, skipping them during binding")
         
         success = 0
+        skipped_codes = 0
         errors = []
         
         for index, row in df.iterrows():
@@ -1088,7 +1198,21 @@ def bulk_import_teachers():
                 
                 t = Teacher.query.filter_by(email=str(email).strip()).first()
                 if not t:
-                    t = Teacher(name=str(name).strip(), email=str(email).strip(), phone=str(phone).strip() if pd.notna(phone) else None)
+                    # Auto-generate abbreviation from name
+                    clean_name = str(name).strip()
+                    parts = clean_name.split()
+                    abbr = None
+                    if len(parts) >= 2:
+                        # Take first char of first 2-3 name parts (skip titles like Prof./Dr.)
+                        name_parts = [p for p in parts if p.lower() not in ('prof.', 'dr.', 'mr.', 'mrs.', 'ms.', 'prof')]
+                        if name_parts:
+                            abbr = ''.join(p[0].upper() for p in name_parts[:3])
+                    t = Teacher(
+                        name=clean_name,
+                        email=str(email).strip(),
+                        phone=str(phone).strip() if pd.notna(phone) else None,
+                        abbreviation=abbr,
+                    )
                     db.session.add(t)
                 else:
                     if pd.notna(phone):
@@ -1113,13 +1237,19 @@ def bulk_import_teachers():
                         course = Course.query.filter_by(code=course_code).first()
                         if course and course not in t.qualified_courses:
                             t.qualified_courses.append(course)
+                        elif not course:
+                            skipped_codes += 1
                 
                 success += 1
             except Exception as e:
                 errors.append(f"Row {index+2}: {str(e)}")
         
         db.session.commit()
-        return jsonify({"message": f"Successfully processed {success} teachers", "errors": errors}), 200
+        result = {"message": f"Successfully processed {success} teachers", "errors": errors}
+        if skipped_codes > 0:
+            result["skipped_course_codes"] = skipped_codes
+            result["unresolved_sample"] = unresolved_codes[:10]
+        return jsonify(result), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
@@ -1170,6 +1300,35 @@ def import_teacher_course_bindings():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+# ── Column name normalizer for course import ──────────────────────────────────
+_COURSE_COL_ALIASES = {
+    'name': 'name', 'course': 'name', 'coursename': 'name', 'course_name': 'name',
+    'code': 'code', 'coursecode': 'code', 'course_code': 'code', 'course code': 'code',
+    'semester': 'semester', 'sem': 'semester', 'sem_no': 'semester',
+    'type': 'type', 'course_type': 'type', 'coursetype': 'type',
+    'programcode': 'programcode', 'program_code': 'programcode', 'progcode': 'programcode',
+    'program': 'program', 'prog': 'program',
+    'deptcode': 'deptcode', 'dept_code': 'deptcode', 'departmentcode': 'deptcode', 'department_code': 'deptcode', 'dept': 'deptcode', 'department': 'deptcode',
+    'l': 'l', 'lecture': 'l', 'lecturehours': 'l', 'lecture_hours': 'l',
+    't': 't', 'tutorial': 't', 'tutorialhours': 't', 'tutorial_hours': 't',
+    'p': 'p', 'practical': 'p', 'practicalhours': 'p', 'practical_hours': 'p',
+    'weeklyhours': 'weeklyhours', 'weekly_hours': 'weeklyhours', 'hoursperweek': 'weeklyhours',
+    'credits': 'weeklyhours', 'credit': 'weeklyhours',
+}
+
+def _normalize_course_columns(df):
+    """Normalize course import DataFrame columns to case-insensitive standard names."""
+    mapping = {}
+    for col in df.columns:
+        key = str(col).strip().lower()
+        if key in _COURSE_COL_ALIASES:
+            mapping[col] = _COURSE_COL_ALIASES[key]
+        else:
+            mapping[col] = col  # keep original if no alias
+    df = df.rename(columns=mapping)
+    return df
+
+
 @resources_bp.route('/courses/import', methods=['POST'])
 @roles_required('admin')
 def bulk_import_courses():
@@ -1181,80 +1340,137 @@ def bulk_import_courses():
         file_bytes = file.read()
         df = pd.read_excel(BytesIO(file_bytes))
         df.columns = [str(column).strip() for column in df.columns]
-        if 'Course Code' not in df.columns and 'code' not in df.columns and 'Code' not in df.columns:
+        if 'course' not in [c.lower() for c in df.columns] and 'code' not in [c.lower() for c in df.columns]:
+            # Try reading with header=3 for non-standard formats
             df = pd.read_excel(BytesIO(file_bytes), header=3)
             df.columns = [str(column).strip() for column in df.columns]
+        
+        # Normalize all column names to case-insensitive standard names
+        df = _normalize_course_columns(df)
+        
         success = 0
         errors = []
         current_program = None
         
         for index, row in df.iterrows():
             try:
-                name = _normalize_optional_string(row.get('Name') or row.get('Course'))
-                code = _normalize_optional_string(row.get('code') or row.get('Code') or row.get('Course Code'))
-                semester_name = row.get('Semester')
-                program_cell = _normalize_optional_string(row.get('Program'))
-                if program_cell:
-                    current_program = program_cell
-                else:
-                    program_cell = current_program
-
-                program_code_from_program, semester_from_program = _parse_program_semester(program_cell)
-                explicit_program_code = _normalize_optional_string(row.get('ProgramCode'))
-                program_code = explicit_program_code or program_code_from_program
-                semester = _parse_semester_value(semester_name) or semester_from_program
-                lecture_hours = _parse_non_negative_int(row.get('L'), 'L')
-                tutorial_hours = _parse_non_negative_int(row.get('T'), 'T')
-                practical_hours = _parse_non_negative_int(row.get('P'), 'P')
-                weekly_hours = None
-                if pd.notna(row.get('WeeklyHours')):
-                    try:
-                        weekly_hours = int(row.get('WeeklyHours'))
-                    except (ValueError, TypeError):
-                        pass
-                
-                course_type = _infer_course_type(
-                    row.get('Type'),
-                    lecture_hours,
-                    tutorial_hours,
-                    practical_hours,
-                )
-                dept = _resolve_course_department(
-                    dept_code=row.get('DeptCode'),
-                    program_code=program_code,
-                )
+                name = _normalize_optional_string(row.get('name') or row.get('Course'))
+                code = _normalize_optional_string(row.get('code') or row.get('Course Code'))
 
                 if not name or not code:
                     raise Exception("Missing required field: course name or code")
 
-                existing = Course.query.filter_by(code=code).first()
-                if existing:
-                    course = existing
-                else:
-                    course = Course(code=code)
-                    db.session.add(course)
+                semester_name = row.get('semester')
 
+                # Program resolution: prefer explicit ProgramCode, then Program column
+                explicit_program_code = _normalize_optional_string(row.get('programcode'))
+                program_cell = _normalize_optional_string(row.get('program'))
+
+                # Only inherit from previous row if this row has NO program info at all
+                semester_from_program = None
+                program_code = None
+
+                if explicit_program_code:
+                    program_code = explicit_program_code
+                elif program_cell:
+                    # Check if Program cell has trailing semester number (e.g., "BCA 1")
+                    program_code_from_program, semester_from_program = _parse_program_semester(program_cell)
+                    program_code = program_code_from_program
+                elif current_program:
+                    program_code_parsed, semester_from_program = _parse_program_semester(current_program)
+                    program_code = program_code_parsed
+
+                if program_cell and not explicit_program_code:
+                    current_program = program_cell
+
+                semester = _parse_semester_value(semester_name) or semester_from_program
+
+                # L/T/P hours — also check LectureHours/TutorialHours/PracticalHours variants
+                lecture_hours = _parse_non_negative_int(row.get('l'), 'L') or _parse_non_negative_int(row.get('LectureHours'), 'LectureHours')
+                tutorial_hours = _parse_non_negative_int(row.get('t'), 'T') or _parse_non_negative_int(row.get('TutorialHours'), 'TutorialHours')
+                practical_hours = _parse_non_negative_int(row.get('p'), 'P') or _parse_non_negative_int(row.get('PracticalHours'), 'PracticalHours')
+
+                # WeeklyHours from Excel
+                weekly_hours = None
+                if pd.notna(row.get('weeklyhours')):
+                    try:
+                        weekly_hours = int(row.get('weeklyhours'))
+                    except (ValueError, TypeError):
+                        pass
+                # Fallback: derive weekly_hours from L+T+P if not set
+                if weekly_hours is None:
+                    ltp = lecture_hours + tutorial_hours + practical_hours
+                    if ltp > 0:
+                        weekly_hours = ltp
+
+                course_type = _infer_course_type(
+                    row.get('type'),
+                    lecture_hours,
+                    tutorial_hours,
+                    practical_hours,
+                )
+
+                # Also infer from course code suffix (e.g., ends with 'P' = Lab)
+                if course_type == 'Theory' and code and code.endswith('P'):
+                    course_type = 'Lab'
+
+                # Resolve department — prefer explicit DeptCode, then infer from program
+                dept_code_val = _normalize_optional_string(row.get('deptcode'))
+                if dept_code_val:
+                    dept = _resolve_course_department(dept_code=dept_code_val)
+                elif program_code:
+                    dept = _resolve_course_department(program_code=program_code)
+                else:
+                    raise Exception("Missing required field: DeptCode or Program")
+
+                existing = Course.query.filter_by(code=code).first()
+
+                # Resolve program BEFORE creating/updating course
                 program_obj = None
                 if program_code:
-                    program_obj = Program.query.filter_by(code=program_code).first()
+                    program_obj = _fuzzy_match_program_code(program_code)
 
-                course.name = name
-                course.code = code
-                course.semester = semester
-                course.semester_name = _normalize_optional_string(semester_name)
-                course.course_type = course_type
-                course.program_id = program_obj.id if program_obj else None
-                course.department_id = dept.id
-                course.lecture_hours = lecture_hours
-                course.tutorial_hours = tutorial_hours
-                course.practical_hours = practical_hours
-                course.weekly_hours = weekly_hours
+                if existing:
+                    course = existing
+                    course.name = name
+                    course.code = code
+                    course.semester = semester
+                    course.semester_name = _normalize_optional_string(semester_name)
+                    course.course_type = course_type
+                    course.program_id = program_obj.id if program_obj else None
+                    course.department_id = dept.id
+                    course.lecture_hours = lecture_hours
+                    course.tutorial_hours = tutorial_hours
+                    course.practical_hours = practical_hours
+                    course.weekly_hours = weekly_hours
+                else:
+                    # Create with ALL required fields to prevent NOT NULL violations
+                    course = Course(
+                        name=name,
+                        code=code,
+                        semester=semester,
+                        semester_name=_normalize_optional_string(semester_name),
+                        course_type=course_type,
+                        department_id=dept.id,
+                        program_id=program_obj.id if program_obj else None,
+                        lecture_hours=lecture_hours,
+                        tutorial_hours=tutorial_hours,
+                        practical_hours=practical_hours,
+                        weekly_hours=weekly_hours,
+                    )
+                    db.session.add(course)
+
                 success += 1
             except Exception as e:
+                db.session.rollback()
                 errors.append(f"Row {index+2}: {str(e)}")
         
         db.session.commit()
-        return jsonify({"message": f"Successfully processed {success} courses", "errors": errors}), 200
+        result = {"message": f"Successfully processed {success} courses"}
+        if errors:
+            result["errors"] = errors
+            result["error_count"] = len(errors)
+        return jsonify(result), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
@@ -1310,10 +1526,21 @@ def import_rooms():
                 if str(room_type).strip().lower() == 'lab' and not program_id:
                     raise Exception("Program Code is required for lab rooms")
 
+                # Map room types to standardized values
+                raw_type = str(room_type).strip().lower()
+                if raw_type == 'lecture':
+                    mapped_type = 'Classroom'
+                elif raw_type == 'moot_court':
+                    mapped_type = 'Moot Court'
+                elif raw_type == 'lab':
+                    mapped_type = 'Lab'
+                else:
+                    mapped_type = str(room_type).strip()
+
                 room = Room(
                     name=str(name).strip(),
                     capacity=int(capacity),
-                    room_type=str(room_type).strip(),
+                    room_type=mapped_type,
                     department_id=department_id,
                     program_id=program_id
                 )
@@ -1327,4 +1554,3 @@ def import_rooms():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
-

@@ -26,12 +26,13 @@ AUTO_HYBRID_CLASS_THRESHOLD = 1000  # Increased from 300 to allow OR-Tools for l
 
 
 def emit_progress(department_id: int, percentage: int, message: str):
-    """Emit progress update via Socket.IO"""
+    """Emit progress update via Socket.IO to all connected clients."""
+    # Broadcast to all clients (frontend doesn't join rooms, so room-based emit won't work)
     socketio.emit('generation_progress', {
         'percentage': percentage,
         'current_section': message,
         'status': 'Generating...'
-    }, namespace='/', room=f'dept_{department_id}')
+    })
 
 
 def _validate_problem(problem):

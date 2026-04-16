@@ -69,15 +69,3 @@ pytest-cache-files-*/
 backend/pytest-cache-files-*/
 backend/.pytest_cache/
 
-# Datasets for timetable
-courses.xlsx
-departments.xlsx
-teachers.xlsx
-faculty.xlsx
-programs.xlsx
-sections.xlsx
-timetable.xlsx
-room.xlsx
-batches.xlsx
-Work Load CSE & IT SPRING 2025.xlsx
-Timetable/

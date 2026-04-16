@@ -62,7 +62,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const response = await authService.getMe()
                 setUser(response.user)
             } catch {
-                // Token expired or invalid
+                // Token expired or invalid — or backend is not running.
+                // Clear auth state silently so the user sees the login page
+                // instead of console errors.
                 clearStoredAuth()
                 setUser(null)
             } finally {

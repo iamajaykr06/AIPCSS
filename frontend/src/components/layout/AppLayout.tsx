@@ -3,14 +3,14 @@ import { Outlet, useLocation, Link } from 'react-router-dom'
 import { Navbar } from './Navbar'
 import { 
     Building2, Layers, GraduationCap, Briefcase, 
-    BookOpen, ClipboardList, DoorOpen, LayoutGrid
+    BookOpen, ClipboardList, DoorOpen, LayoutGrid, Users
 } from 'lucide-react'
 
 const managementLinks = [
     { label: 'Departments', icon: <Building2 size={16} />, path: '/departments' },
     { label: 'Programs', icon: <Layers size={16} />, path: '/programs' },
     { label: 'Batches', icon: <GraduationCap size={16} />, path: '/batches' },
-    { label: 'Sections', icon: <LayoutGrid size={16} />, path: '/sections' },
+    { label: 'Sections', icon: <Users size={16} />, path: '/sections' },
     { label: 'Teachers', icon: <Briefcase size={16} />, path: '/teachers' },
     { label: 'Courses', icon: <BookOpen size={16} />, path: '/courses' },
     { label: 'Workload', icon: <ClipboardList size={16} />, path: '/workload' },

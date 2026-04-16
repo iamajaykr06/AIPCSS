@@ -42,9 +42,9 @@ export function SectionsPage() {
         try {
             setError(null)
             const [secs, bats, progs] = await Promise.all([
-                sectionService.list(undefined, 1, 200),
-                batchService.list(undefined, 1, 200),
-                programService.list(undefined, 1, 200),
+                sectionService.list(undefined, 1, 500),
+                batchService.list(undefined, 1, 500),
+                programService.list(undefined, 1, 500),
             ])
             setSections(secs.data)
             setBatches(bats.data)

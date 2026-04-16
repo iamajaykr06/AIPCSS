@@ -34,7 +34,9 @@ export const departmentService = {
     async bulkImport(file: File) {
         const formData = new FormData();
         formData.append('file', file);
-        const res = await api.post('/resources/departments/import', formData)
+        const res = await api.post('/resources/departments/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
         return res.data
     }
 }
@@ -66,7 +68,9 @@ export const programService = {
     async bulkImport(file: File) {
         const formData = new FormData();
         formData.append('file', file);
-        const res = await api.post('/resources/programs/import', formData)
+        const res = await api.post('/resources/programs/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
         return res.data
     }
 }
@@ -98,7 +102,9 @@ export const batchService = {
     async bulkImport(file: File) {
         const formData = new FormData();
         formData.append('file', file);
-        const res = await api.post('/resources/batches/import', formData)
+        const res = await api.post('/resources/batches/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
         return res.data
     }
 }
@@ -130,7 +136,9 @@ export const sectionService = {
     async bulkImport(file: File) {
         const formData = new FormData();
         formData.append('file', file);
-        const res = await api.post('/resources/sections/import', formData)
+        const res = await api.post('/resources/sections/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
         return res.data
     }
 }
@@ -170,7 +178,9 @@ export const teacherService = {
     async bulkImport(file: File) {
         const formData = new FormData();
         formData.append('file', file);
-        const res = await api.post('/resources/teachers/import', formData)
+        const res = await api.post('/resources/teachers/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
         return res.data
     }
 }
@@ -202,7 +212,9 @@ export const courseService = {
     async bulkImport(file: File) {
         const formData = new FormData();
         formData.append('file', file);
-        const res = await api.post('/resources/courses/import', formData)
+        const res = await api.post('/resources/courses/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
         return res.data
     }
 }
@@ -234,7 +246,9 @@ export const roomService = {
     async bulkImport(file: File) {
         const formData = new FormData();
         formData.append('file', file);
-        const res = await api.post('/resources/rooms/import', formData)
+        const res = await api.post('/resources/rooms/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
         return res.data
     }
 }
@@ -257,7 +271,9 @@ export const workloadService = {
     async bulkImport(file: File) {
         const formData = new FormData();
         formData.append('file', file);
-        const res = await api.post('/workload/import', formData)
+        const res = await api.post('/workload/import', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
         return res.data
     },
     async autoAssignAll() {

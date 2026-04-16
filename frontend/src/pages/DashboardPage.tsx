@@ -10,7 +10,6 @@ import { useAuth } from '@/context/useAuth'
 import { Skeleton } from '@/components/ui/Loading'
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
-    PieChart, Pie, Legend,
 } from 'recharts'
 
 interface StatCardProps {
@@ -30,29 +29,32 @@ function StatCard({ icon, label, value, color, bgColor, path }: StatCardProps) {
             style={{ cursor: 'pointer' }}
             onClick={() => navigate(path)}
         >
-            <div>
-                <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.375rem', fontWeight: 500 }}>
-                    {label}
-                </p>
-                <p style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'var(--font-display)', lineHeight: 1 }}>
-                    {value}
-                </p>
-            </div>
             <div style={{
-                width: '3rem', height: '3rem', borderRadius: '0.875rem',
+                width: '3rem', height: '3rem', borderRadius: '50%',
                 background: bgColor, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 flexShrink: 0,
             }}>
                 <span style={{ color }}>{icon}</span>
+            </div>
+            <div>
+                <p style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-display)', lineHeight: 1.2 }}>
+                    {value}
+                </p>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: '0.125rem' }}>
+                    {label}
+                </p>
             </div>
         </div>
     )
 }
 
 const quickActions = [
-    { label: 'Manage Departments', icon: <Building2 size={20} />, path: '/departments', color: '#3b82f6', desc: 'Add or edit departments' },
-    { label: 'Add Teachers', icon: <Briefcase size={20} />, path: '/teachers', color: '#10b981', desc: 'Manage teaching staff' },
-    { label: 'Generate Timetable', icon: <Zap size={20} />, path: '/timetable', color: '#f59e0b', desc: 'AI schedule generation' },
+    { label: 'Departments', icon: <Building2 size={18} />, path: '/departments', color: '#4f46e5' },
+    { label: 'Teachers', icon: <Briefcase size={18} />, path: '/teachers', color: '#059669' },
+    { label: 'Timetable', icon: <CalendarDays size={18} />, path: '/timetable', color: '#d97706' },
+    { label: 'Programs', icon: <Layers size={18} />, path: '/programs', color: '#14b8a6' },
+    { label: 'Batches', icon: <GraduationCap size={18} />, path: '/batches', color: '#f43f5e' },
+    { label: 'Sections', icon: <Users size={18} />, path: '/sections', color: '#6366f1' },
 ]
 
 export function DashboardPage() {
@@ -102,10 +104,10 @@ export function DashboardPage() {
     }, [])
 
     const chartData = [
-        { name: 'Depts', value: stats.departments, color: '#3b82f6' },
-        { name: 'Teachers', value: stats.teachers, color: '#10b981' },
+        { name: 'Depts', value: stats.departments, color: '#4f46e5' },
+        { name: 'Teachers', value: stats.teachers, color: '#059669' },
         { name: 'Courses', value: stats.courses, color: '#7c3aed' },
-        { name: 'Rooms', value: stats.rooms, color: '#f59e0b' },
+        { name: 'Rooms', value: stats.rooms, color: '#d97706' },
     ]
 
     const roomCapacityData = stats.room_dist && stats.room_dist.length > 0 ? stats.room_dist.map((r, i) => ({
@@ -116,114 +118,90 @@ export function DashboardPage() {
         { name: 'Large (51+)', value: 0, color: '#2563eb' },
     ]
 
-    const courseTypeData = stats.course_type_dist && stats.course_type_dist.length > 0 ? stats.course_type_dist.map((c, i) => ({
-        ...c, color: i % 2 === 0 ? '#8b5cf6' : '#d946ef'
-    })) : [
-        { name: 'Theory', value: 0, color: '#8b5cf6' },
-        { name: 'Lab', value: 0, color: '#d946ef' },
-    ]
+    const circumference = 2 * Math.PI * 45
+    const strokeDashoffset = circumference - (stats.optimization / 100) * circumference
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
-            {/* Welcome Banner */}
-            <div style={{
-                background: 'linear-gradient(135deg, #1e40af 0%, #4c1d95 100%)',
-                borderRadius: '1.25rem',
-                padding: '1.75rem 2rem',
-                position: 'relative',
-                overflow: 'hidden',
-            }}>
-                {/* Decorative circles */}
-                <div style={{
-                    position: 'absolute', width: '300px', height: '300px', borderRadius: '50%',
-                    background: 'rgba(255,255,255,0.04)', right: '-80px', top: '-80px',
-                }} />
-                <div style={{
-                    position: 'absolute', width: '200px', height: '200px', borderRadius: '50%',
-                    background: 'rgba(255,255,255,0.04)', right: '80px', bottom: '-60px',
-                }} />
-                <div style={{ position: 'relative' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                        <Zap size={16} color="#fbbf24" />
-                        <span style={{ color: '#fbbf24', fontSize: '0.8125rem', fontWeight: 600 }}>
-                            AI-Powered Scheduling System
-                        </span>
-                    </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+
+            {/* 1. Welcome Banner */}
+            <div
+                className="card"
+                style={{
+                    padding: '1.5rem 1.75rem',
+                    borderLeft: '4px solid #4f46e5',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                }}
+            >
+                <div>
                     <h2 style={{
-                        color: 'white', fontSize: '1.625rem', fontWeight: 800,
-                        fontFamily: 'var(--font-display)', marginBottom: '0.5rem',
+                        color: 'var(--text-primary)', fontSize: '1.375rem', fontWeight: 700,
+                        fontFamily: 'var(--font-display)', marginBottom: '0.25rem',
                     }}>
-                        Welcome back, {user?.username}! 👋
+                        Welcome back, {user?.username}
                     </h2>
-                    <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.9375rem', maxWidth: '480px' }}>
-                        Your intelligent classroom scheduling platform. Manage resources and generate conflict-free timetables instantly.
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                        Here's an overview of your scheduling system
                     </p>
-                    <button
-                        className="btn"
-                        onClick={() => navigate('/timetable')}
-                        style={{
-                            marginTop: '1.25rem', background: 'rgba(255,255,255,0.15)',
-                            color: 'white', border: '1px solid rgba(255,255,255,0.25)',
-                            backdropFilter: 'blur(12px)',
-                            WebkitBackdropFilter: 'blur(12px)',
-                        }}
-                    >
-                        <CalendarDays size={16} />
-                        Generate Timetable
-                        <ArrowRight size={14} />
-                    </button>
                 </div>
+                <button
+                    className="btn"
+                    onClick={() => navigate('/timetable')}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}
+                >
+                    <CalendarDays size={15} />
+                    Generate Timetable
+                    <ArrowRight size={13} />
+                </button>
             </div>
 
-            {/* Stats */}
-            <div>
-                <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    System Overview
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                    {loading ? (
-                        Array.from({ length: 4 }).map((_, i) => (
-                            <Skeleton key={i} style={{ height: '100px', borderRadius: '0.75rem' }} />
-                        ))
-                    ) : (
-                        <>
-                            <StatCard icon={<Building2 size={22} />} label="Departments" value={stats.departments}
-                                color="#3b82f6" bgColor="rgba(59,130,246,0.12)" path="/departments" />
-                            <StatCard icon={<Briefcase size={22} />} label="Teachers" value={stats.teachers}
-                                color="#10b981" bgColor="rgba(16,185,129,0.12)" path="/teachers" />
-                            <StatCard icon={<BookOpen size={22} />} label="Courses" value={stats.courses}
-                                color="#7c3aed" bgColor="rgba(124,58,237,0.12)" path="/courses" />
-                            <StatCard icon={<DoorOpen size={22} />} label="Rooms" value={stats.rooms}
-                                color="#f59e0b" bgColor="rgba(245,158,11,0.12)" path="/rooms" />
-                        </>
-                    )}
-                </div>
+            {/* 2. Stats Row */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+                {loading ? (
+                    Array.from({ length: 4 }).map((_, i) => (
+                        <Skeleton key={i} style={{ height: '90px', borderRadius: '0.75rem' }} />
+                    ))
+                ) : (
+                    <>
+                        <StatCard icon={<Building2 size={20} />} label="Departments" value={stats.departments}
+                            color="#4f46e5" bgColor="rgba(79,70,229,0.12)" path="/departments" />
+                        <StatCard icon={<Briefcase size={20} />} label="Teachers" value={stats.teachers}
+                            color="#059669" bgColor="rgba(5,150,105,0.12)" path="/teachers" />
+                        <StatCard icon={<BookOpen size={20} />} label="Courses" value={stats.courses}
+                            color="#7c3aed" bgColor="rgba(124,58,237,0.12)" path="/courses" />
+                        <StatCard icon={<DoorOpen size={20} />} label="Rooms" value={stats.rooms}
+                            color="#d97706" bgColor="rgba(217,119,6,0.12)" path="/rooms" />
+                    </>
+                )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
-                {/* Resource Summary Bar Chart */}
+            {/* 3. Charts Row: Resource Distribution + Schedule Quality */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                {/* Resource Distribution (Bar Chart) */}
                 <div className="card" style={{ padding: '1.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
-                        <Activity size={18} style={{ color: '#3b82f6' }} />
-                        <h3 style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9375rem' }}>
+                        <Activity size={18} style={{ color: '#4f46e5' }} />
+                        <h3 style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9375rem', fontFamily: 'var(--font-display)' }}>
                             Resource Distribution
                         </h3>
                     </div>
                     {loading ? (
-                        <Skeleton style={{ height: '200px', borderRadius: '0.5rem' }} />
+                        <Skeleton style={{ height: '220px', borderRadius: '0.5rem' }} />
                     ) : (
                         <ResponsiveContainer width="100%" height={240}>
-                            <BarChart data={chartData} barSize={32}>
+                            <BarChart data={chartData} barSize={36}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                                <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
-                                <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+                                <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+                                <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
                                 <Tooltip
                                     contentStyle={{
                                         background: 'var(--bg-card)', border: '1px solid var(--border)',
-                                        borderRadius: '0.5rem', fontSize: '0.75rem',
+                                        borderRadius: '0.5rem', fontSize: '0.8125rem',
                                     }}
                                 />
-                                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                                <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                                     {chartData.map((entry, index) => (
                                         <Cell key={index} fill={entry.color} />
                                     ))}
@@ -233,61 +211,88 @@ export function DashboardPage() {
                     )}
                 </div>
 
-                {/* Course Type Pie Chart */}
+                {/* Schedule Quality */}
                 <div className="card" style={{ padding: '1.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
                         <TrendingUp size={18} style={{ color: '#7c3aed' }} />
-                        <h3 style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9375rem' }}>
+                        <h3 style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9375rem', fontFamily: 'var(--font-display)' }}>
                             Schedule Quality
                         </h3>
                     </div>
                     {!loading && (
                         <div style={{ textAlign: 'center' }}>
-                            <div style={{ position: 'relative', width: '140px', height: '140px', margin: '0 auto' }}>
-                                <svg width="140" height="140" viewBox="0 0 100 100">
-                                    <circle cx="50" cy="50" r="45" fill="none" stroke="var(--border)" strokeWidth="8" />
-                                    <circle cx="50" cy="50" r="45" fill="none" stroke="#10b981" strokeWidth="8"
-                                        strokeDasharray="212" strokeDashoffset="42" strokeLinecap="round" transform="rotate(-90 50 50)" />
+                            <div style={{ position: 'relative', width: '160px', height: '160px', margin: '0 auto' }}>
+                                <svg width="160" height="160" viewBox="0 0 100 100">
+                                    <circle cx="50" cy="50" r="45" fill="none" stroke="var(--border)" strokeWidth="6" />
+                                    <circle
+                                        cx="50" cy="50" r="45" fill="none" stroke="#4f46e5" strokeWidth="6"
+                                        strokeDasharray={circumference}
+                                        strokeDashoffset={strokeDashoffset}
+                                        strokeLinecap="round"
+                                        transform="rotate(-90 50 50)"
+                                        style={{ transition: 'stroke-dashoffset 0.6s ease' }}
+                                    />
                                 </svg>
-                                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                                    <span style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)' }}>{stats.optimization}%</span>
-                                    <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Optimized</span>
+                                <div style={{
+                                    position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                                    alignItems: 'center', justifyContent: 'center',
+                                }}>
+                                    <span style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
+                                        {stats.optimization}%
+                                    </span>
+                                    <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 500, letterSpacing: '0.05em' }}>
+                                        Optimized
+                                    </span>
                                 </div>
                             </div>
-                            <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center', gap: '1rem' }}>
-                                <div style={{ textAlign: 'left' }}>
-                                    <p style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)' }}>{stats.conflicts} Conflicts</p>
-                                    <p style={{ fontSize: '0.625rem', color: stats.conflicts > 0 ? '#ef4444' : '#10b981' }}>
-                                        {stats.conflicts > 10 ? 'Severe' : stats.conflicts > 0 ? 'Improveable' : 'Perfect'}
+                            <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'center', gap: '2rem' }}>
+                                <div style={{ textAlign: 'center' }}>
+                                    <p style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                        {stats.conflicts}
+                                    </p>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                        Conflicts
                                     </p>
                                 </div>
                                 <div style={{ width: '1px', background: 'var(--border)' }} />
-                                <div style={{ textAlign: 'left' }}>
-                                    <p style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)' }}>{stats.total_entries} Lectures</p>
-                                    <p style={{ fontSize: '0.625rem', color: '#3b82f6' }}>Assigned</p>
+                                <div style={{ textAlign: 'center' }}>
+                                    <p style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                        {stats.total_entries}
+                                    </p>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                        Lectures Assigned
+                                    </p>
                                 </div>
                             </div>
                         </div>
                     )}
                 </div>
+            </div>
 
-                {/* Room Distribution */}
+            {/* 4. Second Charts Row: Room Capacities + Quick Actions */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                {/* Room Capacities (Horizontal Bar Chart) */}
                 <div className="card" style={{ padding: '1.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
-                        <DoorOpen size={18} style={{ color: '#f59e0b' }} />
-                        <h3 style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9375rem' }}>
+                        <DoorOpen size={18} style={{ color: '#d97706' }} />
+                        <h3 style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9375rem', fontFamily: 'var(--font-display)' }}>
                             Room Capacities
                         </h3>
                     </div>
                     {loading ? (
-                        <Skeleton style={{ height: '200px', borderRadius: '0.5rem' }} />
+                        <Skeleton style={{ height: '220px', borderRadius: '0.5rem' }} />
                     ) : (
                         <ResponsiveContainer width="100%" height={240}>
                             <BarChart data={roomCapacityData} layout="vertical" margin={{ left: 20 }}>
                                 <XAxis type="number" hide />
-                                <YAxis dataKey="name" type="category" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
-                                <Tooltip />
-                                <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={20}>
+                                <YAxis dataKey="name" type="category" tick={{ fontSize: 12, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+                                <Tooltip
+                                    contentStyle={{
+                                        background: 'var(--bg-card)', border: '1px solid var(--border)',
+                                        borderRadius: '0.5rem', fontSize: '0.8125rem',
+                                    }}
+                                />
+                                <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={22}>
                                     {roomCapacityData.map((entry, index) => (
                                         <Cell key={index} fill={entry.color} />
                                     ))}
@@ -297,67 +302,91 @@ export function DashboardPage() {
                     )}
                 </div>
 
-                {/* Quick Actions (now more compact) */}
+                {/* Quick Actions */}
                 <div className="card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
                         <Zap size={18} style={{ color: '#ef4444' }} />
-                        <h3 style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9375rem' }}>
+                        <h3 style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9375rem', fontFamily: 'var(--font-display)' }}>
                             Quick Controls
                         </h3>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', flex: 1 }}>
+                    <div style={{
+                        display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+                        gap: '0.75rem', flex: 1,
+                    }}>
                         {quickActions.map(action => (
                             <button
                                 key={action.path}
                                 onClick={() => navigate(action.path)}
+                                className="quick-action-btn"
                                 style={{
                                     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem',
-                                    padding: '0.75rem 0.5rem', borderRadius: '0.75rem',
-                                    background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)',
-                                    cursor: 'pointer', transition: 'all 0.15s ease', textAlign: 'center',
-                                    backdropFilter: 'blur(8px)',
+                                    padding: '1rem 0.5rem', borderRadius: '0.625rem',
+                                    background: 'var(--bg-card)', border: '1px solid var(--border)',
+                                    cursor: 'pointer', transition: 'all 0.2s ease', textAlign: 'center',
                                 }}
-                                onMouseEnter={e => { e.currentTarget.style.borderColor = action.color; e.currentTarget.style.background = `${action.color}15` }}
-                                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)' }}
+                                onMouseEnter={e => {
+                                    e.currentTarget.style.borderColor = action.color
+                                    e.currentTarget.style.background = `${action.color}0a`
+                                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)'
+                                }}
+                                onMouseLeave={e => {
+                                    e.currentTarget.style.borderColor = 'var(--border)'
+                                    e.currentTarget.style.background = 'var(--bg-card)'
+                                    e.currentTarget.style.boxShadow = 'none'
+                                }}
                             >
                                 <div style={{ color: action.color }}>{action.icon}</div>
-                                <span style={{ fontWeight: 600, fontSize: '0.75rem', color: 'var(--text-primary)' }}>
-                                    {action.label.split(' ')[1] || action.label}
+                                <span style={{ fontWeight: 600, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                    {action.label}
                                 </span>
                             </button>
                         ))}
                     </div>
                 </div>
+            </div>
 
-                {/* Recent Activity List */}
-                <div className="card" style={{ padding: '1.5rem', gridColumn: '1 / -1' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
-                        <Activity size={18} style={{ color: '#3b82f6' }} />
-                        <h3 style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9375rem' }}>
-                            System Activity
-                        </h3>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        {[
-                            { action: 'Schedule Generated', user: 'Admin', time: '2m ago', type: 'success' },
-                            { action: 'Teacher Added: Dr. Alice', user: 'Admin', time: '1h ago', type: 'info' },
-                            { action: 'Room Reserved: Lab 101', user: 'Admin', time: '3h ago', type: 'info' },
-                        ].map((item, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                <div style={{ width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: item.type === 'success' ? '#10b981' : '#3b82f6' }} />
-                                <div style={{ flex: 1 }}>
-                                    <p style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-primary)' }}>{item.action}</p>
-                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>by {item.user}</p>
-                                </div>
-                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{item.time}</span>
+            {/* 5. System Activity */}
+            <div className="card" style={{ padding: '1.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
+                    <Activity size={18} style={{ color: '#4f46e5' }} />
+                    <h3 style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9375rem', fontFamily: 'var(--font-display)' }}>
+                        System Activity
+                    </h3>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                    {[
+                        { action: 'Schedule Generated', user: 'Admin', time: '2m ago', type: 'success' as const },
+                        { action: 'Teacher Added: Dr. Alice', user: 'Admin', time: '1h ago', type: 'info' as const },
+                        { action: 'Room Reserved: Lab 101', user: 'Admin', time: '3h ago', type: 'info' as const },
+                    ].map((item, i) => (
+                        <div key={i} style={{
+                            display: 'flex', alignItems: 'center', gap: '0.875rem',
+                            padding: '0.625rem 0',
+                            borderBottom: i < 2 ? '1px solid var(--border)' : 'none',
+                        }}>
+                            <div style={{
+                                width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
+                                background: item.type === 'success' ? '#059669' : '#4f46e5',
+                            }} />
+                            <div style={{ flex: 1 }}>
+                                <p style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-primary)' }}>
+                                    {item.action}
+                                </p>
+                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                    by {item.user}
+                                </p>
                             </div>
-                        ))}
-                    </div>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                                {item.time}
+                            </span>
+                        </div>
+                    ))}
                 </div>
             </div>
 
-            {/* Info cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+            {/* 6. Additional Info Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
                 {[
                     { icon: <Layers size={20} />, title: 'Programs', desc: 'Create and manage academic programs under departments', path: '/programs', color: '#14b8a6' },
                     { icon: <GraduationCap size={20} />, title: 'Batches', desc: 'Organize students into year-based batches', path: '/batches', color: '#f43f5e' },
@@ -369,22 +398,36 @@ export function DashboardPage() {
                         className="card"
                         style={{
                             padding: '1.25rem', cursor: 'pointer', textAlign: 'left',
-                            transition: 'all 0.15s ease', background: 'none', border: '1px solid var(--border)', width: '100%',
+                            transition: 'all 0.2s ease', background: 'var(--bg-card)',
+                            border: '1px solid var(--border)', width: '100%',
                         }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-elevated)'; (e.currentTarget as HTMLElement).style.borderColor = item.color }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'none'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
+                        onMouseEnter={e => {
+                            (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)'
+                            (e.currentTarget as HTMLElement).style.borderColor = item.color
+                            (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'
+                        }}
+                        onMouseLeave={e => {
+                            (e.currentTarget as HTMLElement).style.boxShadow = 'none'
+                            (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'
+                            (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'
+                        }}
                     >
                         <div style={{
-                            width: '2.25rem', height: '2.25rem', borderRadius: '0.625rem',
-                            background: `${item.color}18`, display: 'flex', alignItems: 'center',
+                            width: '2.25rem', height: '2.25rem', borderRadius: '0.5rem',
+                            background: `${item.color}15`, display: 'flex', alignItems: 'center',
                             justifyContent: 'center', marginBottom: '0.875rem',
                         }}>
                             <span style={{ color: item.color }}>{item.icon}</span>
                         </div>
-                        <p style={{ fontWeight: 600, fontSize: '0.9375rem', color: 'var(--text-primary)', marginBottom: '0.375rem' }}>
+                        <p style={{
+                            fontWeight: 600, fontSize: '0.9375rem', color: 'var(--text-primary)',
+                            marginBottom: '0.375rem', fontFamily: 'var(--font-display)',
+                        }}>
                             {item.title}
                         </p>
-                        <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>{item.desc}</p>
+                        <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                            {item.desc}
+                        </p>
                     </button>
                 ))}
             </div>

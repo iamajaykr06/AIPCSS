@@ -7,7 +7,7 @@ import random
 from collections import defaultdict
 from typing import List, Tuple, Optional, Callable, Set, Dict
 
-from .models import ScheduleEntry, SchedulingProblem, ScheduleResult, Timeslot
+from .models import ScheduleEntry, SchedulingProblem, ScheduleResult
 
 
 class GreedySchedulerEngine:

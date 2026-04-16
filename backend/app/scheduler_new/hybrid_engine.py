@@ -66,12 +66,15 @@ class HybridSchedulerEngine:
         self._room_candidates[cache_key] = candidates
         return candidates
 
-    @staticmethod
-    def _new_schedule_state():
-        """Keep occupancy in direct lookup sets so conflict checks stay O(1)."""
-        return {
+    def _new_schedule_state(self):
+        """Keep occupancy in direct lookup sets so conflict checks stay O(1).
+
+        Pre-populates room_slots from cross-department TimetableEntry records
+        to prevent double-booking shared rooms across departments.
+        """
+        state = {
             "section_hours": defaultdict(set),
-            "batch_hours": defaultdict(set), # C6
+            "batch_hours": defaultdict(set),  # C6
             "faculty_hours": defaultdict(int),
             "faculty_daily_hours": defaultdict(lambda: defaultdict(int)),
             "faculty_slots": defaultdict(set),
@@ -80,6 +83,25 @@ class HybridSchedulerEngine:
             "faculty_program_day_sessions": defaultdict(int),
             "section_course_faculty": {},
         }
+
+        # ── Pre-populate room_slots from cross-department bookings ──────
+        # Rooms carry `global_busy_slots` (set by DataLoader) that map
+        # day -> set of timeslot labels already taken by other departments.
+        # We convert these labels into timeslot indices so the engine's
+        # O(1) conflict check works automatically.
+        for room in self.problem.rooms:
+            global_busy = getattr(room, 'global_busy_slots', None)
+            if not global_busy:
+                continue
+            for day, busy_labels in global_busy.items():
+                for label in busy_labels:
+                    # label is "HH:MM-HH:MM" — extract start time as slot key
+                    start = label.split('-')[0] if '-' in label else label
+                    slot_idx = self._timeslot_index.get((day, start))
+                    if slot_idx is not None:
+                        state["room_slots"][room.id].add(slot_idx)
+
+        return state
 
     @staticmethod
     def _occupy_assignment(state, section_id, batch_id, course_id, faculty_id, room_id, day, program_code, slots_needed, hours, is_lab):

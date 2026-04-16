@@ -129,6 +129,7 @@ export interface Teacher {
     name: string;
     email: string;
     phone?: string;
+    abbreviation?: string | null;
     availability: Availability | null;
     departments: TeacherDept[];
     qualified_courses: TeacherCourse[];
@@ -197,8 +198,8 @@ export interface TimetableEntry {
     day: Day;
     timeslot: TimeSlot;
     sections: Array<{ id: number; name: string }>;
-    course: { id: number; name: string; type: CourseType };
-    teacher: { id: number; name: string };
+    course: { id: number; name: string; code?: string; type: CourseType };
+    teacher: { id: number; name: string; abbreviation?: string };
     room: { id: number; name: string; capacity: number | null };
 }
 

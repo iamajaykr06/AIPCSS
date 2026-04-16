@@ -6,7 +6,7 @@ from typing import List, Set, Dict, Tuple, Optional
 from collections import defaultdict
 import logging
 
-from .models import ScheduleEntry, Faculty, Room, Course, Section, Timeslot, SchedulingProblem
+from .models import ScheduleEntry, Timeslot, SchedulingProblem
 
 
 class ConstraintEngine:

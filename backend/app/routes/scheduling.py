@@ -106,7 +106,6 @@ def get_scheduling_stats():
     # Finding entries that share the same slot and have overlapping sections
     # Simplified: count how many entries have sections in the same slot
     # (Actually, the most accurate is to count unique (day, slot, section))
-    from ..models.timetable import entry_sections
     section_overlaps = db.session.query(
         TimetableEntry.day, TimetableEntry.timeslot, entry_sections.c.section_id
     ).join(entry_sections).group_by(
@@ -686,8 +685,10 @@ def view_all_timetable():
             'department_id': e.department_id,
             'sections': [{'id': s.id, 'name': s.name} for s in e.sections],
             'course': {'id': e.course_id, 'name': course.name if course else 'Unknown',
+                       'code': course.code if course else '',
                        'type': course.course_type if course else None},
-            'teacher': {'id': e.teacher_id, 'name': teacher.name if teacher else 'Unknown'},
+            'teacher': {'id': e.teacher_id, 'name': teacher.name if teacher else 'Unknown',
+                       'abbreviation': teacher.abbreviation if teacher else ''},
             'room': {'id': e.room_id, 'name': room.name if room else 'Unknown',
                      'capacity': room.capacity if room else None},
         })
@@ -739,8 +740,10 @@ def view_timetable(dept_id):
             'timeslot': e.timeslot,
             'sections': [{'id': s.id, 'name': s.name} for s in e.sections],
             'course': {'id': e.course_id, 'name': course.name if course else 'Unknown',
+                       'code': course.code if course else '',
                        'type': course.course_type if course else None},
-            'teacher': {'id': e.teacher_id, 'name': teacher.name if teacher else 'Unknown'},
+            'teacher': {'id': e.teacher_id, 'name': teacher.name if teacher else 'Unknown',
+                       'abbreviation': teacher.abbreviation if teacher else ''},
             'room': {'id': e.room_id, 'name': room.name if room else 'Unknown',
                      'capacity': room.capacity if room else None},
             'department_id': e.department_id,

@@ -4,12 +4,8 @@ Backtracking CSP solver with MRV, LCV, and Forward Checking
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Set, Optional, Tuple, Any, Callable
+from typing import List, Dict, Set, Optional, Tuple, Any
 from enum import Enum
-import logging
-import random
-import time
-from collections import defaultdict
 
 
 class CourseType(Enum):

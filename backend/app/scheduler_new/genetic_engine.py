@@ -3,7 +3,6 @@ import random
 import logging
 from typing import List, Tuple, Optional, Dict, Callable
 from collections import defaultdict
-import copy
 
 from .models import ScheduleEntry, SchedulingProblem, ScheduleResult, AssignmentVariable, DomainValue
 from .constraint_engine import ConstraintEngine

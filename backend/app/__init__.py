@@ -9,7 +9,7 @@ from flask_socketio import SocketIO
 db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
-socketio = SocketIO()
+socketio = SocketIO(async_mode='threading')
 
 
 def create_app(env=None):
@@ -24,6 +24,9 @@ def create_app(env=None):
 
     # Validate secrets are configured
     Config.validate()
+
+    # Handle URLs with/without trailing slashes consistently (prevents 404 on /api/auth/me/)
+    app.url_map.strict_slashes = False
 
     # ── Extensions ────────────────────────────────────────────────────────────
     db.init_app(app)
@@ -63,6 +66,9 @@ def create_app(env=None):
 
     from .routes.settings import settings_bp
     app.register_blueprint(settings_bp, url_prefix='/api/settings')
+
+    from .routes.pdf_export import pdf_export_bp
+    app.register_blueprint(pdf_export_bp, url_prefix='/api/pdf')
 
     from .scheduler_new.api import scheduler_bp
     app.register_blueprint(scheduler_bp, url_prefix='/api/scheduler')

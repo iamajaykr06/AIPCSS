@@ -184,7 +184,7 @@ class DataLoader:
         return faculty_list
     
     def load_rooms(self) -> List[SchedulerRoom]:
-        """Load rooms from database"""
+        """Load rooms from database, with cross-department busy-slot awareness."""
         query = Room.query
         if self.department_id:
             # Include department-specific and general rooms
@@ -194,18 +194,37 @@ class DataLoader:
             )
         
         rooms = query.all()
-        
-        return [
-            SchedulerRoom(
+
+        # ── GLOBAL ROOM BUSY-SLOT DETECTION ──────────────────────────────
+        # Load all existing timetable entries from OTHER departments to prevent
+        # cross-department double-booking of shared rooms.  Mirrors the same
+        # logic already used for teacher busy-slot detection in load_faculty().
+        global_room_busy = defaultdict(lambda: defaultdict(set))  # room_id -> day -> set(timeslot_labels)
+
+        if self.department_id:
+            other_dept_entries = TimetableEntry.query.filter(
+                TimetableEntry.department_id != self.department_id
+            ).all()
+            for entry in other_dept_entries:
+                global_room_busy[entry.room_id][entry.day].add(entry.timeslot)
+
+        scheduler_rooms = []
+        for room in rooms:
+            sr = SchedulerRoom(
                 id=room.id,
                 name=room.name,
                 capacity=room.capacity,
                 room_type=room.room_type,
                 department_id=room.department_id,
-                program_id=room.program_id
+                program_id=room.program_id,
             )
-            for room in rooms
-        ]
+            # Attach cross-dept busy slots so engines can pre-populate
+            busy = global_room_busy.get(room.id)
+            if busy:
+                setattr(sr, 'global_busy_slots', busy)
+            scheduler_rooms.append(sr)
+        
+        return scheduler_rooms
     
     def load_courses(self, section_program_map: Dict[int, str]) -> List[SchedulerCourse]:
         """Load courses from database filtered by sections' programs"""

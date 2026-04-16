@@ -74,5 +74,19 @@ export const schedulingService = {
     async getStats(): Promise<SchedulingStats> {
         const res = await api.get('/scheduling/stats')
         return res.data
-    }
+    },
+
+    // PDF Export
+    async exportDepartmentPDF(deptId: number, semester?: string): Promise<Blob> {
+        const res = await api.get(`/pdf/${deptId}`, {
+            params: semester ? { semester } : {},
+            responseType: 'blob',
+        })
+        return res.data as Blob
+    },
+
+    async exportAllDepartmentsPDF(): Promise<Blob> {
+        const res = await api.get('/pdf/all', { responseType: 'blob' })
+        return res.data as Blob
+    },
 }

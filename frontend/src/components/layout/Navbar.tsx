@@ -23,14 +23,14 @@ export const mainLinks: NavigationItem[] = [
 ]
 
 export const managementLinks: NavigationItem[] = [
-    { label: 'Departments', icon: <Building2 size={18} />, path: '/departments' },
-    { label: 'Programs', icon: <Layers size={18} />, path: '/programs' },
-    { label: 'Batches', icon: <GraduationCap size={18} />, path: '/batches' },
-    { label: 'Sections', icon: <LayoutGrid size={18} />, path: '/sections' },
-    { label: 'Teachers', icon: <Briefcase size={18} />, path: '/teachers' },
-    { label: 'Courses', icon: <BookOpen size={18} />, path: '/courses' },
-    { label: 'Workload', icon: <ClipboardList size={18} />, path: '/workload' },
-    { label: 'Rooms', icon: <DoorOpen size={18} />, path: '/rooms' },
+    { label: 'Departments', icon: <Building2 size={16} />, path: '/departments' },
+    { label: 'Programs', icon: <Layers size={16} />, path: '/programs' },
+    { label: 'Batches', icon: <GraduationCap size={16} />, path: '/batches' },
+    { label: 'Sections', icon: <LayoutGrid size={16} />, path: '/sections' },
+    { label: 'Teachers', icon: <Briefcase size={16} />, path: '/teachers' },
+    { label: 'Courses', icon: <BookOpen size={16} />, path: '/courses' },
+    { label: 'Workload', icon: <ClipboardList size={16} />, path: '/workload' },
+    { label: 'Rooms', icon: <DoorOpen size={16} />, path: '/rooms' },
 ]
 
 const pageTitles: Record<string, string> = {
@@ -71,13 +71,12 @@ export function Navbar() {
         navigate('/login')
     }
 
-    const isManageActive = managementLinks.some(path => location.pathname.startsWith(path.path))
+    const isManageActive = managementLinks.some(link => location.pathname.startsWith(link.path))
 
-    // Get current page title
     const currentPage = Object.keys(pageTitles).find(path =>
         path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)
     )
-    const pageTitle = currentPage ? pageTitles[currentPage] : 'ClassScheduler'
+    const pageTitle = currentPage ? pageTitles[currentPage] : 'AIPCSS'
 
     return (
         <nav className="navbar-container">
@@ -88,8 +87,8 @@ export function Navbar() {
                         <CalendarDays size={20} color="white" />
                     </div>
                     <div className="navbar-brand-text">
-                        <span className="brand-title">ClassScheduler</span>
-                        <span className="brand-subtitle">AI-Powered</span>
+                        <span className="brand-title">AIPCSS</span>
+                        <span className="brand-subtitle">Scheduling System</span>
                     </div>
                 </Link>
 
@@ -116,6 +115,9 @@ export function Navbar() {
                     })}
                 </div>
 
+                {/* Page Title */}
+                <div className="navbar-page-title desktop-only">{pageTitle}</div>
+
                 {/* Right Actions */}
                 <div className="navbar-actions">
                     <button
@@ -131,7 +133,7 @@ export function Navbar() {
                             onClick={() => setDropdownOpen(!dropdownOpen)}
                             className="user-profile-btn"
                         >
-                            <div className="avatar small">
+                            <div className="avatar">
                                 {getInitials(user?.username || 'U')}
                             </div>
                             <span className="user-name desktop-only">{user?.username}</span>
@@ -169,9 +171,9 @@ export function Navbar() {
                 <div className="mobile-navbar-menu">
                     <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, padding: '0.5rem 1rem', textTransform: 'uppercase' }}>Main</p>
                     {mainLinks.map((item) => {
-                        const isActive = item.path === '/'
-                            ? location.pathname === '/'
-                            : location.pathname.startsWith(item.path)
+                        const isActive = item.label === 'Management'
+                            ? isManageActive
+                            : (item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path))
                         return (
                             <Link
                                 key={item.path}

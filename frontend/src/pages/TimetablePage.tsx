@@ -1,11 +1,9 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react'
-import { Calendar, Play, Download, Search, Info, CheckCircle2, AlertCircle, MapPin, User, BookOpen, Trash2, Plus, GripVertical, Zap } from 'lucide-react'
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
+import { Calendar, Play, Download, Info, CheckCircle2, AlertCircle, MapPin, User, Users, BookOpen, Trash2, Plus, GripVertical, Zap, FileText, ShieldCheck, Filter, Building2, GraduationCap, Layers, FolderTree } from 'lucide-react'
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
-import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { CSS } from '@dnd-kit/utilities'
-import { restrictToFirstScrollableAncestor } from '@dnd-kit/modifiers'
 import { schedulingService } from '@/services/scheduling.service'
 import { departmentService, teacherService, roomService, courseService, sectionService, programService, batchService } from '@/services/resources.service'
+
 import { useToast } from '@/context/useToast'
 import { PageLoader, Spinner, EmptyState } from '@/components/ui/Loading'
 import { Modal } from '@/components/ui/Modal'
@@ -67,13 +65,11 @@ const COURSE_COLORS: Record<string, string> = {
 
 // Generate a unique color for a teacher based on their name hash
 function getTeacherColor(name: string): string {
-    // Generate hash from teacher name
     let hash = 0
     for (let i = 0; i < name.length; i++) {
         hash = name.charCodeAt(i) + ((hash << 5) - hash)
     }
     const hue = Math.abs(hash) % 360
-    // Use 70% saturation and 80% lightness for vibrant but readable colors
     return `hsl(${hue}, 70%, 80%)`
 }
 
@@ -95,7 +91,6 @@ function getCourseColor(courseName: string, isLab: boolean): string {
     if (lower.includes('english')) return COURSE_COLORS.English
     if (lower.includes('environment')) return COURSE_COLORS.Environment
 
-    // Assign colors based on first character of course name for variety
     const colors = Object.values(COURSE_COLORS).filter(c => c !== COURSE_COLORS.Break)
     let hash = 0
     for (let i = 0; i < courseName.length; i++) {
@@ -106,13 +101,11 @@ function getCourseColor(courseName: string, isLab: boolean): string {
 
 // Get batch display info
 function getBatchColor(batchName: string): { bg: string; text: string; border: string } {
-    // Match batch name patterns
     for (const [key, value] of Object.entries(BATCH_COLORS)) {
         if (batchName.toUpperCase().includes(key.toUpperCase())) {
             return value
         }
     }
-    // Default color for unknown batches
     return { bg: '#E0E0E0', text: '#000', border: '#999' }
 }
  
@@ -201,7 +194,6 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
     , [batches])
 
     // ── For each (day, batchId) compute per-slot rendering metadata ────────
-    // Returns: Map<slot, { entry | null, colSpan: number, skip: boolean }>
     const getSlotMeta = (day: string, batchId: string) => {
         const meta: Record<string, { entry: TimetableEntry | null; colSpan: number; skip: boolean }> = {}
         const skipSet = new Set<string>()
@@ -348,7 +340,6 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                             {sortedBatches.map((batch, bi) => {
                                 const batchKey = String(batch.id)
                                 const slotMeta = getSlotMeta(day, batchKey)
-                                // Alternate very subtle zebra stripe on batch rows
                                 const rowBg = bi % 2 === 0 ? 'var(--bg-card)' : 'var(--bg)'
 
                                 return (
@@ -382,7 +373,7 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                     padding: '2px 6px',
                                                     display: 'inline-block',
                                                 }}>
-                                                    📍 {batchRooms[batchKey]}
+                                                    {batchRooms[batchKey]}
                                                 </div>
                                             )}
                                         </td>
@@ -390,11 +381,10 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                         {/* Time slot cells */}
                                         {displaySlots.map(slot => {
                                             const { entry, colSpan, skip } = slotMeta[slot.key]
-                                            if (skip) return null   // rendered as part of a multi-span cell
+                                            if (skip) return null
 
                                             const isBreakSlot = slot.isBreak
 
-                                            // ── BREAK column ──
                                             if (isBreakSlot) {
                                                 return (
                                                     <td key={slot.key} style={{
@@ -404,12 +394,10 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                         textAlign: 'center',
                                                         verticalAlign: 'middle',
                                                     }}>
-                                                        {/* Removed repetitive text to reduce noise */}
                                                     </td>
                                                 )
                                             }
 
-                                            // ── Empty cell ──
                                             if (!entry) {
                                                 return (
                                                     <td key={slot.key} colSpan={colSpan} style={{
@@ -420,18 +408,24 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                 )
                                             }
 
-                                            // ── Course cell ──
                                             const isLab = entry.course?.type === 'Lab' ||
                                                           entry.course?.name?.toLowerCase().includes('lab')
                                             const bgColor = getCourseColor(entry.course?.name || '', isLab)
                                             const isMultiSpan = colSpan > 1
 
-                                            // Get teacher color (consistent with legend)
                                             const teacherColor = entry.teacher?.id
                                                 ? teacherColors.get(entry.teacher.id) || '#E0E0E0'
                                                 : '#E0E0E0'
 
                                             const hasConflict = entry.id && conflictIds?.has(entry.id)
+
+                                            const courseCode = entry.course?.code || ''
+                                            const courseType = isLab ? 'P' : 'T'
+                                            const teacherAbbr = entry.teacher?.abbreviation ||
+                                                entry.teacher?.name?.split(' ').map(n => n[0]).join('').toUpperCase() || '?'
+                                            const compactLabel = courseCode
+                                                ? `${courseCode} (${courseType}) - (${teacherAbbr})`
+                                                : null
 
                                             return (
                                                 <td
@@ -451,7 +445,6 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                         transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
                                                     }}
                                                 >
-                                                    {/* Multi-span badge */}
                                                     {isMultiSpan && (
                                                         <span style={{
                                                             position: 'absolute',
@@ -468,37 +461,50 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                         </span>
                                                     )}
 
-                                                    {/* Course name */}
-                                                    <div style={{
-                                                        fontWeight: 700,
-                                                        fontSize: '0.5625rem',
-                                                        lineHeight: 1.25,
-                                                        marginBottom: '0.15rem',
-                                                        color: '#000',
-                                                        overflow: 'hidden',
-                                                        display: '-webkit-box',
-                                                        WebkitLineClamp: 3,
-                                                        WebkitBoxOrient: 'vertical',
-                                                    }}>
-                                                        {entry.course?.name}
-                                                    </div>
-
-                                                    {/* Teacher name */}
-                                                    {entry.teacher?.name && (
+                                                    {compactLabel ? (
                                                         <div style={{
-                                                            fontSize: '0.5rem',
-                                                            color: '#111',
-                                                            lineHeight: 1.2,
+                                                            fontWeight: 700,
+                                                            fontSize: '0.5625rem',
+                                                            lineHeight: 1.3,
+                                                            color: '#000',
+                                                            whiteSpace: 'nowrap',
                                                             overflow: 'hidden',
-                                                            display: '-webkit-box',
-                                                            WebkitLineClamp: 2,
-                                                            WebkitBoxOrient: 'vertical',
+                                                            textOverflow: 'ellipsis',
                                                         }}>
-                                                            {entry.teacher.name}
+                                                            {compactLabel}
                                                         </div>
+                                                    ) : (
+                                                        <>
+                                                            <div style={{
+                                                                fontWeight: 700,
+                                                                fontSize: '0.5625rem',
+                                                                lineHeight: 1.25,
+                                                                marginBottom: '0.15rem',
+                                                                color: '#000',
+                                                                overflow: 'hidden',
+                                                                display: '-webkit-box',
+                                                                WebkitLineClamp: 3,
+                                                                WebkitBoxOrient: 'vertical',
+                                                            }}>
+                                                                {entry.course?.name}
+                                                            </div>
+
+                                                            {entry.teacher?.name && (
+                                                                <div style={{
+                                                                    fontSize: '0.5rem',
+                                                                    color: '#111',
+                                                                    lineHeight: 1.2,
+                                                                    overflow: 'hidden',
+                                                                    display: '-webkit-box',
+                                                                    WebkitLineClamp: 2,
+                                                                    WebkitBoxOrient: 'vertical',
+                                                                }}>
+                                                                    {entry.teacher.name}
+                                                                </div>
+                                                            )}
+                                                        </>
                                                     )}
 
-                                                    {/* Sections (if multiple) */}
                                                     {(entry.sections?.length ?? 0) > 1 && (
                                                         <div style={{
                                                             fontSize: '0.45rem',
@@ -531,9 +537,6 @@ export function TimetablePage() {
     const [timetable, setTimetable] = useState<TimetableEntry[]>([])
     const [loading, setLoading] = useState(true)
     const [generating, setGenerating] = useState(false)
-    const [viewType, setViewType] = useState<'Grid' | 'List' | 'Batch'>('Batch')
-    const [filterType, setFilterType] = useState<'All' | 'Teacher' | 'Room' | 'Section'>('All')
-    const [filterId, setFilterId] = useState<number | null>(null)
     const [entryModalOpen, setEntryModalOpen] = useState(false)
     const [selectedSlot, setSelectedSlot] = useState<{ day: string, slot: string } | null>(null)
     const [teachers, setTeachers] = useState<Teacher[]>([])
@@ -541,7 +544,7 @@ export function TimetablePage() {
     const [courses, setCourses] = useState<Course[]>([])
     const [sections, setSections] = useState<Section[]>([])
     const [saving, setSaving] = useState(false)
-    const [searchQuery, setSearchQuery] = useState('')
+    const [pdfExporting, setPdfExporting] = useState(false)
     const [resolutionModalOpen, setResolutionModalOpen] = useState(false)
 
     const [suggestingEntry, setSuggestingEntry] = useState<TimetableEntry | null>(null)
@@ -552,11 +555,11 @@ export function TimetablePage() {
     const [programs, setPrograms] = useState<Program[]>([])
     const [selectedProgramId, setSelectedProgramId] = useState<number | null>(null)
     const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null)
+    const [selectedSectionId, setSelectedSectionId] = useState<number | null>(null)
     const [workingDays, setWorkingDays] = useState<string[]>([...DAYS])
     const [timeSlots, setTimeSlots] = useState<string[]>([...SLOTS])
     const [breaks, setBreaks] = useState<ScheduleBreak[]>([])
     const [activeTab, setActiveTab] = useState<'Schedule' | 'Faculty' | 'Readiness'>('Schedule')
-    const [compactView, setCompactView] = useState(false)
 
     // Form state for manual entry
     const [formData, setFormData] = useState({
@@ -620,7 +623,6 @@ export function TimetablePage() {
             setTimeSlots(nextTimeSlots.length ? nextTimeSlots : [...SLOTS])
             setBreaks(res.breaks || [])
         } catch {
-            // Don't toast 404s, just show empty state
             setTimetable([])
             setWorkingDays([...DAYS])
             setTimeSlots([...SLOTS])
@@ -710,9 +712,9 @@ export function TimetablePage() {
             setFormData({ teacher_id: '', room_id: '', course_id: '', section_id: '' })
             setSelectedProgramId(null)
             setSelectedBatchId(null)
+            setSelectedSectionId(null)
             fetchTimetable(selectedDeptId)
             loadReadiness(selectedDeptId)
-            // Load programs for filter
             programService.list(selectedDeptId === 'all' ? undefined : selectedDeptId, 1, 500)
                 .then(res => setPrograms(res.data || []))
                 .catch(() => setPrograms([]))
@@ -722,22 +724,59 @@ export function TimetablePage() {
         }
     }, [fetchTimetable, loadReadiness, selectedDeptId])
 
-    useEffect(() => {
-        const socket = io('/', { path: '/socket.io' })
+    // Socket.IO ref — only connected during generation to avoid
+    // noisy console errors when the backend is not running.
+    const socketRef = useRef<ReturnType<typeof io> | null>(null)
+
+    const connectSocket = useCallback(() => {
+        if (socketRef.current?.connected) return
+        const socket = io({
+            path: '/socket.io',
+            transports: ['polling', 'websocket'],
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 2000,
+        })
+
+        socket.on('connect', () => {
+            console.log('[Socket.IO] Connected')
+        })
+
+        socket.on('disconnect', (reason) => {
+            console.log('[Socket.IO] Disconnected:', reason)
+        })
+
+        socket.on('connect_error', (err) => {
+            console.warn('[Socket.IO] Connection error:', err.message)
+        })
 
         socket.on('generation_progress', (data: { percentage: number, current_section: string, status: string }) => {
             setGenProgress(data.percentage)
             setGenStatus(`Scheduling ${data.current_section}...`)
         })
 
-        return () => {
-            socket.off('generation_progress')
-            socket.disconnect()
+        socketRef.current = socket
+    }, [])
+
+    const disconnectSocket = useCallback(() => {
+        if (socketRef.current) {
+            socketRef.current.off('generation_progress')
+            socketRef.current.off('connect')
+            socketRef.current.off('disconnect')
+            socketRef.current.off('connect_error')
+            socketRef.current.disconnect()
+            socketRef.current = null
         }
     }, [])
 
-    const handleGenerate = async () => {
-        if (!selectedDeptId) {
+    // Cleanup socket on unmount
+    useEffect(() => {
+        return () => { disconnectSocket() }
+    }, [disconnectSocket])
+
+    const handleGenerate = async (deptId?: number | 'all') => {
+        const targetDept = deptId ?? selectedDeptId
+        if (!targetDept) {
             toast('error', 'No department selected', 'Please select a department first.')
             return
         }
@@ -750,9 +789,10 @@ export function TimetablePage() {
         setGenProgress(0)
         setGenStatus('Initializing AI engine...')
         setGenerationResult(null)
+        connectSocket() // Only connect socket when generation starts
         try {
-            toast('info', 'Generation started', 'AI is calculating the optimal schedule...')
-            if (selectedDeptId === 'all') {
+            toast('info', 'Generation started', targetDept === 'all' ? 'AI is generating timetables for all departments...' : 'AI is calculating the optimal schedule...')
+            if (targetDept === 'all') {
                 const res: any = await schedulingService.generateAllTimetables({})
                 const results = res.results || []
                 
@@ -769,33 +809,27 @@ export function TimetablePage() {
                 setGenerationResult(combinedResult)
                 
                 if (combinedResult.status === 'partial_success' || totalSkipped > 0) {
-                    toast(
-                        'warning',
-                        'Generated with warnings',
-                        `Created ${totalCreated} entries, ${totalSkipped} workloads incomplete.`
-                    )
+                    toast('warning', 'Generated with warnings', `Created ${totalCreated} entries, ${totalSkipped} workloads incomplete.`)
                 } else {
                     toast('success', 'Success', 'All timetables generated successfully!')
                 }
             } else {
                 const result = await schedulingService.generateTimetable({
-                    department_id: selectedDeptId,
+                    department_id: targetDept,
                 })
                 setGenerationResult(result)
                 const skipped = result.incomplete_workloads?.length || 0
                 if (result.status === 'partial_success' || skipped > 0) {
-                    toast(
-                        'warning',
-                        'Generated with warnings',
-                        `Created ${result.entries_created} entries, ${skipped} workloads incomplete.`
-                    )
+                    toast('warning', 'Generated with warnings', `Created ${result.entries_created} entries, ${skipped} workloads incomplete.`)
                 } else {
                     toast('success', 'Success', 'Timetable generated successfully!')
                 }
             }
+            // Ensure we're viewing all departments after generating all
+            if (targetDept === 'all') setSelectedDeptId('all')
             await Promise.all([
-                fetchTimetable(selectedDeptId),
-                loadReadiness(selectedDeptId),
+                fetchTimetable(targetDept === 'all' ? 'all' : targetDept),
+                loadReadiness(targetDept === 'all' ? 'all' : targetDept),
             ])
         } catch (err) {
             toast('error', 'Generation failed', getErrorMessage(err))
@@ -803,6 +837,7 @@ export function TimetablePage() {
             setGenerating(false)
             setGenProgress(0)
             setGenStatus('')
+            disconnectSocket() // Disconnect socket after generation completes
         }
     }
 
@@ -830,7 +865,41 @@ export function TimetablePage() {
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
-        URL.revokeObjectURL(url) // Clean up
+        URL.revokeObjectURL(url)
+    }
+
+    const handleExportPDF = async () => {
+        if (!selectedDeptId || timetable.length === 0) {
+            toast('error', 'No timetable', 'Generate a timetable first before exporting to PDF.')
+            return
+        }
+        setPdfExporting(true)
+        try {
+            toast('info', 'Generating PDF...', 'Please wait while the timetable PDF is being created.')
+            let blob: Blob
+            let filename: string
+            if (selectedDeptId === 'all') {
+                blob = await schedulingService.exportAllDepartmentsPDF()
+                filename = 'Timetable_All_Departments.pdf'
+            } else {
+                blob = await schedulingService.exportDepartmentPDF(selectedDeptId)
+                const dept = departments.find(d => d.id === selectedDeptId)
+                filename = `Timetable_${dept?.name || 'Department'}.pdf`
+            }
+            const url = URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            link.href = url
+            link.download = filename
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            URL.revokeObjectURL(url)
+            toast('success', 'PDF downloaded', filename)
+        } catch (err) {
+            toast('error', 'PDF export failed', getErrorMessage(err))
+        } finally {
+            setPdfExporting(false)
+        }
     }
 
     const handleClear = async () => {
@@ -842,7 +911,6 @@ export function TimetablePage() {
         if (selectedDeptId === 'all') {
             if (!window.confirm('Are you sure you want to clear the entire timetable for ALL departments?')) return
             try {
-                // Delete one by one if backend doesn't support /clear/all
                 await Promise.all(departments.map(d => schedulingService.clearTimetable(d.id)))
                 toast('success', 'Cleared', 'All timetables have been removed.')
                 setTimetable([])
@@ -918,8 +986,6 @@ export function TimetablePage() {
             if (selectedDeptId === 'all') {
                 const section = sections.find(s => s.id === parseInt(formData.section_id));
                 if (!section) throw new Error('Could not determine department for this section');
-                // We need the department ID. The section only has batch_id. 
-                // We might need to find the batch, then the program, then the department.
                 const batch = batches.find(b => b.id === section.batch_id);
                 const program = programs.find(p => p.id === batch?.program_id);
                 if (!program?.department_id) throw new Error('Could not determine department');
@@ -960,7 +1026,7 @@ export function TimetablePage() {
         if (!over || !selectedDeptId) return
 
         const entryId = active.id as number
-        const dropData = over.id as string // format: "day|slot"
+        const dropData = over.id as string
         const [newDay, newSlot] = dropData.split('|') as [TimetableEntry['day'], TimetableEntry['timeslot']]
 
         const entry = timetable.find(e => e.id === entryId)
@@ -977,7 +1043,7 @@ export function TimetablePage() {
 
     // Compute which batch IDs belong to the selected program (for program filter)
     const programBatchIds = useMemo(() => {
-        if (!selectedProgramId) return null   // null means "all batches"
+        if (!selectedProgramId) return null
         const ids = new Set(batches.filter(b => b.program_id === selectedProgramId).map(b => b.id))
         return ids
     }, [batches, selectedProgramId])
@@ -990,11 +1056,30 @@ export function TimetablePage() {
         return list
     }, [batches, programBatchIds, selectedBatchId])
 
+    // Sections visible for selected batch
+    const visibleSections = useMemo(() => {
+        if (!selectedBatchId) return readiness.sections
+        return readiness.sections.filter(s => s.batch_id === selectedBatchId)
+    }, [readiness.sections, selectedBatchId])
+
     const filteredTimetable = useMemo(() => {
         let items = timetable
 
-        // Filter by program / batch (match entries whose sections belong to visible batches)
-        if (programBatchIds || selectedBatchId) {
+        // Filter by department
+        if (selectedDeptId !== 'all' && selectedDeptId !== null) {
+            const deptId = selectedDeptId as number
+            const deptPrograms = programs.filter(p => p.department_id === deptId)
+            const deptProgramIds = new Set(deptPrograms.map(p => p.id))
+            const deptBatchIds = new Set(batches.filter(b => deptProgramIds.has(b.program_id)).map(b => b.id))
+            const deptSectionIds = new Set(readiness.sections.filter(s => deptBatchIds.has(s.batch_id)).map(s => s.id))
+            
+            items = items.filter(entry =>
+                entry.sections?.some(sec => deptSectionIds.has(sec.id))
+            )
+        }
+
+        // Filter by program
+        if (programBatchIds) {
             const allowedBatchIds = new Set(visibleBatches.map(b => b.id))
             items = items.filter(entry =>
                 entry.sections?.some(sec => {
@@ -1004,23 +1089,25 @@ export function TimetablePage() {
             )
         }
 
-        if (filterType === 'Section' && filterId) items = items.filter(e => e.sections?.some(s => s.id === filterId))
-        if (filterType === 'Teacher' && filterId) items = items.filter(e => e.teacher?.id === filterId)
-        if (filterType === 'Room' && filterId) items = items.filter(e => e.room?.id === filterId)
-
-        if (searchQuery) {
-            const q = searchQuery.toLowerCase()
-            items = items.filter(e =>
-                e.course?.name?.toLowerCase().includes(q) ||
-                e.teacher?.name?.toLowerCase().includes(q) ||
-                e.sections?.some(s => s.name.toLowerCase().includes(q))
+        // Filter by batch
+        if (selectedBatchId) {
+            const batchSectionIds = new Set(readiness.sections.filter(s => s.batch_id === selectedBatchId).map(s => s.id))
+            items = items.filter(entry =>
+                entry.sections?.some(sec => batchSectionIds.has(sec.id))
             )
         }
-        return items
-    }, [timetable, filterType, filterId, searchQuery, programBatchIds, selectedBatchId, visibleBatches, readiness.sections])
 
-    // Find all entries that have conflicts with ANY other entry in the ENTIRE timetable
-    // Not just the ones in the same cell (e.g. teacher double booked in two different rooms at same time)
+        // Filter by section
+        if (selectedSectionId) {
+            items = items.filter(entry =>
+                entry.sections?.some(sec => sec.id === selectedSectionId)
+            )
+        }
+
+        return items
+    }, [timetable, selectedDeptId, programBatchIds, selectedBatchId, selectedSectionId, visibleBatches, programs, batches, readiness.sections])
+
+    // Find all entries that have conflicts
     const entriesWithConflicts = useMemo(() => {
         const conflictIds = new Set<number>()
         for (let i = 0; i < timetable.length; i++) {
@@ -1050,14 +1137,12 @@ export function TimetablePage() {
         }> = []
 
         filteredTimetable.forEach(entry => {
-            // Check if this is part of an already processed multi-hour session
             const existing = sessions.find(s => s.entry.id === entry.id)
             if (existing) return
 
             const isLab = entry.course?.type === 'Lab' || entry.course?.name?.toLowerCase().includes('lab')
             if (!isLab) return
 
-            // Find consecutive slots for this course/teacher/room combination
             const daySlots = timeSlots
             const entrySlotIndex = daySlots.indexOf(entry.timeslot)
             if (entrySlotIndex === -1) return
@@ -1065,7 +1150,6 @@ export function TimetablePage() {
             let duration = 1
             const slots = [entry.timeslot]
 
-            // Look for consecutive slots with same course/teacher/room
             for (let i = entrySlotIndex + 1; i < daySlots.length; i++) {
                 const nextSlot = daySlots[i]
                 const nextEntry = filteredTimetable.find(e =>
@@ -1084,7 +1168,6 @@ export function TimetablePage() {
                 }
             }
 
-            // If it spans multiple hours, mark it as a multi-hour session
             if (duration > 1) {
                 sessions.push({ entry, duration, slots })
             }
@@ -1098,7 +1181,6 @@ export function TimetablePage() {
         workingDays.forEach((day: string) => {
             grid[day] = {}
             timeSlots.forEach((slot: string) => {
-                // Filter out entries that are part of multi-hour sessions (they'll be handled separately)
                 grid[day][slot] = filteredTimetable.filter(entry =>
                     entry.day === day &&
                     entry.timeslot === slot &&
@@ -1131,7 +1213,6 @@ export function TimetablePage() {
             })
     }, [timetable])
 
-    // Extract unique sections with batch info for legend table
     const sectionLegend = useMemo(() => {
         const seen = new Set<number>()
         const sectionsWithBatch: Array<{
@@ -1148,7 +1229,6 @@ export function TimetablePage() {
                 if (seen.has(section.id)) return
                 seen.add(section.id)
 
-                // Find the section from readiness data to get batch_id
                 const fullSection = readiness.sections.find(s => s.id === section.id)
                 const batch = fullSection ? batches.find(b => b.id === fullSection.batch_id) : null
 
@@ -1166,7 +1246,6 @@ export function TimetablePage() {
         return sectionsWithBatch.sort((a, b) => a.shortName.localeCompare(b.shortName))
     }, [timetable, readiness.sections, batches])
 
-    // Extract unique courses for legend table
     const courseLegend = useMemo(() => {
         const seen = new Set<number>()
         const coursesList: Array<{
@@ -1192,7 +1271,6 @@ export function TimetablePage() {
         return coursesList.sort((a, b) => a.code.localeCompare(b.code))
     }, [timetable, readiness.courses])
 
-    // Extract unique teachers for legend table
     const teacherLegend = useMemo(() => {
         const seen = new Set<number>()
         const teachersList: Array<{
@@ -1206,9 +1284,10 @@ export function TimetablePage() {
             seen.add(entry.teacher.id)
 
             const fullTeacher = readiness.teachers.find(t => t.id === entry.teacher.id)
+            const abbr = entry.teacher.abbreviation || entry.teacher.name?.split(' ').map(n => n[0]).join('').toUpperCase() || '-'
             teachersList.push({
                 id: entry.teacher.id,
-                shortName: entry.teacher.name?.split(' ').map(n => n[0]).join('').toUpperCase() || '-',
+                shortName: abbr,
                 fullName: entry.teacher.name || '-'
             })
         })
@@ -1265,10 +1344,53 @@ export function TimetablePage() {
         return Array.from(counts.entries()).sort((left, right) => right[1] - left[1])
     }, [generationResult])
 
+    // Active filter count for badge
+    const activeFilterCount = useMemo(() => {
+        let count = 0
+        if (selectedProgramId) count++
+        if (selectedBatchId) count++
+        if (selectedSectionId) count++
+        return count
+    }, [selectedProgramId, selectedBatchId, selectedSectionId])
+
+    // Quick stats for the dashboard
+    const quickStats = useMemo(() => [
+        { label: 'Total Entries', value: timetable.length, icon: BookOpen, color: '#4f46e5' },
+        { label: 'Visible', value: visibleEntryCount, icon: Calendar, color: '#0891b2' },
+        { label: 'Conflicts', value: conflictCount, icon: AlertCircle, color: conflictCount > 0 ? '#ef4444' : '#10b981' },
+        { label: 'Teachers', value: uniqueTeachers.length, icon: Users, color: '#7c3aed' },
+        { label: 'Rooms', value: uniqueRooms.length, icon: MapPin, color: '#059669' },
+        { label: 'Batches', value: batches.length, icon: GraduationCap, color: '#d97706' },
+    ], [timetable.length, visibleEntryCount, conflictCount, uniqueTeachers.length, uniqueRooms.length, batches.length])
+
     if (loading && departments.length === 0) return <PageLoader />
 
+    // ── Filter select style helper ──
+    const filterSelectStyle = (width?: string): React.CSSProperties => ({
+        width: width || '150px',
+        height: '38px',
+        fontSize: '0.8125rem',
+        fontWeight: 500,
+        borderRadius: '0.625rem',
+        padding: '0 2.25rem 0 0.75rem',
+        border: '1.5px solid var(--border)',
+        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+    })
+
+    const filterLabelStyle: React.CSSProperties = {
+        fontSize: '0.6875rem',
+        fontWeight: 700,
+        color: 'var(--text-muted)',
+        textTransform: 'uppercase',
+        letterSpacing: '0.06em',
+        marginBottom: '0.3rem',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.35rem',
+    }
+
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', animation: 'fadeIn 0.5s ease-out' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', animation: 'fadeIn 0.5s ease-out', padding: '0 0.25rem' }}>
             <style>
                 {`
                 @keyframes fadeIn {
@@ -1279,11 +1401,6 @@ export function TimetablePage() {
                     from { opacity: 0; transform: translateY(20px); }
                     to { opacity: 1; transform: translateY(0); }
                 }
-                .select:focus {
-                    border-color: var(--primary) !important;
-                    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
-                    outline: none !important;
-                }
                 .btn:hover {
                     filter: brightness(0.95);
                     transform: translateY(-1px);
@@ -1291,246 +1408,348 @@ export function TimetablePage() {
                 .btn:active {
                     transform: translateY(0);
                 }
+                .tt-btn-primary {
+                    background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+                    color: #ffffff;
+                    box-shadow: 0 2px 10px rgba(79, 70, 229, 0.35), 0 1px 3px rgba(0,0,0,0.08);
+                    font-weight: 700;
+                    letter-spacing: 0.01em;
+                    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+                    border: none;
+                }
+                .tt-btn-primary:hover:not(:disabled) {
+                    background: linear-gradient(135deg, #4338ca 0%, #4f46e5 100%);
+                    box-shadow: 0 4px 16px rgba(79, 70, 229, 0.45), 0 2px 6px rgba(0,0,0,0.12);
+                    transform: translateY(-2px);
+                }
+                .tt-btn-primary:active:not(:disabled) {
+                    transform: translateY(0);
+                    box-shadow: 0 1px 4px rgba(79, 70, 229, 0.25);
+                }
+                .tt-btn-secondary-gen {
+                    background: var(--bg-card);
+                    color: var(--text-primary);
+                    border: 1.5px solid var(--border);
+                    font-weight: 600;
+                    transition: all 0.2s ease;
+                }
+                .tt-btn-secondary-gen:hover:not(:disabled) {
+                    background: var(--bg-main);
+                    border-color: #94a3b8;
+                    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+                }
+                .tt-filter-group {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.3rem;
+                }
+                .tt-filter-divider {
+                    width: 1px;
+                    height: 38px;
+                    background: var(--border);
+                    align-self: center;
+                    border-radius: 1px;
+                }
+                .tt-action-bar {
+                    padding: 1rem 1.5rem;
+                    display: flex;
+                    gap: 0.75rem;
+                    flex-wrap: wrap;
+                    align-items: center;
+                    border-radius: var(--radius-xl);
+                    border: 1px solid var(--border);
+                    background: var(--bg-card);
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+                }
+                .tt-filter-bar {
+                    padding: 1rem 1.5rem;
+                    display: flex;
+                    gap: 1.25rem;
+                    flex-wrap: wrap;
+                    align-items: flex-end;
+                    border-radius: var(--radius-xl);
+                    border: 1px solid var(--border);
+                    background: linear-gradient(135deg, var(--bg-card) 0%, rgba(79, 70, 229, 0.015) 100%);
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+                }
                 `}
             </style>
-            <div className="card" style={{ 
-                padding: '2rem', 
-                background: 'linear-gradient(135deg, var(--bg-card) 0%, rgba(59, 130, 246, 0.03) 100%)',
-                border: '1px solid var(--border)',
-                borderRadius: '1.25rem',
-                boxShadow: '0 4px 20px -5px rgba(0, 0, 0, 0.05)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '1.5rem'
-            }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1.5rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <div style={{ 
-                            width: '2.5rem', 
-                            height: '2.5rem', 
-                            borderRadius: '10px', 
-                            background: 'var(--primary)', 
-                            color: 'white', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'center',
-                            boxShadow: '0 4px 12px -2px rgba(59, 130, 246, 0.25)'
-                        }}>
-                            <Calendar size={20} />
-                        </div>
-                        <div>
-                            <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.025em' }}>
-                                Timetable Central
-                            </h1>
-                            <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                                Academic Resource Management & AI Optimization
-                            </p>
-                        </div>
-                    </div>
 
-                    <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--bg)', padding: '4px', borderRadius: '12px', border: '1px solid var(--border)' }}>
-                        {(['Schedule', 'Faculty', 'Readiness'] as const).map(tab => (
-                            <button
-                                key={tab}
-                                onClick={() => setActiveTab(tab)}
-                                style={{
-                                    padding: '0.5rem 1rem',
-                                    borderRadius: '8px',
-                                    fontSize: '0.8125rem',
-                                    fontWeight: 700,
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    background: activeTab === tab ? 'var(--bg-card)' : 'transparent',
-                                    color: activeTab === tab ? 'var(--primary)' : 'var(--text-muted)',
-                                    boxShadow: activeTab === tab ? '0 2px 8px rgba(0,0,0,0.05)' : 'none',
-                                    transition: 'all 0.2s ease'
-                                }}
-                            >
-                                {tab}
-                            </button>
-                        ))}
+            {/* ═══ Sub-navbar for tabs ═══ */}
+            <div className="sub-navbar">
+                <div className="sub-navbar-content">
+                    {([
+                        { key: 'Schedule' as const, label: 'Schedule', icon: Calendar },
+                        { key: 'Faculty' as const, label: 'Faculty', icon: Users },
+                        { key: 'Readiness' as const, label: 'Readiness', icon: ShieldCheck },
+                    ]).map(tab => (
+                        <button
+                            key={tab.key}
+                            onClick={() => setActiveTab(tab.key)}
+                            className={`sub-nav-link${activeTab === tab.key ? ' active' : ''}`}
+                        >
+                            <tab.icon size={16} />
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* ═══ Action Bar: Generate All + Department-wise + Export + Clear ═══ */}
+            <div className="tt-action-bar">
+                {/* Generate All Departments - primary action */}
+                <button 
+                    className={`btn btn-sm tt-btn-primary`}
+                    onClick={() => handleGenerate('all')} 
+                    disabled={generating || readinessLoading || readiness.blockers.length > 0}
+                    style={{ padding: '0.5rem 1.25rem', borderRadius: '0.75rem' }}
+                >
+                    {generating && selectedDeptId === 'all' ? <Spinner size={15} /> : <Zap size={15} />}
+                    Generate All Departments
+                </button>
+
+                {/* Department-wise Generate */}
+                <div className="tt-filter-group">
+                    <div className="tt-filter-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '0.5rem' }}>
+                        <select
+                            value={selectedDeptId === 'all' ? '' : (selectedDeptId ?? '')}
+                            onChange={e => { 
+                                const val = e.target.value ? Number(e.target.value) : null
+                                setSelectedDeptId(val || 'all')
+                            }}
+                            className="input select"
+                            style={{ ...filterSelectStyle('190px') }}
+                            disabled={generating}
+                        >
+                            <option value="">Select department...</option>
+                            {departments.map(d => (
+                                <option key={d.id} value={d.id}>{d.name}</option>
+                            ))}
+                        </select>
+                        <button 
+                            className={`btn btn-sm tt-btn-secondary-gen`}
+                            onClick={() => {
+                                if (selectedDeptId && selectedDeptId !== 'all') handleGenerate(selectedDeptId)
+                                else toast('info', 'Select a department', 'Choose a department from the dropdown to generate its timetable.')
+                            }} 
+                            disabled={generating || !selectedDeptId || selectedDeptId === 'all' || readinessLoading || readiness.blockers.length > 0}
+                            style={{ padding: '0.5rem 1rem', borderRadius: '0.75rem', whiteSpace: 'nowrap' }}
+                        >
+                            {generating && selectedDeptId !== 'all' ? <Spinner size={14} /> : <Play size={14} />}
+                            Generate Dept
+                        </button>
                     </div>
                 </div>
 
-                <div style={{ 
-                    display: 'flex', 
-                    gap: '1rem', 
-                    flexWrap: 'wrap', 
-                    padding: '1.25rem', 
-                    background: 'rgba(255, 255, 255, 0.4)', 
-                    borderRadius: '1rem', 
-                    border: '1px solid rgba(0, 0, 0, 0.03)',
-                    alignItems: 'center'
+                <div style={{ flex: 1 }} />
+
+                {/* Status indicator */}
+                {timetable.length > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8125rem', fontWeight: 600, color: conflictCount > 0 ? '#d97706' : '#10b981' }}>
+                            {conflictCount > 0 ? <AlertCircle size={15} /> : <CheckCircle2 size={15} />}
+                            {conflictCount > 0 ? `${conflictCount} conflict${conflictCount > 1 ? 's' : ''}` : 'No conflicts'}
+                        </div>
+                        <span style={{ height: '1rem', width: '1px', background: 'var(--border)' }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                            <BookOpen size={15} /> {visibleEntryCount} entries
+                        </div>
+                    </div>
+                )}
+
+                <div style={{ display: 'flex', gap: '0.375rem' }}>
+                    <button className="btn btn-ghost btn-sm" onClick={handleExport} disabled={timetable.length === 0}>
+                        <Download size={14} /> CSV
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={handleExportPDF} disabled={timetable.length === 0 || pdfExporting}>
+                        {pdfExporting ? <><Spinner size={14} /> Exporting...</> : <><FileText size={14} /> PDF</>}
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={handleClear} disabled={timetable.length === 0} style={{ color: '#ef4444' }}>
+                        <Trash2 size={14} /> Clear
+                    </button>
+                </div>
+            </div>
+
+            {/* ═══ Quick Stats Dashboard ═══ */}
+            {timetable.length > 0 && (
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                    gap: '0.75rem',
+                    padding: '1rem 1.5rem',
+                    borderRadius: 'var(--radius-xl)',
+                    border: '1px solid var(--border)',
+                    background: 'linear-gradient(135deg, var(--bg-card) 0%, rgba(79, 70, 229, 0.02) 100%)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
                 }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginLeft: '0.25rem' }}>Department Scope</label>
+                    {quickStats.map(stat => (
+                        <div key={stat.label} style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.75rem',
+                            padding: '0.625rem 0.75rem',
+                            borderRadius: '0.75rem',
+                            background: 'var(--bg)',
+                            border: '1px solid var(--border)',
+                        }}>
+                            <div style={{
+                                width: '2.25rem',
+                                height: '2.25rem',
+                                borderRadius: '0.625rem',
+                                background: `${stat.color}12`,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                            }}>
+                                <stat.icon size={16} style={{ color: stat.color }} />
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '1.125rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.2 }}>{stat.value}</div>
+                                <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{stat.label}</div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* ═══ Filter Bar ═══ */}
+            {timetable.length > 0 && (
+                <div className="tt-filter-bar">
+                    {/* Filter label with icon */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', alignSelf: 'center', marginRight: '0.25rem' }}>
+                        <Filter size={16} style={{ color: 'var(--primary)' }} />
+                        <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text-primary)' }}>Filters</span>
+                        {activeFilterCount > 0 && (
+                            <span style={{
+                                background: '#4f46e5',
+                                color: '#fff',
+                                fontSize: '0.6875rem',
+                                fontWeight: 700,
+                                padding: '0.1rem 0.5rem',
+                                borderRadius: '999px',
+                                minWidth: '1.25rem',
+                                textAlign: 'center',
+                            }}>
+                                {activeFilterCount}
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="tt-filter-divider" style={{ height: '32px', alignSelf: 'center' }} />
+
+                    {/* Department filter */}
+                    <div className="tt-filter-group">
+                        <label style={filterLabelStyle}>
+                            <Building2 size={12} /> Department
+                        </label>
                         <select
-                            value={selectedDeptId || ''}
-                            onChange={e => { 
-                                const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
-                                setSelectedDeptId(val); 
-                                setFilterType('All'); 
-                                setFilterId(null); 
+                            value={selectedDeptId ?? 'all'}
+                            onChange={e => {
+                                const val = e.target.value === 'all' ? 'all' : Number(e.target.value)
+                                setSelectedDeptId(val)
+                                setSelectedProgramId(null)
+                                setSelectedBatchId(null)
+                                setSelectedSectionId(null)
                             }}
                             className="input select"
-                            style={{ width: '200px', height: '42px', borderRadius: '10px' }}
+                            style={filterSelectStyle('170px')}
                         >
-                            <option value="all">🌐 All Departments</option>
+                            <option value="all">All Departments</option>
                             {departments.map(d => (
                                 <option key={d.id} value={d.id}>{d.name}</option>
                             ))}
                         </select>
                     </div>
 
-                    <div style={{ height: '32px', width: '1px', background: 'var(--border)', alignSelf: 'flex-end', margin: '0 0.5rem 5px 0' }} />
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginLeft: '0.25rem' }}>Curriculum Filter</label>
-                        <div style={{ display: 'flex', gap: '0.75rem' }}>
-                            <select
-                                value={selectedProgramId ?? ''}
-                                onChange={e => {
-                                    const val = e.target.value ? Number(e.target.value) : null
-                                    setSelectedProgramId(val)
-                                    setSelectedBatchId(null)
-                                }}
-                                className="input select"
-                                style={{ width: '160px', height: '42px', borderRadius: '10px' }}
-                            >
-                                <option value="">All Programs</option>
-                                {programs.map(p => (
-                                    <option key={p.id} value={p.id}>{p.name}</option>
-                                ))}
-                            </select>
-
-                            {selectedProgramId && (
-                                <select
-                                    value={selectedBatchId ?? ''}
-                                    onChange={e => {
-                                        const val = e.target.value ? Number(e.target.value) : null
-                                        setSelectedBatchId(val)
-                                    }}
-                                    className="input select"
-                                    style={{ width: '140px', height: '42px', borderRadius: '10px' }}
-                                >
-                                    <option value="">All Batches</option>
-                                    {batches
-                                        .filter(b => b.program_id === selectedProgramId)
-                                        .map(b => (
-                                            <option key={b.id} value={b.id}>{b.name}</option>
-                                        ))
-                                    }
-                                </select>
-                            )}
-
-                            {selectedBatchId && (
-                                <select
-                                    value={filterType === 'Section' ? filterId ?? '' : ''}
-                                    onChange={e => {
-                                        const val = e.target.value ? Number(e.target.value) : null
-                                        setFilterType(val ? 'Section' : 'All')
-                                        setFilterId(val)
-                                    }}
-                                    className="input select"
-                                    style={{ width: '120px', height: '42px', borderRadius: '10px' }}
-                                >
-                                    <option value="">All Sections</option>
-                                    {readiness.sections
-                                        .filter(s => s.batch_id === selectedBatchId)
-                                        .map(s => (
-                                            <option key={s.id} value={s.id}>{s.name}</option>
-                                        ))
-                                    }
-                                </select>
-                            )}
-                        </div>
-                    </div>
-
-                    <div style={{ flex: 1 }} />
-
-                    <div style={{ display: 'flex', gap: '0.75rem', alignSelf: 'flex-end', marginBottom: '2px' }}>
-                        <button 
-                            className="btn btn-ghost" 
-                            onClick={handleExport}
-                            style={{ height: '42px', borderRadius: '10px' }}
-                        >
-                            <Download size={18} /> Export
-                        </button>
-                        <button 
-                            className="btn btn-secondary" 
-                            onClick={handleClear}
-                            style={{ height: '42px', borderRadius: '10px', color: '#ef4444' }}
-                        >
-                            <Trash2 size={18} /> Clear
-                        </button>
-                        <button 
-                            className={`btn ${generating ? 'btn-secondary' : 'btn-primary'}`}
-                            onClick={handleGenerate} 
-                            disabled={generationDisabled}
-                            style={{ 
-                                height: '42px', 
-                                borderRadius: '10px', 
-                                padding: '0 1.5rem',
-                                boxShadow: generating ? 'none' : '0 4px 12px rgba(59, 130, 246, 0.3)'
-                            }}
-                        >
-                            {generating ? <Spinner size={18} /> : <Zap size={18} />}
-                            <span style={{ marginLeft: '0.5rem' }}>
-                                {generating ? 'Processing...' : (selectedDeptId === 'all' ? 'Generate All' : 'Generate Now')}
-                            </span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            {/* Sub-toolbar for search and views */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                    <div style={{ position: 'relative' }}>
-                        <Search size={16} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                        <input
-                            type="text"
-                            placeholder="Quick search (teacher, course, room)..."
-                            className="input"
-                            style={{ paddingLeft: '2.75rem', width: '300px', borderRadius: '12px', border: '1px solid var(--border)', height: '40px' }}
-                            value={searchQuery}
-                            onChange={e => setSearchQuery(e.target.value)}
-                        />
-                    </div>
-
-                    <div style={{ display: 'flex', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '3px', height: '40px' }}>
+                    {/* Program filter */}
+                    <div className="tt-filter-group">
+                        <label style={filterLabelStyle}>
+                            <GraduationCap size={12} /> Program
+                        </label>
                         <select
-                            value={filterType}
+                            value={selectedProgramId ?? ''}
                             onChange={e => {
-                                const nextFilter = e.target.value
-                                if (nextFilter === 'All' || nextFilter === 'Teacher' || nextFilter === 'Room' || nextFilter === 'Section') {
-                                    setFilterType(nextFilter as any)
-                                    setFilterId(null)
-                                }
+                                const val = e.target.value ? Number(e.target.value) : null
+                                setSelectedProgramId(val)
+                                setSelectedBatchId(null)
+                                setSelectedSectionId(null)
                             }}
                             className="input select"
-                            style={{ width: '105px', border: 'none', background: 'transparent', height: '100%', fontSize: '0.8125rem', fontWeight: 600 }}
+                            style={filterSelectStyle('160px')}
                         >
-                            <option value="All">All Scope</option>
-                            <option value="Teacher">Teacher</option>
-                            <option value="Room">Room</option>
-                            {!selectedBatchId && <option value="Section">Section</option>}
+                            <option value="">All Programs</option>
+                            {programs.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
                         </select>
-                        {(filterType === 'Teacher' || filterType === 'Room' || (filterType === 'Section' && !selectedBatchId)) && (
-                            <select
-                                value={filterId || ''}
-                                onChange={e => setFilterId(Number(e.target.value))}
-                                className="input select"
-                                style={{ width: '180px', border: 'none', borderLeft: '1px solid var(--border)', background: 'transparent', height: '100%', fontSize: '0.8125rem' }}
-                            >
-                                <option value="">Select specific...</option>
-                            </select>
-                        )}
                     </div>
+
+                    {/* Batch filter */}
+                    <div className="tt-filter-group">
+                        <label style={filterLabelStyle}>
+                            <Layers size={12} /> Batch
+                        </label>
+                        <select
+                            value={selectedBatchId ?? ''}
+                            onChange={e => {
+                                const val = e.target.value ? Number(e.target.value) : null
+                                setSelectedBatchId(val)
+                                setSelectedSectionId(null)
+                            }}
+                            className="input select"
+                            style={filterSelectStyle('150px')}
+                        >
+                            <option value="">All Batches</option>
+                            {batches
+                                .filter(b => !selectedProgramId || b.program_id === selectedProgramId)
+                                .map(b => (
+                                    <option key={b.id} value={b.id}>{b.name}</option>
+                                ))
+                            }
+                        </select>
+                    </div>
+
+                    {/* Section filter */}
+                    <div className="tt-filter-group">
+                        <label style={filterLabelStyle}>
+                            <FolderTree size={12} /> Section
+                        </label>
+                        <select
+                            value={selectedSectionId ?? ''}
+                            onChange={e => {
+                                const val = e.target.value ? Number(e.target.value) : null
+                                setSelectedSectionId(val)
+                            }}
+                            className="input select"
+                            style={filterSelectStyle('140px')}
+                        >
+                            <option value="">All Sections</option>
+                            {visibleSections.map(s => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Clear filters button */}
+                    {activeFilterCount > 0 && (
+                        <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => {
+                                setSelectedProgramId(null)
+                                setSelectedBatchId(null)
+                                setSelectedSectionId(null)
+                                setSelectedDeptId('all')
+                            }}
+                            style={{ padding: '0.5rem 0.875rem', fontSize: '0.75rem', color: '#4f46e5', marginBottom: '0.125rem', border: '1px solid rgba(79, 70, 229, 0.2)' }}
+                        >
+                            Clear Filters
+                        </button>
+                    )}
                 </div>
-            </div>
+            )}
 
-
+            {/* ═══ Readiness Tab ═══ */}
             {activeTab === 'Readiness' && (
                 <div
                     className="card"
@@ -1630,6 +1849,7 @@ export function TimetablePage() {
                 </div>
             )}
 
+            {/* ═══ Generation Progress ═══ */}
             {generating && (
                 <div className="card" style={{
                     padding: '1.5rem',
@@ -1661,6 +1881,7 @@ export function TimetablePage() {
                 </div>
             )}
 
+            {/* ═══ Generation Result ═══ */}
             {generationResult && !generating && (
                 <div
                     className="card"
@@ -1707,7 +1928,7 @@ export function TimetablePage() {
                             {generationResult.incomplete_workloads.slice(0, 4).map(item => (
                                 <div key={`${item.course}-${item.section}-${item.teacher}`} style={{ padding: '0.75rem 0.9rem', borderRadius: '0.75rem', background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                                     <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                                        {item.course} • {item.section}
+                                        {item.course} - {item.section}
                                     </div>
                                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
                                         {item.reason} {item.required ? `(${item.allocated}/${item.required} hours allocated)` : ''}
@@ -1729,6 +1950,7 @@ export function TimetablePage() {
                 </div>
             )}
 
+            {/* ═══ Unscheduled Workloads ═══ */}
             {generationResult && generationResult.incomplete_workloads.length > 0 && (
                 <div
                     className="card"
@@ -1826,6 +2048,7 @@ export function TimetablePage() {
                 </div>
             )}
 
+            {/* ═══ Schedule Tab ═══ */}
             {activeTab === 'Schedule' && (
                 <>
                     {loading ? (
@@ -1840,33 +2063,32 @@ export function TimetablePage() {
                                  description={
                                     readiness.blockers.length > 0
                                         ? 'Finish the blocked setup items above, then generate the timetable.'
-                                        : selectedDeptId === 'all' 
-                                            ? 'Run the AI generator to create a workable first draft for all departments in the university.'
-                                            : 'Run the AI generator to create a workable first draft for this department.'
+                                        : 'Click "Generate All Departments" to create timetables for the entire university at once, or select a specific department and generate department-wise.'
                                 }
                                 action={
-                                    <button className="btn btn-primary" onClick={handleGenerate} disabled={generationDisabled} style={{ marginTop: '1.5rem' }}>
-                                        {generating ? <Spinner size={16} /> : <Play size={16} />}
-                                        {selectedDeptId === 'all' ? 'Generate All Timetables' : 'Generate Timetable Now'}
-                                    </button>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', marginTop: '1.5rem' }}>
+                                        <button className="btn btn-primary btn-lg" onClick={() => handleGenerate('all')} disabled={generationDisabled} style={{ 
+                                            background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+                                            boxShadow: '0 4px 16px rgba(79, 70, 229, 0.35)',
+                                            padding: '0.875rem 2rem',
+                                            borderRadius: '0.875rem',
+                                            fontWeight: 700,
+                                            fontSize: '1rem',
+                                        }}>
+                                            {generating ? <Spinner size={16} /> : <Zap size={16} />}
+                                            Generate All Departments
+                                        </button>
+                                        {readiness.blockers.length === 0 && (
+                                            <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', maxWidth: '400px', textAlign: 'center' }}>
+                                                <span style={{ color: '#10b981', fontWeight: 600 }}>Ready</span> — {readiness.sections.length} sections, {readiness.courses.length} courses, {readiness.teachers.length} teachers, {readiness.rooms.length} rooms available
+                                            </p>
+                                        )}
+                                    </div>
                                 }
                             />
                         </div>
                     ) : (
                         <div className="card" style={{ overflow: 'hidden' }}>
-                            <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: conflictCount > 0 ? '#d97706' : '#10b981', fontSize: '0.8125rem', fontWeight: 600 }}>
-                                        {conflictCount > 0 ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
-                                        {conflictCount > 0 ? `${conflictCount} conflict${conflictCount > 1 ? 's' : ''} need attention` : 'Conflict-free schedule'}
-                                    </div>
-                                    <span style={{ height: '1rem', width: '1px', background: 'var(--border)' }} />
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
-                                        <BookOpen size={16} /> {visibleEntryCount} shown of {timetable.length} total entries
-                                    </div>
-                                </div>
-                            </div>
-
                             <BatchTimetableView
                                 timetable={filteredTimetable}
                                 batches={visibleBatches}
@@ -1882,7 +2104,7 @@ export function TimetablePage() {
                 </>
             )}
 
-            {/* Legend Section */}
+            {/* ═══ Faculty Tab ═══ */}
             {activeTab === 'Faculty' && (
                 <div style={{ animation: 'fadeIn 0.5s ease-out' }}>
                     <div style={{ 
@@ -1971,37 +2193,34 @@ export function TimetablePage() {
                 </div>
             )}
 
-            {/* Constraints info */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
-                <div className="card" style={{ padding: '1.25rem', display: 'flex', gap: '1rem' }}>
-                    <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: '50%', background: 'rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Info size={18} color="#3b82f6" />
-                    </div>
-                    <div>
-                        <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>Teacher Availability</h4>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Schedule is guaranteed to respect each teacher&apos;s preferred working hours.</p>
-                    </div>
+            {/* ═══ Constraints footer ═══ */}
+            <div style={{ 
+                display: 'flex', 
+                gap: '1.5rem', 
+                padding: '0.875rem 1.25rem', 
+                background: 'var(--bg-card)', 
+                borderRadius: 'var(--radius-xl)', 
+                border: '1px solid var(--border)',
+                alignItems: 'center',
+                flexWrap: 'wrap'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    <Info size={14} style={{ color: '#3b82f6' }} /> 
+                    <span>Teacher Availability</span>
                 </div>
-                <div className="card" style={{ padding: '1.25rem', display: 'flex', gap: '1rem' }}>
-                    <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: '50%', background: 'rgba(16,185,129,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <MapPin size={18} color="#10b981" />
-                    </div>
-                    <div>
-                        <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>Room Optimization</h4>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Rooms are assigned based on capacity and course type requirements.</p>
-                    </div>
+                <span style={{ width: '1px', height: '14px', background: 'var(--border)' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    <MapPin size={14} style={{ color: '#10b981' }} /> 
+                    <span>Room Optimization</span>
                 </div>
-                <div className="card" style={{ padding: '1.25rem', display: 'flex', gap: '1rem' }}>
-                    <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: '50%', background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <AlertCircle size={18} color="#7c3aed" />
-                    </div>
-                    <div>
-                        <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>Zero Conflicts</h4>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>AI ensures no section, teacher, or room is double-booked.</p>
-                    </div>
+                <span style={{ width: '1px', height: '14px', background: 'var(--border)' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    <AlertCircle size={14} style={{ color: '#7c3aed' }} /> 
+                    <span>Zero Conflicts Guaranteed</span>
                 </div>
             </div>
 
+            {/* ═══ Add Entry Modal ═══ */}
             <Modal
                 isOpen={entryModalOpen}
                 onClose={() => setEntryModalOpen(false)}
@@ -2087,6 +2306,7 @@ export function TimetablePage() {
                 </div>
             </Modal>
 
+            {/* ═══ Conflict Resolution Modal ═══ */}
             <Modal
                 isOpen={resolutionModalOpen}
                 onClose={() => setResolutionModalOpen(false)}
@@ -2175,394 +2395,4 @@ export function TimetablePage() {
             </Modal>
         </div>
     )
-}
-
-function DraggableCard({ entry, onDelete, hasConflict, onResolve, batches, sections }: { entry: TimetableEntry; onDelete: () => void; hasConflict?: boolean; onResolve?: () => void; batches: Batch[]; sections: Section[] }) {
-    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-        id: entry.id,
-    });
-
-    const style = {
-        transform: CSS.Translate.toString(transform),
-        opacity: isDragging ? 0 : 1,
-        cursor: 'default',
-    };
-
-    return (
-        <div ref={setNodeRef} style={style} className={`card ${hasConflict ? 'border-danger' : ''}`}>
-            <div
-                style={{
-                    minHeight: '70px',
-                    padding: '0.75rem',
-                    borderLeft: `3px solid ${hasConflict ? '#ef4444' : '#3b82f6'}`,
-                    background: hasConflict ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    position: 'relative',
-                    borderRadius: '0.5rem',
-                    border: '1px solid var(--border)',
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-                }}
-            >
-                <div
-                    {...listeners}
-                    {...attributes}
-                    style={{
-                        position: 'absolute',
-                        top: '0.25rem',
-                        right: '0.25rem',
-                        cursor: 'grab',
-                        color: 'var(--text-muted)',
-                        padding: '2px',
-                        zIndex: 10,
-                        opacity: 0.6,
-                    }}
-                >
-                    <GripVertical size={12} />
-                </div>
-
-                {hasConflict && (
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onResolve?.();
-                        }}
-                        style={{
-                            position: 'absolute',
-                            bottom: '0.25rem',
-                            right: '1.5rem',
-                            background: '#f59e0b',
-                            border: 'none',
-                            borderRadius: '3px',
-                            padding: '1px 4px',
-                            color: 'white',
-                            cursor: 'pointer',
-                            zIndex: 10,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '2px',
-                            fontSize: '0.5625rem',
-                            fontWeight: 600,
-                        }}
-                        title="Find conflict-free slot"
-                    >
-                        <Zap size={8} /> Fix
-                    </button>
-                )}
-
-                <div style={{ paddingRight: '1.5rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
-                        <div
-                            style={{
-                                fontSize: '0.6875rem',
-                                fontWeight: 600,
-                                color: hasConflict ? '#dc2626' : 'var(--text-primary)',
-                                overflow: 'hidden',
-                                whiteSpace: 'nowrap',
-                                textOverflow: 'ellipsis',
-                                maxWidth: '70%',
-                                lineHeight: '1.2',
-                            }}
-                        >
-                            {entry.course?.name}
-                        </div>
-                        <div style={{ display: 'flex', gap: '2px' }}>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onDelete();
-                                }}
-                                style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    padding: '0',
-                                    color: '#ef4444',
-                                    cursor: 'pointer',
-                                    opacity: 0.6,
-                                    fontSize: '0.75rem',
-                                }}
-                                title="Delete entry"
-                            >
-                                <Trash2 size={10} />
-                            </button>
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
-                        {entry.sections?.map((s) => {
-                            const fullSection = sections.find((sec) => sec.id === s.id);
-                            const batch = fullSection ? batches.find((b) => b.id === fullSection.batch_id) : null;
-                            return (
-                                <span
-                                    key={s.id}
-                                    style={{
-                                        fontSize: '0.5625rem',
-                                        padding: '1px 4px',
-                                        background: 'rgba(255, 255, 255, 0.8)',
-                                        border: '1px solid var(--border)',
-                                        borderRadius: '3px',
-                                        color: 'var(--text-secondary)',
-                                        fontWeight: 500,
-                                    }}
-                                >
-                                    {s.name}
-                                    {batch ? ` (${batch.name})` : ''}
-                                </span>
-                            );
-                        })}
-                    </div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', fontSize: '0.5625rem', color: 'var(--text-secondary)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <User size={8} /> {entry.teacher?.name?.split(' ').map((n) => n[0]).join('').toUpperCase()}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <MapPin size={8} /> {entry.room?.name}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function MultiHourCard({ session, onDelete, hasConflict, onResolve, batches, sections }: { session: { entry: TimetableEntry; duration: number; slots: string[] }; onDelete: () => void; hasConflict?: boolean; onResolve?: () => void; batches: Batch[]; sections: Section[] }) {
-    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-        id: session.entry.id,
-    });
-
-    const style = {
-        transform: CSS.Translate.toString(transform),
-        opacity: isDragging ? 0 : 1,
-        cursor: 'default',
-    };
-
-    return (
-        <div ref={setNodeRef} style={style} className={`card ${hasConflict ? 'border-danger' : ''}`}>
-            <div
-                style={{
-                    minHeight: '70px',
-                    padding: '0.75rem',
-                    borderLeft: `3px solid ${hasConflict ? '#ef4444' : '#10b981'}`,
-                    background: hasConflict ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.05)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    position: 'relative',
-                    borderRadius: '0.5rem',
-                    border: '1px solid var(--border)',
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-                }}
-            >
-                <div
-                    {...listeners}
-                    {...attributes}
-                    style={{
-                        position: 'absolute',
-                        top: '0.25rem',
-                        right: '0.25rem',
-                        cursor: 'grab',
-                        color: 'var(--text-muted)',
-                        padding: '2px',
-                        zIndex: 10,
-                        opacity: 0.6,
-                    }}
-                >
-                    <GripVertical size={12} />
-                </div>
-
-                {hasConflict && (
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onResolve?.();
-                        }}
-                        style={{
-                            position: 'absolute',
-                            bottom: '0.25rem',
-                            right: '1.5rem',
-                            background: '#f59e0b',
-                            border: 'none',
-                            borderRadius: '3px',
-                            padding: '1px 4px',
-                            color: 'white',
-                            cursor: 'pointer',
-                            zIndex: 10,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '2px',
-                            fontSize: '0.5625rem',
-                            fontWeight: 600,
-                        }}
-                        title="Find conflict-free slot"
-                    >
-                        <Zap size={8} /> Fix
-                    </button>
-                )}
-
-                <div style={{ paddingRight: '1.5rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
-                        <div
-                            style={{
-                                fontSize: '0.6875rem',
-                                fontWeight: 600,
-                                color: hasConflict ? '#dc2626' : '#059669',
-                                overflow: 'hidden',
-                                whiteSpace: 'nowrap',
-                                textOverflow: 'ellipsis',
-                                maxWidth: '70%',
-                                lineHeight: '1.2',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.25rem',
-                            }}
-                        >
-                            {session.entry.course?.name}
-                            <span
-                                style={{
-                                    fontSize: '0.5625rem',
-                                    padding: '1px 3px',
-                                    background: '#10b981',
-                                    color: 'white',
-                                    borderRadius: '3px',
-                                    fontWeight: 500,
-                                }}
-                            >
-                                {session.duration}h
-                            </span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '2px' }}>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onDelete();
-                                }}
-                                style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    padding: '0',
-                                    color: '#ef4444',
-                                    cursor: 'pointer',
-                                    opacity: 0.6,
-                                    fontSize: '0.75rem',
-                                }}
-                                title="Delete entry"
-                            >
-                                <Trash2 size={10} />
-                            </button>
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
-                        {session.entry.sections?.map((s) => {
-                            const fullSection = sections.find((sec) => sec.id === s.id);
-                            const batch = fullSection ? batches.find((b) => b.id === fullSection.batch_id) : null;
-                            return (
-                                <span
-                                    key={s.id}
-                                    style={{
-                                        fontSize: '0.5625rem',
-                                        padding: '1px 4px',
-                                        background: 'rgba(255, 255, 255, 0.8)',
-                                        border: '1px solid var(--border)',
-                                        borderRadius: '3px',
-                                        color: 'var(--text-secondary)',
-                                        fontWeight: 500,
-                                    }}
-                                >
-                                    {s.name}
-                                    {batch ? ` (${batch.name})` : ''}
-                                </span>
-                            );
-                        })}
-                    </div>
-                    <div style={{ fontSize: '0.5625rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>{session.slots.join(' - ')}</div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', fontSize: '0.5625rem', color: 'var(--text-secondary)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <User size={8} /> {session.entry.teacher?.name?.split(' ').map((n) => n[0]).join('').toUpperCase()}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <MapPin size={8} /> {session.entry.room?.name}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function DroppableCell({ id, children, onAdd, isConflict, multiHourSession }: { id: string; children: React.ReactNode; onAdd: () => void; isConflict?: boolean; multiHourSession?: { entry: TimetableEntry; duration: number; slots: string[] } }) {
-    const { isOver, setNodeRef } = useDroppable({
-        id: id,
-    });
-
-    const style = {
-        width: '100%',
-        height: '100%',
-        minHeight: '80px',
-        background: isOver ? (isConflict ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)') : 'var(--bg)',
-        borderRadius: '0.5rem',
-        transition: 'all 0.2s ease',
-        border: '1px solid var(--border)',
-        position: 'relative' as const,
-        padding: '0.5rem',
-    };
-
-    const childElement = React.isValidElement<{ children?: React.ReactNode }>(children) ? children : null;
-    const hasEntries = React.Children.count(childElement?.props.children) > 0;
-
-    return (
-        <td ref={setNodeRef} colSpan={multiHourSession?.duration} style={{ padding: '0.25rem', backgroundColor: 'var(--bg-main)', verticalAlign: 'top' }}>
-            <div style={style}>
-                {isOver && isConflict && (
-                    <div
-                        style={{
-                            position: 'absolute',
-                            top: '-1.5rem',
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            background: '#ef4444',
-                            color: 'white',
-                            fontSize: '0.625rem',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            whiteSpace: 'nowrap',
-                            zIndex: 20,
-                            fontWeight: 700,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                        }}
-                    >
-                        <AlertCircle size={10} /> Conflict Detected
-                    </div>
-                )}
-                {children}
-                {!hasEntries && !isOver && !multiHourSession && (
-                    <div
-                        onClick={onAdd}
-                        style={{
-                            height: '60px',
-                            border: '1px dashed var(--border)',
-                            borderRadius: '0.5rem',
-                            opacity: 0.4,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease',
-                        }}
-                        onMouseEnter={(e) => {
-                            e.currentTarget.style.opacity = '0.8';
-                            e.currentTarget.style.borderColor = 'var(--primary)';
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.opacity = '0.4';
-                            e.currentTarget.style.borderColor = 'var(--border)';
-                        }}
-                    >
-                        <Plus size={20} />
-                    </div>
-                )}
-            </div>
-        </td>
-    );
 }

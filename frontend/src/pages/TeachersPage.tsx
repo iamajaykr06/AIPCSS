@@ -1,20 +1,17 @@
 import React, { useEffect, useState, useMemo } from 'react'
-import { Plus, Pencil, Trash2, Briefcase, BookOpen, X, Tag, Upload } from 'lucide-react'
+import { Plus, Pencil, Trash2, Briefcase, Upload } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { teacherService, departmentService, courseService } from '@/services/resources.service'
+import { teacherService, departmentService } from '@/services/resources.service'
 import { useToast } from '@/context/useToast'
 import { useTable } from '@/hooks/useTable'
 import { DataTable } from '@/components/common/DataTable'
 import { Modal, ConfirmModal } from '@/components/ui/Modal'
 import { PageLoader, ErrorState } from '@/components/ui/Loading'
 import { BulkImportModal } from '@/components/common/BulkImportModal'
-import { getErrorMessage } from '@/lib/utils'
-import type { Teacher, Department, Course } from '@/types'
-
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-const SLOTS = ['09:00-10:00', '10:00-11:00', '11:00-12:00', '01:00-02:00', '02:00-03:00']
+import { getErrorMessage, DAYS, SLOTS } from '@/lib/utils'
+import type { Teacher, Department } from '@/types'
 
 const schema = z.object({
     name: z.string().min(1, 'Name is required'),

@@ -34,7 +34,7 @@ export function ProgramsPage() {
 
     const table = useTable({ data: programs as any, searchFields: ['name', 'code'] as any, defaultSortKey: 'name' })
 
-    const { register, handleSubmit, reset, formState: { errors }, setValue, watch } = useForm<FormData>({
+    const { register, handleSubmit, reset, formState: { errors }, setValue } = useForm<FormData>({
         resolver: zodResolver(schema) as any,
     })
 

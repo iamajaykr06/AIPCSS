@@ -57,10 +57,11 @@ export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as 
  * These match the backend's default ScheduleSettings.
  */
 export const SLOTS: string[] = [
-    '09:00-10:00',
-    '10:00-11:00',
-    '11:00-12:00',
-    '13:00-14:00',
-    '14:00-15:00',
-    '15:00-16:00',
+    '09:15-10:05',
+    '10:05-11:45',
+    '11:45-12:35',
+    '13:35-14:25',
+    '14:25-15:15',
+    '15:15-16:05',
+    '16:05-16:55',
 ]

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  Settings, Clock, Calendar, Coffee, RotateCcw, Save, Eye, Plus, Trash2,
-  AlertCircle, Check, ChevronRight, Sun, Moon, Timer, LayoutGrid,
+  Settings, Clock, Calendar, Coffee, RotateCcw, Save, Plus, Trash2,
+  AlertCircle, Check, Sun, Timer, LayoutGrid,
   GraduationCap, ArrowRight, Sparkles, X, GripVertical
 } from 'lucide-react'
 import { useToast } from '@/context/useToast'

@@ -140,15 +140,18 @@ def bulk_import_workload():
     
     try:
         df = pd.read_excel(BytesIO(file.read()))
+        # Normalize column names to lowercase for case-insensitive matching
+        df.columns = [str(c).strip().lower() for c in df.columns]
+        
         success = 0
         errors = []
         
         for index, row in df.iterrows():
             try:
-                batch_name = str(row.get('BatchName', '')).strip()
-                section_name = str(row.get('SectionName', '')).strip()
-                course_code = str(row.get('CourseCode', '')).strip()
-                teacher_email = str(row.get('TeacherEmail', '')).strip()
+                batch_name = str(row.get('batchname', '') or row.get('batch_name', '') or row.get('batch', '')).strip()
+                section_name = str(row.get('sectionname', '') or row.get('section_name', '') or row.get('section', '')).strip()
+                course_code = str(row.get('coursecode', '') or row.get('course_code', '') or row.get('course', '')).strip()
+                teacher_email = str(row.get('teacheremail', '') or row.get('teacher_email', '') or row.get('email', '')).strip()
                 
                 if not all([batch_name, section_name, course_code, teacher_email]):
                     raise Exception("Missing required columns: BatchName, SectionName, CourseCode, TeacherEmail")

@@ -244,7 +244,6 @@ class OrtoolsSchedulerEngine:
         #      (AddExactlyOne). This cascades to zero out all other faculty vars.
 
         # Group vars: (sec_id, crs_id) -> {f_id: [BoolVar, ...]}
-        from collections import defaultdict as _dd
         sc_faculty_vars: dict = {}
         for (c_idx, t_idx, r_id, f_id), var in assign.items():
             sec_id, crs_id, _ = classes[c_idx]

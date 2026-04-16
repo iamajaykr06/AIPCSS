@@ -17,6 +17,7 @@ class Teacher(db.Model):
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     phone = db.Column(db.String(20), nullable=True)
+    abbreviation = db.Column(db.String(10), nullable=True)
     availability = db.Column(db.JSON, nullable=True)
     max_hours_per_day = db.Column(db.Integer, nullable=True, default=6)
     max_hours_per_week = db.Column(db.Integer, nullable=True, default=30)

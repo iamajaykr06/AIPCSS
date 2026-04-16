@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { CalendarDays, Mail, Lock, Eye, EyeOff, Sparkles } from 'lucide-react'
+import { CalendarDays, Mail, Lock, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '@/context/useAuth'
 import { useToast } from '@/context/useToast'
 import { getErrorMessage } from '@/lib/utils'
@@ -43,14 +43,13 @@ export function LoginPage() {
         <div style={{
             minHeight: '100vh',
             display: 'flex',
-            background: 'transparent',
+            background: '#ffffff',
         }}>
-            {/* Left panel */}
+            {/* Left panel - 60% */}
             <div style={{
-                flex: '1',
+                flex: '0 0 60%',
                 display: 'none',
-                background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 27, 75, 0.8) 50%, rgba(15, 23, 42, 0.9) 100%)',
-                backdropFilter: 'blur(10px)',
+                background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)',
                 padding: '3rem',
                 flexDirection: 'column',
                 justifyContent: 'space-between',
@@ -59,98 +58,121 @@ export function LoginPage() {
             }}
                 className="lg:flex"
             >
-                {/* Decorative circles */}
+                {/* Decorative geometric shapes */}
                 <div style={{
                     position: 'absolute', width: '600px', height: '600px',
-                    borderRadius: '50%', background: 'rgba(37,99,235,0.08)',
+                    borderRadius: '50%', background: '#ffffff08',
                     top: '-200px', left: '-200px',
                 }} />
                 <div style={{
                     position: 'absolute', width: '400px', height: '400px',
-                    borderRadius: '50%', background: 'rgba(124,58,237,0.08)',
+                    borderRadius: '50%', background: '#ffffff08',
                     bottom: '-100px', right: '-100px',
                 }} />
+                <div style={{
+                    position: 'absolute', width: '200px', height: '200px',
+                    borderRadius: '1rem', background: '#ffffff08',
+                    top: '40%', right: '10%', transform: 'rotate(45deg)',
+                }} />
+                <div style={{
+                    position: 'absolute', width: '120px', height: '120px',
+                    borderRadius: '50%', background: '#ffffff08',
+                    top: '20%', right: '30%',
+                }} />
 
+                {/* Top: Logo */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', position: 'relative' }}>
                     <div style={{
-                        width: '2.5rem', height: '2.5rem', borderRadius: '0.875rem',
-                        background: 'linear-gradient(135deg, #2563eb, #7c3aed)',
+                        width: '2.5rem', height: '2.5rem', borderRadius: '0.75rem',
+                        background: '#4f46e5',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
                         <CalendarDays size={20} color="white" />
                     </div>
-                    <span style={{ color: 'white', fontWeight: 700, fontSize: '1.25rem', fontFamily: 'var(--font-display)' }}>
-                        ClassScheduler
-                    </span>
+                    <div>
+                        <span style={{ color: '#ffffff', fontWeight: 700, fontSize: '1.25rem', fontFamily: 'var(--font-display)' }}>
+                            AIPCSS
+                        </span>
+                        <p style={{ color: 'rgba(148,163,184,0.7)', fontSize: '0.75rem', marginTop: '0.125rem' }}>
+                            Automated Institutional Program Course Scheduling System
+                        </p>
+                    </div>
                 </div>
 
+                {/* Center: Headline and description */}
                 <div style={{ position: 'relative' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
-                        <Sparkles size={16} color="#7c3aed" />
-                        <span style={{ color: '#a78bfa', fontSize: '0.875rem', fontWeight: 500 }}>AI-Powered Scheduling</span>
-                    </div>
                     <h2 style={{
-                        color: 'white', fontSize: '2.5rem', fontWeight: 800,
+                        color: '#ffffff', fontSize: '2.5rem', fontWeight: 800,
                         lineHeight: 1.2, fontFamily: 'var(--font-display)', marginBottom: '1.25rem',
                     }}>
-                        Intelligent<br />
+                        Intelligent{' '}
                         <span style={{
-                            background: 'linear-gradient(135deg, #60a5fa, #a78bfa)',
+                            background: 'linear-gradient(135deg, #818cf8, #c084fc)',
                             WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
                         }}>
-                            Classroom<br />Scheduling
+                            Timetable Generation
                         </span>
                     </h2>
-                    <p style={{ color: 'rgba(148,163,184,0.8)', fontSize: '1rem', lineHeight: 1.7, maxWidth: '340px' }}>
-                        Generate conflict-free timetables automatically. Manage departments, teachers, rooms, and courses with ease.
+                    <p style={{ color: 'rgba(148,163,184,0.7)', fontSize: '1rem', lineHeight: 1.7, maxWidth: '380px' }}>
+                        Generate conflict-free timetables automatically with AI-powered scheduling. Manage departments, teachers, rooms, and courses effortlessly.
                     </p>
 
-                    <div style={{ display: 'flex', gap: '2rem', marginTop: '2.5rem' }}>
+                    <div style={{ display: 'flex', gap: '2.5rem', marginTop: '2.5rem' }}>
                         {[
-                            { label: 'Departments', value: 'Multi' },
-                            { label: 'Constraints', value: 'Smart' },
-                            { label: 'Conflicts', value: 'Zero' },
+                            { label: 'Multi-Department', icon: '🏛' },
+                            { label: 'Smart Constraints', icon: '🧠' },
+                            { label: 'Zero Conflicts', icon: '✓' },
                         ].map(stat => (
-                            <div key={stat.label}>
-                                <p style={{ color: 'white', fontSize: '1.5rem', fontWeight: 800, fontFamily: 'var(--font-display)' }}>
-                                    {stat.value}
-                                </p>
-                                <p style={{ color: 'rgba(148,163,184,0.7)', fontSize: '0.8125rem' }}>{stat.label}</p>
+                            <div key={stat.label} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <div style={{
+                                    width: '2rem', height: '2rem', borderRadius: '0.5rem',
+                                    background: '#fbbf24',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: '0.75rem',
+                                }}>
+                                    {stat.icon}
+                                </div>
+                                <span style={{ color: '#ffffff', fontSize: '0.875rem', fontWeight: 600 }}>
+                                    {stat.label}
+                                </span>
                             </div>
                         ))}
                     </div>
                 </div>
+
+                {/* Bottom spacer */}
+                <div />
             </div>
 
-            {/* Right panel - form */}
+            {/* Right panel - 40% form */}
             <div style={{
                 flex: '1',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: '2rem',
+                background: '#ffffff',
             }}>
-                <div className="card" style={{
+                <div style={{
                     width: '100%',
-                    maxWidth: '430px',
+                    maxWidth: '420px',
                     padding: '2.5rem',
-                    background: 'var(--bg-glass)',
-                    backdropFilter: 'blur(20px)',
-                    WebkitBackdropFilter: 'blur(20px)',
                 }}>
-                    <div style={{ marginBottom: '2rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}
-                            className="lg:hidden"
-                        >
-                            <div style={{
-                                width: '2rem', height: '2rem', borderRadius: '0.625rem',
-                                background: 'linear-gradient(135deg, #2563eb, #7c3aed)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            }}>
-                                <CalendarDays size={16} color="white" />
-                            </div>
-                            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>ClassScheduler</span>
+                    {/* Mobile logo - hidden on desktop */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}
+                        className="lg:hidden"
+                    >
+                        <div style={{
+                            width: '2rem', height: '2rem', borderRadius: '0.625rem',
+                            background: '#4f46e5',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                            <CalendarDays size={16} color="white" />
                         </div>
+                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>AIPCSS</span>
+                    </div>
+
+                    <div style={{ marginBottom: '2rem' }}>
                         <h1 style={{
                             fontSize: '1.75rem', fontWeight: 800,
                             color: 'var(--text-primary)', fontFamily: 'var(--font-display)',
@@ -159,7 +181,7 @@ export function LoginPage() {
                             Welcome back
                         </h1>
                         <p style={{ color: 'var(--text-muted)', fontSize: '0.9375rem' }}>
-                            Sign in to your account to continue
+                            Sign in to your account
                         </p>
                     </div>
 
@@ -219,7 +241,7 @@ export function LoginPage() {
                             type="submit"
                             className="btn btn-primary"
                             disabled={isLoading}
-                            style={{ width: '100%', height: '2.75rem', fontSize: '0.9375rem', marginTop: '0.5rem' }}
+                            style={{ width: '100%', height: '2.75rem', fontSize: '0.9375rem', marginTop: '0.5rem', background: '#4f46e5', borderRadius: '0.5rem' }}
                         >
                             {isLoading ? <Spinner size={18} /> : null}
                             {isLoading ? 'Signing in...' : 'Sign in'}
@@ -228,7 +250,7 @@ export function LoginPage() {
 
                     <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
                         Don&apos;t have an account?{' '}
-                        <Link to="/register" style={{ color: '#3b82f6', fontWeight: 500 }}>
+                        <Link to="/register" style={{ color: '#4f46e5', fontWeight: 600 }}>
                             Create one
                         </Link>
                     </p>

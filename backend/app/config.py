@@ -26,6 +26,8 @@ class Config:
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     CORS_ORIGINS = os.environ.get('CORS_ORIGINS', 'http://localhost:5173,http://localhost:3000').split(',')
+    # Allow Flask to handle URLs with/without trailing slashes (prevents 404 on /api/auth/me/ vs /api/auth/me)
+    JSON_SORT_KEYS = False
 
 class DevelopmentConfig(Config):
     """Development Configuration."""

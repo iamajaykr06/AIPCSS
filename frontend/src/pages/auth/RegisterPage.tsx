@@ -46,36 +46,147 @@ export function RegisterPage() {
 
     return (
         <div style={{
-            minHeight: '100vh', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', background: 'transparent', padding: '2rem',
+            minHeight: '100vh',
+            display: 'flex',
+            background: '#ffffff',
         }}>
-            <div style={{ width: '100%', maxWidth: '420px' }}>
-                {/* Logo */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '2rem', justifyContent: 'center' }}>
+            {/* Left panel - 60% */}
+            <div style={{
+                flex: '0 0 60%',
+                display: 'none',
+                background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)',
+                padding: '3rem',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                position: 'relative',
+                overflow: 'hidden',
+            }}
+                className="lg:flex"
+            >
+                {/* Decorative geometric shapes */}
+                <div style={{
+                    position: 'absolute', width: '600px', height: '600px',
+                    borderRadius: '50%', background: '#ffffff08',
+                    top: '-200px', left: '-200px',
+                }} />
+                <div style={{
+                    position: 'absolute', width: '400px', height: '400px',
+                    borderRadius: '50%', background: '#ffffff08',
+                    bottom: '-100px', right: '-100px',
+                }} />
+                <div style={{
+                    position: 'absolute', width: '180px', height: '180px',
+                    borderRadius: '1rem', background: '#ffffff08',
+                    bottom: '25%', left: '8%', transform: 'rotate(30deg)',
+                }} />
+                <div style={{
+                    position: 'absolute', width: '100px', height: '100px',
+                    borderRadius: '50%', background: '#ffffff08',
+                    top: '15%', left: '35%',
+                }} />
+
+                {/* Top: Logo */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', position: 'relative' }}>
                     <div style={{
-                        width: '2.25rem', height: '2.25rem', borderRadius: '0.75rem',
-                        background: 'linear-gradient(135deg, #2563eb, #7c3aed)',
+                        width: '2.5rem', height: '2.5rem', borderRadius: '0.75rem',
+                        background: '#4f46e5',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
-                        <CalendarDays size={18} color="white" />
+                        <CalendarDays size={20} color="white" />
                     </div>
-                    <span style={{ fontWeight: 700, fontSize: '1.125rem', color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
-                        ClassScheduler
-                    </span>
+                    <div>
+                        <span style={{ color: '#ffffff', fontWeight: 700, fontSize: '1.25rem', fontFamily: 'var(--font-display)' }}>
+                            AIPCSS
+                        </span>
+                        <p style={{ color: 'rgba(148,163,184,0.7)', fontSize: '0.75rem', marginTop: '0.125rem' }}>
+                            Automated Institutional Program Course Scheduling System
+                        </p>
+                    </div>
                 </div>
 
-                <div className="card" style={{
+                {/* Center: Headline and description */}
+                <div style={{ position: 'relative' }}>
+                    <h2 style={{
+                        color: '#ffffff', fontSize: '2.5rem', fontWeight: 800,
+                        lineHeight: 1.2, fontFamily: 'var(--font-display)', marginBottom: '1.25rem',
+                    }}>
+                        Start{' '}
+                        <span style={{
+                            background: 'linear-gradient(135deg, #818cf8, #c084fc)',
+                            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+                        }}>
+                            Scheduling
+                        </span>
+                    </h2>
+                    <p style={{ color: 'rgba(148,163,184,0.7)', fontSize: '1rem', lineHeight: 1.7, maxWidth: '380px' }}>
+                        Create your account and join the intelligent scheduling platform. Streamline your institution&apos;s timetable management with AI-powered automation.
+                    </p>
+
+                    <div style={{ display: 'flex', gap: '2.5rem', marginTop: '2.5rem' }}>
+                        {[
+                            { label: 'Multi-Department', icon: '🏛' },
+                            { label: 'Smart Constraints', icon: '🧠' },
+                            { label: 'Zero Conflicts', icon: '✓' },
+                        ].map(stat => (
+                            <div key={stat.label} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <div style={{
+                                    width: '2rem', height: '2rem', borderRadius: '0.5rem',
+                                    background: '#fbbf24',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: '0.75rem',
+                                }}>
+                                    {stat.icon}
+                                </div>
+                                <span style={{ color: '#ffffff', fontSize: '0.875rem', fontWeight: 600 }}>
+                                    {stat.label}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Bottom spacer */}
+                <div />
+            </div>
+
+            {/* Right panel - 40% form */}
+            <div style={{
+                flex: '1',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '2rem',
+                background: '#ffffff',
+            }}>
+                <div style={{
+                    width: '100%',
+                    maxWidth: '420px',
                     padding: '2.5rem',
-                    background: 'var(--bg-glass)',
-                    backdropFilter: 'blur(20px)',
-                    WebkitBackdropFilter: 'blur(20px)',
                 }}>
-                    <div style={{ marginBottom: '1.75rem' }}>
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'var(--font-display)', marginBottom: '0.4rem' }}>
-                            Create account
+                    {/* Mobile logo - hidden on desktop */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}
+                        className="lg:hidden"
+                    >
+                        <div style={{
+                            width: '2rem', height: '2rem', borderRadius: '0.625rem',
+                            background: '#4f46e5',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                            <CalendarDays size={16} color="white" />
+                        </div>
+                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>AIPCSS</span>
+                    </div>
+
+                    <div style={{ marginBottom: '2rem' }}>
+                        <h1 style={{
+                            fontSize: '1.75rem', fontWeight: 800,
+                            color: 'var(--text-primary)', fontFamily: 'var(--font-display)',
+                            marginBottom: '0.5rem',
+                        }}>
+                            Create your account
                         </h1>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                            Get started with ClassScheduler
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.9375rem' }}>
+                            Get started with AIPCSS
                         </p>
                     </div>
 
@@ -129,7 +240,7 @@ export function RegisterPage() {
                         </div>
 
                         <button type="submit" className="btn btn-primary" disabled={isLoading}
-                            style={{ width: '100%', height: '2.75rem', fontSize: '0.9375rem', marginTop: '0.5rem' }}>
+                            style={{ width: '100%', height: '2.75rem', fontSize: '0.9375rem', marginTop: '0.5rem', background: '#4f46e5', borderRadius: '0.5rem' }}>
                             {isLoading ? <Spinner size={18} /> : null}
                             {isLoading ? 'Creating account...' : 'Create account'}
                         </button>
@@ -137,7 +248,7 @@ export function RegisterPage() {
 
                     <p style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
                         Already have an account?{' '}
-                        <Link to="/login" style={{ color: '#3b82f6', fontWeight: 500 }}>Sign in</Link>
+                        <Link to="/login" style={{ color: '#4f46e5', fontWeight: 600 }}>Sign in</Link>
                     </p>
                 </div>
             </div>

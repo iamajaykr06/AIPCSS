@@ -419,12 +419,12 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
 
                                             const hasConflict = entry.id && conflictIds?.has(entry.id)
 
-                                            const courseCode = entry.course?.code || ''
+                                            const courseName = entry.course?.name || ''
                                             const courseType = isLab ? 'P' : 'T'
                                             const teacherAbbr = entry.teacher?.abbreviation ||
                                                 entry.teacher?.name?.split(' ').map(n => n[0]).join('').toUpperCase() || '?'
-                                            const compactLabel = courseCode
-                                                ? `${courseCode} (${courseType}) - (${teacherAbbr})`
+                                            const compactLabel = courseName
+                                                ? `${courseName} (${courseType}) - (${teacherAbbr})`
                                                 : null
 
                                             return (

@@ -44,6 +44,69 @@ BREAK_BG = (1.0, 1.0, 0.84)  # light yellow
 DAY_HEADER_BG = (0.90, 0.93, 1.0)
 
 
+# ── Font helpers ─────────────────────────────────────────────────────────
+
+def _register_fonts():
+    """
+    Register DejaVu fonts cross-platform (Windows + Linux + macOS).
+    Falls back to built-in Helvetica / Helvetica-Bold if TTF files are not found.
+    Returns a tuple (normal_font, bold_font) with the names actually registered.
+    """
+    import os
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    candidate_dirs = [
+        # Linux
+        '/usr/share/fonts/truetype/dejavu',
+        '/usr/share/fonts/dejavu',
+        '/usr/local/share/fonts',
+        # Windows
+        r'C:\Windows\Fonts',
+        os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'Fonts'),
+        # macOS
+        '/Library/Fonts',
+        '/System/Library/Fonts',
+    ]
+
+    font_files = {
+        'DejaVu':     'DejaVuSans.ttf',
+        'DejaVuBold': 'DejaVuSans-Bold.ttf',
+    }
+
+    already = set(pdfmetrics.getRegisteredFontNames())
+    registered = {}
+
+    for font_key, ttf_name in font_files.items():
+        if font_key in already:
+            registered[font_key] = font_key
+            continue
+
+        found = False
+        for directory in candidate_dirs:
+            full_path = os.path.join(directory, ttf_name)
+            if os.path.isfile(full_path):
+                try:
+                    pdfmetrics.registerFont(TTFont(font_key, full_path))
+                    registered[font_key] = font_key
+                    found = True
+                    break
+                except Exception:
+                    pass
+
+        if not found:
+            # Map to built-in Helvetica so we never crash
+            fallback = 'Helvetica-Bold' if 'Bold' in font_key else 'Helvetica'
+            registered[font_key] = fallback
+
+    return registered.get('DejaVu', 'Helvetica'), registered.get('DejaVuBold', 'Helvetica-Bold')
+
+
+# Module-level font names (resolved once at import time is avoided; resolved per call)
+def _get_fonts():
+    return _register_fonts()
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 def _auto_abbreviation(name: str) -> str:
@@ -56,60 +119,55 @@ def _auto_abbreviation(name: str) -> str:
     return name[:2].upper() if len(name) >= 2 else name.upper()
 
 
-def _register_fonts():
-    """Register DejaVu fonts (safe to call multiple times)."""
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-    pdfmetrics.registerFont(TTFont('DejaVu', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
-    pdfmetrics.registerFont(TTFont('DejaVuBold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
-
-
-def _make_styles():
+def _make_styles(normal_font='Helvetica', bold_font='Helvetica-Bold'):
     """Return a dict of reusable ParagraphStyle objects."""
     from reportlab.lib import colors
     from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
 
     return {
         "title": ParagraphStyle(
-            'CustomTitle', fontName='DejaVuBold', fontSize=14, alignment=1,
+            'CustomTitle', fontName=bold_font, fontSize=14, alignment=1,
             spaceAfter=2 * mm, textColor=colors.black,
         ),
         "subtitle": ParagraphStyle(
-            'CustomSubtitle', fontName='DejaVu', fontSize=9, alignment=1,
+            'CustomSubtitle', fontName=normal_font, fontSize=9, alignment=1,
             spaceAfter=4 * mm, textColor=colors.HexColor("#333333"),
         ),
         "cell": ParagraphStyle(
-            'Cell', fontName='DejaVu', fontSize=5, leading=6.2, alignment=1,
+            'Cell', fontName=normal_font, fontSize=5, leading=6.2, alignment=1,
             spaceBefore=0, spaceAfter=0,
         ),
         "day_header": ParagraphStyle(
-            'DayHeader', fontName='DejaVuBold', fontSize=7, leading=9, alignment=1,
+            'DayHeader', fontName=bold_font, fontSize=7, leading=9, alignment=1,
             textColor=colors.HexColor("#1a1a1a"),
         ),
         "batch_label": ParagraphStyle(
-            'BatchLabel', fontName='DejaVuBold', fontSize=5, leading=7, alignment=1,
+            'BatchLabel', fontName=bold_font, fontSize=5, leading=7, alignment=1,
             textColor=colors.HexColor("#1a1a1a"),
         ),
         "section_title": ParagraphStyle(
-            'SectionTitle', fontName='DejaVuBold', fontSize=9, spaceAfter=2 * mm,
+            'SectionTitle', fontName=bold_font, fontSize=9, spaceAfter=2 * mm,
             spaceBefore=4 * mm,
         ),
         "legend_text": ParagraphStyle(
-            'LegendText', fontName='DejaVu', fontSize=7, leading=9,
+            'LegendText', fontName=normal_font, fontSize=7, leading=9,
         ),
         "signature": ParagraphStyle(
-            'Signature', fontName='DejaVu', fontSize=7, alignment=0,
+            'Signature', fontName=normal_font, fontSize=7, alignment=0,
         ),
     }
 
 
-def _build_course_legend_table(entries, courses, avail_w, styles):
+def _build_course_legend_table(entries, courses, avail_w, styles, normal_font='Helvetica', bold_font='Helvetica-Bold'):
     """
     Build a Course Details legend: Code | Full Name | Type.
     Only includes courses that appear in this department's timetable entries.
     """
     from reportlab.lib import colors
-    from reportlab.platypus import Table, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Table, TableStyle, Paragraph
 
     # Collect unique course ids from entries
     seen_course_ids = set()
@@ -129,11 +187,14 @@ def _build_course_legend_table(entries, courses, avail_w, styles):
     elements = []
     elements.append(Paragraph("<b>Course Details</b>", styles["section_title"]))
 
-    # Header row
+    ch_style = ParagraphStyle('CH', fontName=bold_font, fontSize=6.5, leading=8, alignment=0)
+    ch_right = ParagraphStyle('CHR', fontName=bold_font, fontSize=6.5, leading=8, alignment=1)
+    ct_style = ParagraphStyle('CT', fontName=normal_font, fontSize=7, leading=9, alignment=1)
+
     header = [
-        Paragraph("<b>Code</b>", ParagraphStyle('CH', fontName='DejaVuBold', fontSize=6.5, leading=8, alignment=0)),
-        Paragraph("<b>Course Name</b>", ParagraphStyle('CH', fontName='DejaVuBold', fontSize=6.5, leading=8, alignment=0)),
-        Paragraph("<b>Type</b>", ParagraphStyle('CH', fontName='DejaVuBold', fontSize=6.5, leading=8, alignment=1)),
+        Paragraph("<b>Code</b>", ch_style),
+        Paragraph("<b>Course Name</b>", ch_style),
+        Paragraph("<b>Type</b>", ch_right),
     ]
 
     rows = [header]
@@ -148,16 +209,16 @@ def _build_course_legend_table(entries, courses, avail_w, styles):
         rows.append([
             code_text,
             name_text,
-            Paragraph(ctype, ParagraphStyle('CT', fontName='DejaVu', fontSize=7, leading=9, alignment=1)),
+            Paragraph(ctype, ct_style),
         ])
 
     tbl = Table(rows, colWidths=[code_w, name_w, type_w])
     tbl.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2a3990")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, 0), 'DejaVuBold'),
+        ('FONTNAME', (0, 0), (-1, 0), bold_font),
         ('FONTSIZE', (0, 0), (-1, -1), 7),
-        ('FONTNAME', (0, 1), (-1, -1), 'DejaVu'),
+        ('FONTNAME', (0, 1), (-1, -1), normal_font),
         ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('TOPPADDING', (0, 0), (-1, -1), 2),
@@ -170,13 +231,15 @@ def _build_course_legend_table(entries, courses, avail_w, styles):
     return elements
 
 
-def _build_faculty_legend_table(entries, teachers, avail_w, styles):
+def _build_faculty_legend_table(entries, teachers, avail_w, styles, normal_font='Helvetica', bold_font='Helvetica-Bold'):
     """
     Build a Faculty Details legend: Abbreviation | Full Name.
     Only includes teachers that appear in this department's timetable entries.
     """
     from reportlab.lib import colors
-    from reportlab.platypus import Table, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Table, TableStyle, Paragraph
 
     seen_teacher_ids = set()
     teacher_list = []
@@ -195,11 +258,9 @@ def _build_faculty_legend_table(entries, teachers, avail_w, styles):
     elements = []
     elements.append(Paragraph("<b>Faculty Details</b>", styles["section_title"]))
 
-    # Two-column layout for compactness
-    header_style = ParagraphStyle('FH', fontName='DejaVuBold', fontSize=6.5, leading=8, alignment=0)
+    header_style = ParagraphStyle('FH', fontName=bold_font, fontSize=6.5, leading=8, alignment=0)
     half = (len(teacher_list) + 1) // 2
 
-    # Header row spanning two columns
     header = [
         Paragraph("<b>Abbreviation</b>", header_style),
         Paragraph("<b>Faculty Name</b>", header_style),
@@ -223,13 +284,11 @@ def _build_faculty_legend_table(entries, teachers, avail_w, styles):
 
     tbl = Table(rows, colWidths=[col_w, col_w, col_w, col_w])
     tbl.setStyle(TableStyle([
-        # Header styling
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2a3990")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, 0), 'DejaVuBold'),
-        # Body styling
+        ('FONTNAME', (0, 0), (-1, 0), bold_font),
         ('FONTSIZE', (0, 1), (-1, -1), 7),
-        ('FONTNAME', (0, 1), (-1, -1), 'DejaVu'),
+        ('FONTNAME', (0, 1), (-1, -1), normal_font),
         ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('TOPPADDING', (0, 0), (-1, -1), 2),
@@ -261,6 +320,8 @@ def _build_primary_rooms(grid):
 
 def _build_content_rows(all_slots, working_days, batches, grid, cell_style):
     """Build the timetable content rows (time slot rows with entries)."""
+    from reportlab.platypus import Paragraph
+
     content_rows = []
     num_batches = len(batches)
 
@@ -337,7 +398,7 @@ def _build_table_style_cmds(all_slots, working_days, batches, has_break):
         # Header rows styling
         ('BACKGROUND', (0, 0), (1, 2), colors.HexColor("#2a3990")),
         ('TEXTCOLOR', (0, 0), (1, 2), colors.white),
-        ('FONTNAME', (0, 0), (1, 2), 'DejaVuBold'),
+        ('FONTNAME', (0, 0), (1, 2), 'Helvetica-Bold'),
     ]
 
     # Day header spans
@@ -375,7 +436,7 @@ def _build_table_style_cmds(all_slots, working_days, batches, has_break):
             style_cmds.append(('BACKGROUND', (2, row_num), (-1, row_num), BREAK_BG))
             style_cmds.append(('SPAN', (0, row_num), (1, row_num)))
             style_cmds.append(('ALIGN', (0, row_num), (-1, row_num), 'CENTER'))
-            style_cmds.append(('FONTNAME', (0, row_num), (-1, row_num), 'DejaVuBold'))
+            style_cmds.append(('FONTNAME', (0, row_num), (-1, row_num), 'Helvetica-Bold'))
 
     return style_cmds
 
@@ -489,8 +550,8 @@ def _render_pdf(data, semester_label=""):
     from reportlab.lib.units import mm
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Paragraph
 
-    _register_fonts()
-    styles = _make_styles()
+    normal_font, bold_font = _register_fonts()
+    styles = _make_styles(normal_font, bold_font)
 
     dept = data["department"]
     batches = data["unique_batches"]
@@ -568,14 +629,14 @@ def _render_pdf(data, semester_label=""):
     # ── Course Details Legend ────────────────────────────────────────────
     elements.append(Spacer(1, 6 * mm))
     course_elements = _build_course_legend_table(
-        data["entries"], data["courses"], avail_w, styles,
+        data["entries"], data["courses"], avail_w, styles, normal_font, bold_font,
     )
     elements.extend(course_elements)
 
     # ── Faculty Details Legend ───────────────────────────────────────────
     elements.append(Spacer(1, 4 * mm))
     faculty_elements = _build_faculty_legend_table(
-        data["entries"], data["teachers"], avail_w, styles,
+        data["entries"], data["teachers"], avail_w, styles, normal_font, bold_font,
     )
     elements.extend(faculty_elements)
 
@@ -596,82 +657,98 @@ def _render_pdf(data, semester_label=""):
 # ROUTES
 # ══════════════════════════════════════════════════════════════════════════
 
-@pdf_export_bp.route('/pdf/<int:dept_id>', methods=['GET'])
-@jwt_required()
-def export_department_pdf(dept_id):
-    """Generate and download a PDF timetable for a department."""
-    data = _build_timetable_data(dept_id)
-    if not data:
-        return {"error": "No timetable found for this department"}, 404
+@pdf_export_bp.route('/ping', methods=['GET'])
+def ping():
+    return {"message": "PDF blueprint is reachable"}, 200
 
-    semester_label = request.args.get('semester', ' - ' + data["department"].name)
-    pdf_buf = _render_pdf(data, semester_label)
-
-    safe_name = data["department"].name.replace(" ", "_").replace("/", "-")
-    return send_file(
-        pdf_buf,
-        mimetype='application/pdf',
-        as_attachment=True,
-        download_name=f'Timetable_{safe_name}.pdf',
-    )
-
-
-@pdf_export_bp.route('/pdf/all', methods=['GET'])
+@pdf_export_bp.route('/all', methods=['GET'])
 @jwt_required()
 def export_all_departments_pdf():
     """Generate and download a combined PDF with all department timetables."""
-    from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.platypus import SimpleDocTemplate, PageBreak
+    try:
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate, PageBreak
 
-    _register_fonts()
+        normal_font, bold_font = _register_fonts()
 
-    departments = Department.query.all()
-    if not departments:
-        return {"error": "No departments found"}, 404
+        departments = Department.query.all()
+        if not departments:
+            return {"error": "No departments found"}, 404
 
-    buf = BytesIO()
-    page_w, page_h = landscape(A4)
+        buf = BytesIO()
+        page_w, page_h = landscape(A4)
 
-    doc = SimpleDocTemplate(
-        buf, pagesize=landscape(A4),
-        leftMargin=10 * mm, rightMargin=10 * mm,
-        topMargin=10 * mm, bottomMargin=10 * mm,
-    )
+        doc = SimpleDocTemplate(
+            buf, pagesize=landscape(A4),
+            leftMargin=10 * mm, rightMargin=10 * mm,
+            topMargin=10 * mm, bottomMargin=10 * mm,
+        )
 
-    elements = []
-    first = True
-    for dept in departments:
-        data = _build_timetable_data(dept.id)
+        elements = []
+        first = True
+        for dept in departments:
+            data = _build_timetable_data(dept.id)
+            if not data:
+                continue  # skip depts with no timetable, don't fail
+
+            if not first:
+                elements.append(PageBreak())
+            first = False
+
+            part_elements = _build_department_table(data, page_w, normal_font, bold_font)
+            elements.extend(part_elements)
+
+        if not elements:
+            return {"error": "No timetable has been generated yet. Please generate a timetable first."}, 404
+
+        doc.build(elements)
+        buf.seek(0)
+        return send_file(
+            buf,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name='Timetable_All_Departments.pdf',
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error": f"PDF generation failed: {str(e)}"}, 500
+
+
+@pdf_export_bp.route('/<int:dept_id>', methods=['GET'])
+@jwt_required()
+def export_department_pdf(dept_id):
+    """Generate and download a PDF timetable for a single department."""
+    try:
+        print(f"[PDF] Exporting department ID: {dept_id}")
+        data = _build_timetable_data(dept_id)
         if not data:
-            continue
+            print(f"[PDF] No data found for department ID: {dept_id}")
+            return {"error": "No timetable found for this department. Please generate a timetable first."}, 404
 
-        if not first:
-            elements.append(PageBreak())
-        first = False
+        semester_label = request.args.get('semester', ' - ' + data["department"].name)
+        pdf_buf = _render_pdf(data, semester_label)
 
-        part_elements = _build_department_table(data, page_w)
-        elements.extend(part_elements)
-
-    if not elements:
-        return {"error": "No timetables found for any department"}, 404
-
-    doc.build(elements)
-    buf.seek(0)
-    return send_file(
-        buf,
-        mimetype='application/pdf',
-        as_attachment=True,
-        download_name='Timetable_All_Departments.pdf',
-    )
+        safe_name = data["department"].name.replace(" ", "_").replace("/", "-")
+        return send_file(
+            pdf_buf,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f'Timetable_{safe_name}.pdf',
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error": f"PDF generation failed: {str(e)}"}, 500
 
 
-def _build_department_table(data, page_w):
+def _build_department_table(data, page_w, normal_font='Helvetica', bold_font='Helvetica-Bold'):
     """Build platypus elements for a single department (used in combined PDF)."""
     from reportlab.lib.units import mm
     from reportlab.platypus import Table, TableStyle, Spacer, Paragraph
 
-    _register_fonts()
-    styles = _make_styles()
+    styles = _make_styles(normal_font, bold_font)
 
     dept = data["department"]
     batches = data["unique_batches"]
@@ -740,14 +817,14 @@ def _build_department_table(data, page_w):
     # ── Course Details Legend ────────────────────────────────────────────
     elements.append(Spacer(1, 6 * mm))
     course_elements = _build_course_legend_table(
-        data["entries"], data["courses"], avail_w, styles,
+        data["entries"], data["courses"], avail_w, styles, normal_font, bold_font,
     )
     elements.extend(course_elements)
 
     # ── Faculty Details Legend ───────────────────────────────────────────
     elements.append(Spacer(1, 4 * mm))
     faculty_elements = _build_faculty_legend_table(
-        data["entries"], data["teachers"], avail_w, styles,
+        data["entries"], data["teachers"], avail_w, styles, normal_font, bold_font,
     )
     elements.extend(faculty_elements)
 

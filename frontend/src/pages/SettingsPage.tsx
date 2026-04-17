@@ -294,18 +294,17 @@ export function SettingsPage() {
       <div className="flex flex-wrap gap-2 p-1.5 bg-surface-100/50 dark:bg-surface-800/50 rounded-2xl">
         {[
           { id: 'general', label: 'General', icon: Settings, desc: 'Days & basic config' },
-          { id: 'timeslots', label: 'Time Slots', icon: Clock, desc: 'Class periods' },
           { id: 'breaks', label: 'Breaks', icon: Coffee, desc: 'Rest periods' },
+          { id: 'timeslots', label: 'Time Slots', icon: Clock, desc: 'Class periods' },
           { id: 'preview', label: 'Preview', icon: LayoutGrid, desc: 'Visual overview' },
         ].map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`flex-1 min-w-[140px] flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${
-              activeTab === tab.id
-                ? 'bg-white dark:bg-surface-800 shadow-elevated text-primary-600 dark:text-primary-400'
-                : 'hover:bg-white/50 dark:hover:bg-surface-800/50 text-surface-600 dark:text-surface-400'
-            }`}
+            className={`flex-1 min-w-[140px] flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${activeTab === tab.id
+              ? 'bg-white dark:bg-surface-800 shadow-elevated text-primary-600 dark:text-primary-400'
+              : 'hover:bg-white/50 dark:hover:bg-surface-800/50 text-surface-600 dark:text-surface-400'
+              }`}
           >
             <tab.icon size={18} className={activeTab === tab.id ? 'text-primary-500' : ''} />
             <div className="text-left">
@@ -336,11 +335,10 @@ export function SettingsPage() {
                     <button
                       key={day}
                       onClick={() => toggleWorkingDay(day)}
-                      className={`relative p-4 rounded-xl border-2 transition-all duration-200 flex flex-col items-center gap-2 ${
-                        isSelected
-                          ? `${colors.bg} ${colors.border} ${colors.text} shadow-md`
-                          : 'bg-surface-50 dark:bg-surface-800/50 border-surface-200 dark:border-surface-700 hover:border-surface-300'
-                      }`}
+                      className={`relative p-4 rounded-xl border-2 transition-all duration-200 flex flex-col items-center gap-2 ${isSelected
+                        ? `${colors.bg} ${colors.border} ${colors.text} shadow-md`
+                        : 'bg-surface-50 dark:bg-surface-800/50 border-surface-200 dark:border-surface-700 hover:border-surface-300'
+                        }`}
                     >
                       {isSelected && (
                         <div className="absolute top-1.5 right-1.5">
@@ -660,11 +658,10 @@ export function SettingsPage() {
                       <div className="flex items-center gap-2">
                         <p className="font-semibold text-surface-800 dark:text-surface-200">{brk.label}</p>
                         {brk.type && (
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                            brk.type === 'lunch'
-                              ? 'bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200'
-                              : 'bg-surface-200 dark:bg-surface-700 text-surface-700 dark:text-surface-300'
-                          }`}>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${brk.type === 'lunch'
+                            ? 'bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200'
+                            : 'bg-surface-200 dark:bg-surface-700 text-surface-700 dark:text-surface-300'
+                            }`}>
                             {brk.type}
                           </span>
                         )}
@@ -748,22 +745,20 @@ export function SettingsPage() {
                               <div className="text-xs text-surface-400">{period.end}</div>
                             </td>
                             <td className="p-3">
-                              <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${
-                                isBreak
-                                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
-                                  : 'bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400'
-                              }`}>
+                              <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${isBreak
+                                ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+                                : 'bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400'
+                                }`}>
                                 {isBreak ? <Coffee size={12} /> : <Clock size={12} />}
                                 {isBreak ? period.label : 'Class'}
                               </div>
                             </td>
                             {workingDays.map(day => (
                               <td key={day} className="p-2">
-                                <div className={`h-10 rounded-lg flex items-center justify-center text-xs font-medium ${
-                                  isBreak
-                                    ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-                                    : 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 border border-primary-200 dark:border-primary-800'
-                                }`}>
+                                <div className={`h-10 rounded-lg flex items-center justify-center text-xs font-medium ${isBreak
+                                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                                  : 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 border border-primary-200 dark:border-primary-800'
+                                  }`}>
                                   {isBreak ? '☕' : period.label}
                                 </div>
                               </td>

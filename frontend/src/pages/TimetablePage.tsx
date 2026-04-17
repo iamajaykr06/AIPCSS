@@ -108,7 +108,7 @@ function getBatchColor(batchName: string): { bg: string; text: string; border: s
     }
     return { bg: '#E0E0E0', text: '#000', border: '#999' }
 }
- 
+
 interface BatchTimetableViewProps {
     timetable: TimetableEntry[]
     batches: Batch[]
@@ -166,32 +166,42 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
         return g
     }, [timetable, batches, sections, workingDays, displaySlots])
 
-    // ── Infer the "home room" for each batch (most-used room) ──────────────
-    const batchRooms = useMemo(() => {
-        const counts: Record<string, Record<string, number>> = {}
+    // ── Helper to identify Lab courses consistently ───────────────────────
+    const isLabEntry = (entry: TimetableEntry) => {
+        const type = String(entry.course?.type || '').toLowerCase()
+        const name = String(entry.course?.name || '').toLowerCase()
+        return type === 'lab' || name.includes('lab')
+    }
+
+    // ── Infer the "theory room" for each batch for each day ──────────────
+    const batchDayRooms = useMemo(() => {
+        const result: Record<string, Record<string, string>> = {}
 
         timetable.forEach(entry => {
-            if (!entry.room) return
+            if (!entry.room || isLabEntry(entry)) return
+
             entry.sections?.forEach(section => {
                 const full = sections.find(s => s.id === section.id)
                 if (!full) return
-                const key = String(full.batch_id)
-                counts[key] = counts[key] || {}
-                counts[key][entry.room!.name] = (counts[key][entry.room!.name] || 0) + 1
+                const bKey = String(full.batch_id)
+                const dKey = entry.day
+
+                result[bKey] = result[bKey] || {}
+                // Pick the first theory room found for this batch/day
+                if (!result[bKey][dKey]) {
+                    result[bKey][dKey] = entry.room!.name
+                }
             })
         })
 
-        const result: Record<string, string> = {}
-        Object.entries(counts).forEach(([batchId, rooms]) => {
-            const top = Object.entries(rooms).sort((a, b) => b[1] - a[1])[0]
-            if (top) result[batchId] = top[0]
-        })
         return result
     }, [timetable, sections])
 
+
+
     const sortedBatches = useMemo(() =>
         [...batches].sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name))
-    , [batches])
+        , [batches])
 
     // ── For each (day, batchId) compute per-slot rendering metadata ────────
     const getSlotMeta = (day: string, batchId: string) => {
@@ -215,11 +225,11 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
             let colSpan = 1
 
             if (entry) {
-                const isLabEntry = entry.course?.type === 'Lab' || entry.course?.name?.toLowerCase().includes('lab')
-                if (!isLabEntry) {
+                if (!isLabEntry(entry)) {
                     meta[slot.key] = { entry, colSpan, skip: false }
                     return
                 }
+
                 // Look ahead for consecutive identical course+teacher+room
                 for (let j = i + 1; j < displaySlots.length; j++) {
                     const nextSlot = displaySlots[j]
@@ -266,10 +276,10 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
     const totalCols = displaySlots.length + 1   // +1 for the Program column
 
     return (
-        <div style={{ 
-            overflowX: 'auto', 
-            padding: '1.25rem', 
-            background: 'var(--bg-card)', 
+        <div style={{
+            overflowX: 'auto',
+            padding: '1.25rem',
+            background: 'var(--bg-card)',
             borderRadius: '1rem',
             border: '1px solid var(--border)',
             boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)'
@@ -296,14 +306,25 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                 <thead>
                     <tr>
                         <th style={th('var(--bg)', 'var(--text-muted)', '100px')}>Batch</th>
-                        {displaySlots.map(slot => {
+                        {displaySlots.map((slot, idx) => {
+                            const [start, end] = slot.key.split('-')
                             return (
                                 <th key={slot.key} style={th(slot.isBreak ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg)', slot.isBreak ? '#ef4444' : 'var(--text-primary)')}>
-                                    <div style={{ fontSize: '0.65rem', fontWeight: 600, opacity: 0.7 }}>Slot</div>
-                                    {slot.label}
+                                    <div style={{ fontSize: '0.6rem', fontWeight: 600, opacity: 0.5, marginBottom: '2px' }}>
+                                        {slot.isBreak ? 'BREAK' : `SLOT ${idx + 1}`}
+                                    </div>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: slot.isBreak ? '#ef4444' : 'var(--text-primary)' }}>
+                                        {slot.label === slot.key ? (slot.isBreak ? 'LUNCH' : `Period ${idx + 1}`) : slot.label}
+                                    </div>
+                                    <div style={{ fontSize: '0.625rem', fontWeight: 600, opacity: 0.9, marginTop: '3px', color: 'var(--primary)' }}>
+                                        {start} - {end}
+                                    </div>
                                 </th>
                             )
                         })}
+
+
+
                     </tr>
                 </thead>
 
@@ -361,21 +382,23 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                     {batch.academic_year}
                                                 </div>
                                             )}
-                                            {batchRooms[batchKey] && (
+                                            {batchDayRooms[batchKey]?.[day] && (
                                                 <div style={{
                                                     marginTop: '0.4rem',
-                                                    fontWeight: 600,
-                                                    color: 'var(--primary)',
-                                                    fontSize: '0.625rem',
-                                                    background: 'rgba(59, 130, 246, 0.08)',
-                                                    border: '1px solid rgba(59, 130, 246, 0.15)',
+                                                    fontWeight: 700,
+                                                    color: '#2563eb',
+                                                    fontSize: '0.65rem',
+                                                    background: 'rgba(37, 99, 235, 0.08)',
+                                                    border: '1px solid rgba(37, 99, 235, 0.2)',
                                                     borderRadius: '6px',
-                                                    padding: '2px 6px',
+                                                    padding: '2px 8px',
                                                     display: 'inline-block',
+                                                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                                                 }}>
-                                                    {batchRooms[batchKey]}
+                                                    {batchDayRooms[batchKey][day]}
                                                 </div>
                                             )}
+
                                         </td>
 
                                         {/* Time slot cells */}
@@ -393,8 +416,14 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                         background: 'rgba(0, 0, 0, 0.02)',
                                                         textAlign: 'center',
                                                         verticalAlign: 'middle',
+                                                        color: '#999',
+                                                        fontWeight: 700,
+                                                        fontSize: '0.5rem',
+                                                        letterSpacing: '0.1em'
                                                     }}>
+                                                        LUNCH BREAK
                                                     </td>
+
                                                 )
                                             }
 
@@ -408,8 +437,7 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                 )
                                             }
 
-                                            const isLab = entry.course?.type === 'Lab' ||
-                                                          entry.course?.name?.toLowerCase().includes('lab')
+                                            const isLab = isLabEntry(entry)
                                             const bgColor = getCourseColor(entry.course?.name || '', isLab)
                                             const isMultiSpan = colSpan > 1
 
@@ -423,9 +451,7 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                             const courseType = isLab ? 'P' : 'T'
                                             const teacherAbbr = entry.teacher?.abbreviation ||
                                                 entry.teacher?.name?.split(' ').map(n => n[0]).join('').toUpperCase() || '?'
-                                            const compactLabel = courseName
-                                                ? `${courseName} (${courseType}) - (${teacherAbbr})`
-                                                : null
+                                            const theoryRoomOnHeader = batchDayRooms[batchKey]?.[day]
 
                                             return (
                                                 <td
@@ -433,7 +459,7 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                     colSpan={colSpan}
                                                     title={hasConflict ? `CONFLICT: ${entry.course?.name} has a scheduling clash!` : `${entry.course?.name} | ${entry.teacher?.name} | ${entry.room?.name}`}
                                                     style={{
-                                                        padding: '0.5rem 0.625rem',
+                                                        padding: '0.4rem 0.5rem',
                                                         borderRight: '1px solid var(--border)',
                                                         borderBottom: '1px solid var(--border)',
                                                         background: hasConflict ? 'rgba(239, 68, 68, 0.1)' : bgColor,
@@ -442,7 +468,8 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                         borderLeft: `5px solid ${hasConflict ? '#ef4444' : teacherColor}`,
                                                         boxShadow: hasConflict ? 'inset 0 0 0 1px rgba(239, 68, 68, 0.4)' : 'none',
                                                         cursor: 'pointer',
-                                                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                                                        transition: 'all 0.2s ease',
+                                                        overflow: 'hidden'
                                                     }}
                                                 >
                                                     {isMultiSpan && (
@@ -450,73 +477,74 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                             position: 'absolute',
                                                             top: 2,
                                                             right: 2,
-                                                            background: 'rgba(0,0,0,0.25)',
+                                                            background: 'rgba(0,0,0,0.4)',
                                                             color: '#fff',
                                                             fontSize: '0.45rem',
-                                                            padding: '1px 3px',
+                                                            padding: '1px 4px',
                                                             borderRadius: '3px',
-                                                            fontWeight: 700,
+                                                            fontWeight: 900,
+                                                            zIndex: 2,
                                                         }}>
-                                                            {colSpan}h
+                                                            {colSpan}H
                                                         </span>
                                                     )}
 
-                                                    {compactLabel ? (
-                                                        <div style={{
-                                                            fontWeight: 700,
-                                                            fontSize: '0.5625rem',
-                                                            lineHeight: 1.3,
-                                                            color: '#000',
-                                                            whiteSpace: 'nowrap',
-                                                            overflow: 'hidden',
-                                                            textOverflow: 'ellipsis',
-                                                        }}>
-                                                            {compactLabel}
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            <div style={{
-                                                                fontWeight: 700,
-                                                                fontSize: '0.5625rem',
-                                                                lineHeight: 1.25,
-                                                                marginBottom: '0.15rem',
-                                                                color: '#000',
-                                                                overflow: 'hidden',
-                                                                display: '-webkit-box',
-                                                                WebkitLineClamp: 3,
-                                                                WebkitBoxOrient: 'vertical',
-                                                            }}>
-                                                                {entry.course?.name}
-                                                            </div>
+                                                    <div style={{
+                                                        fontWeight: 900,
+                                                        fontSize: '0.65rem',
+                                                        lineHeight: 1.2,
+                                                        marginBottom: '0.25rem',
+                                                        color: '#000',
+                                                        display: '-webkit-box',
+                                                        WebkitLineClamp: 2,
+                                                        WebkitBoxOrient: 'vertical',
+                                                        overflow: 'hidden',
+                                                        textTransform: 'uppercase'
+                                                    }}>
+                                                        {courseName} ({courseType})
+                                                    </div>
 
-                                                            {entry.teacher?.name && (
-                                                                <div style={{
-                                                                    fontSize: '0.5rem',
-                                                                    color: '#111',
-                                                                    lineHeight: 1.2,
-                                                                    overflow: 'hidden',
-                                                                    display: '-webkit-box',
-                                                                    WebkitLineClamp: 2,
-                                                                    WebkitBoxOrient: 'vertical',
-                                                                }}>
-                                                                    {entry.teacher.name}
-                                                                </div>
-                                                            )}
-                                                        </>
+                                                    {entry.teacher?.name && (
+                                                        <div style={{
+                                                            fontSize: '0.575rem',
+                                                            color: '#111',
+                                                            lineHeight: 1.2,
+                                                            fontWeight: 600,
+                                                            opacity: 0.85
+                                                        }}>
+                                                            ({teacherAbbr})
+                                                        </div>
+                                                    )}
+
+                                                    {(isLab || (entry.room?.name && entry.room.name !== theoryRoomOnHeader)) && (
+                                                        <div style={{
+                                                            fontSize: '0.6rem',
+                                                            color: isLab ? '#dc2626' : '#1d4ed8',
+                                                            fontWeight: 900,
+                                                            marginTop: '0.3rem',
+                                                            background: isLab ? 'rgba(220, 38, 38, 0.05)' : 'rgba(29, 78, 216, 0.05)',
+                                                            padding: '1px 4px',
+                                                            borderRadius: '3px',
+                                                            display: 'inline-block',
+                                                            border: `1px solid ${isLab ? 'rgba(220, 38, 38, 0.15)' : 'rgba(29, 78, 216, 0.15)'}`
+                                                        }}>
+                                                            [{entry.room?.name}]
+                                                        </div>
                                                     )}
 
                                                     {(entry.sections?.length ?? 0) > 1 && (
                                                         <div style={{
                                                             fontSize: '0.45rem',
-                                                            color: '#333',
-                                                            marginTop: '2px',
-                                                            fontStyle: 'italic',
+                                                            color: '#666',
+                                                            marginTop: '3px',
+                                                            fontWeight: 500
                                                         }}>
                                                             {entry.sections?.map(s => s.name).join(' & ')}
                                                         </div>
                                                     )}
                                                 </td>
                                             )
+
                                         })}
                                     </tr>
                                 )
@@ -795,10 +823,10 @@ export function TimetablePage() {
             if (targetDept === 'all') {
                 const res: any = await schedulingService.generateAllTimetables({})
                 const results = res.results || []
-                
+
                 const totalCreated = results.reduce((sum: number, r: any) => sum + (r.entries_created || 0), 0)
                 const totalSkipped = results.reduce((sum: number, r: any) => sum + (r.incomplete_workloads?.length || 0), 0)
-                
+
                 const combinedResult: GenerateScheduleResult = {
                     status: totalSkipped > 0 ? 'partial_success' : 'success',
                     entries_created: totalCreated,
@@ -807,7 +835,7 @@ export function TimetablePage() {
                     message: res.message || `Generated ${totalCreated} entries across all departments.`
                 }
                 setGenerationResult(combinedResult)
-                
+
                 if (combinedResult.status === 'partial_success' || totalSkipped > 0) {
                     toast('warning', 'Generated with warnings', `Created ${totalCreated} entries, ${totalSkipped} workloads incomplete.`)
                 } else {
@@ -907,7 +935,7 @@ export function TimetablePage() {
             toast('error', 'No department selected', 'Please select a department first.')
             return
         }
-        
+
         if (selectedDeptId === 'all') {
             if (!window.confirm('Are you sure you want to clear the entire timetable for ALL departments?')) return
             try {
@@ -1072,7 +1100,7 @@ export function TimetablePage() {
             const deptProgramIds = new Set(deptPrograms.map(p => p.id))
             const deptBatchIds = new Set(batches.filter(b => deptProgramIds.has(b.program_id)).map(b => b.id))
             const deptSectionIds = new Set(readiness.sections.filter(s => deptBatchIds.has(s.batch_id)).map(s => s.id))
-            
+
             items = items.filter(entry =>
                 entry.sections?.some(sec => deptSectionIds.has(sec.id))
             )
@@ -1498,9 +1526,9 @@ export function TimetablePage() {
             {/* ═══ Action Bar: Generate All + Department-wise + Export + Clear ═══ */}
             <div className="tt-action-bar">
                 {/* Generate All Departments - primary action */}
-                <button 
+                <button
                     className={`btn btn-sm tt-btn-primary`}
-                    onClick={() => handleGenerate('all')} 
+                    onClick={() => handleGenerate('all')}
                     disabled={generating || readinessLoading || readiness.blockers.length > 0}
                     style={{ padding: '0.5rem 1.25rem', borderRadius: '0.75rem' }}
                 >
@@ -1513,7 +1541,7 @@ export function TimetablePage() {
                     <div className="tt-filter-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '0.5rem' }}>
                         <select
                             value={selectedDeptId === 'all' ? '' : (selectedDeptId ?? '')}
-                            onChange={e => { 
+                            onChange={e => {
                                 const val = e.target.value ? Number(e.target.value) : null
                                 setSelectedDeptId(val || 'all')
                             }}
@@ -1526,12 +1554,12 @@ export function TimetablePage() {
                                 <option key={d.id} value={d.id}>{d.name}</option>
                             ))}
                         </select>
-                        <button 
+                        <button
                             className={`btn btn-sm tt-btn-secondary-gen`}
                             onClick={() => {
                                 if (selectedDeptId && selectedDeptId !== 'all') handleGenerate(selectedDeptId)
                                 else toast('info', 'Select a department', 'Choose a department from the dropdown to generate its timetable.')
-                            }} 
+                            }}
                             disabled={generating || !selectedDeptId || selectedDeptId === 'all' || readinessLoading || readiness.blockers.length > 0}
                             style={{ padding: '0.5rem 1rem', borderRadius: '0.75rem', whiteSpace: 'nowrap' }}
                         >
@@ -1761,91 +1789,91 @@ export function TimetablePage() {
                         border: `1px solid ${readinessTone.border}`,
                     }}
                 >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                    <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginBottom: '0.5rem' }}>
-                            <span
-                                style={{
-                                    fontSize: '0.75rem',
-                                    fontWeight: 700,
-                                    color: readinessTone.color,
-                                    background: readinessTone.bg,
-                                    border: `1px solid ${readinessTone.border}`,
-                                    borderRadius: '999px',
-                                    padding: '0.25rem 0.625rem',
-                                }}
-                            >
-                                {readinessTone.label}
-                            </span>
-                            {readinessLoading && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Checking resources...</span>}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                        <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginBottom: '0.5rem' }}>
+                                <span
+                                    style={{
+                                        fontSize: '0.75rem',
+                                        fontWeight: 700,
+                                        color: readinessTone.color,
+                                        background: readinessTone.bg,
+                                        border: `1px solid ${readinessTone.border}`,
+                                        borderRadius: '999px',
+                                        padding: '0.25rem 0.625rem',
+                                    }}
+                                >
+                                    {readinessTone.label}
+                                </span>
+                                {readinessLoading && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Checking resources...</span>}
+                            </div>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Generation readiness</h3>
+                            <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: '0.35rem', maxWidth: '680px' }}>
+                                Before generating, make sure this department has sections, courses, rooms, and teachers. This panel highlights the common setup gaps that usually cause weak or incomplete timetables.
+                            </p>
                         </div>
-                        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Generation readiness</h3>
-                        <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: '0.35rem', maxWidth: '680px' }}>
-                            Before generating, make sure this department has sections, courses, rooms, and teachers. This panel highlights the common setup gaps that usually cause weak or incomplete timetables.
-                        </p>
                     </div>
-                </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem' }}>
-                    {[
-                        { label: 'Sections', value: readiness.sections.length, tone: '#2563eb' },
-                        { label: 'Courses', value: readiness.courses.length, tone: '#7c3aed' },
-                        { label: 'Rooms', value: readiness.rooms.length, tone: '#059669' },
-                        { label: 'Teachers', value: readiness.teachers.length, tone: '#d97706' },
-                        { label: 'Batches', value: batches.length, tone: '#0891b2' },
-                    ].map(item => (
-                        <div key={item.label} className="card" style={{ padding: '0.9rem', background: 'var(--bg-card)' }}>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>{item.label}</div>
-                            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: item.tone }}>{item.value}</div>
-                        </div>
-                    ))}
-                </div>
-
-                {readiness.blockers.length > 0 ? (
-                    <div style={{ display: 'grid', gap: '0.5rem' }}>
-                        {readiness.blockers.map(message => (
-                            <div
-                                key={message}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    gap: '0.625rem',
-                                    padding: '0.875rem 1rem',
-                                    borderRadius: '0.75rem',
-                                    background: 'rgba(239, 68, 68, 0.08)',
-                                    color: '#b91c1c',
-                                    border: '1px solid rgba(239, 68, 68, 0.12)',
-                                }}
-                            >
-                                <AlertCircle size={16} style={{ marginTop: '0.1rem', flexShrink: 0 }} />
-                                <span style={{ fontSize: '0.8125rem', fontWeight: 500 }}>{message}</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem' }}>
+                        {[
+                            { label: 'Sections', value: readiness.sections.length, tone: '#2563eb' },
+                            { label: 'Courses', value: readiness.courses.length, tone: '#7c3aed' },
+                            { label: 'Rooms', value: readiness.rooms.length, tone: '#059669' },
+                            { label: 'Teachers', value: readiness.teachers.length, tone: '#d97706' },
+                            { label: 'Batches', value: batches.length, tone: '#0891b2' },
+                        ].map(item => (
+                            <div key={item.label} className="card" style={{ padding: '0.9rem', background: 'var(--bg-card)' }}>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>{item.label}</div>
+                                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: item.tone }}>{item.value}</div>
                             </div>
                         ))}
                     </div>
-                ) : null}
 
-                {readiness.warnings.length > 0 ? (
-                    <div style={{ display: 'grid', gap: '0.5rem' }}>
-                        {readiness.warnings.map(message => (
-                            <div
-                                key={message}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    gap: '0.625rem',
-                                    padding: '0.875rem 1rem',
-                                    borderRadius: '0.75rem',
-                                    background: 'rgba(245, 158, 11, 0.08)',
-                                    color: '#b45309',
-                                    border: '1px solid rgba(245, 158, 11, 0.12)',
-                                }}
-                            >
-                                <Info size={16} style={{ marginTop: '0.1rem', flexShrink: 0 }} />
-                                <span style={{ fontSize: '0.8125rem', fontWeight: 500 }}>{message}</span>
-                            </div>
-                        ))}
-                    </div>
-                ) : null}
+                    {readiness.blockers.length > 0 ? (
+                        <div style={{ display: 'grid', gap: '0.5rem' }}>
+                            {readiness.blockers.map(message => (
+                                <div
+                                    key={message}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'flex-start',
+                                        gap: '0.625rem',
+                                        padding: '0.875rem 1rem',
+                                        borderRadius: '0.75rem',
+                                        background: 'rgba(239, 68, 68, 0.08)',
+                                        color: '#b91c1c',
+                                        border: '1px solid rgba(239, 68, 68, 0.12)',
+                                    }}
+                                >
+                                    <AlertCircle size={16} style={{ marginTop: '0.1rem', flexShrink: 0 }} />
+                                    <span style={{ fontSize: '0.8125rem', fontWeight: 500 }}>{message}</span>
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
+
+                    {readiness.warnings.length > 0 ? (
+                        <div style={{ display: 'grid', gap: '0.5rem' }}>
+                            {readiness.warnings.map(message => (
+                                <div
+                                    key={message}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'flex-start',
+                                        gap: '0.625rem',
+                                        padding: '0.875rem 1rem',
+                                        borderRadius: '0.75rem',
+                                        background: 'rgba(245, 158, 11, 0.08)',
+                                        color: '#b45309',
+                                        border: '1px solid rgba(245, 158, 11, 0.12)',
+                                    }}
+                                >
+                                    <Info size={16} style={{ marginTop: '0.1rem', flexShrink: 0 }} />
+                                    <span style={{ fontSize: '0.8125rem', fontWeight: 500 }}>{message}</span>
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
                 </div>
             )}
 
@@ -2060,14 +2088,14 @@ export function TimetablePage() {
                             <EmptyState
                                 icon={<Calendar size={48} />}
                                 title="No timetable found"
-                                 description={
+                                description={
                                     readiness.blockers.length > 0
                                         ? 'Finish the blocked setup items above, then generate the timetable.'
                                         : 'Click "Generate All Departments" to create timetables for the entire university at once, or select a specific department and generate department-wise.'
                                 }
                                 action={
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', marginTop: '1.5rem' }}>
-                                        <button className="btn btn-primary btn-lg" onClick={() => handleGenerate('all')} disabled={generationDisabled} style={{ 
+                                        <button className="btn btn-primary btn-lg" onClick={() => handleGenerate('all')} disabled={generationDisabled} style={{
                                             background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
                                             boxShadow: '0 4px 16px rgba(79, 70, 229, 0.35)',
                                             padding: '0.875rem 2rem',
@@ -2107,8 +2135,8 @@ export function TimetablePage() {
             {/* ═══ Faculty Tab ═══ */}
             {activeTab === 'Faculty' && (
                 <div style={{ animation: 'fadeIn 0.5s ease-out' }}>
-                    <div style={{ 
-                        padding: '0.5rem 0', 
+                    <div style={{
+                        padding: '0.5rem 0',
                         marginBottom: '1.5rem',
                         display: 'flex',
                         alignItems: 'baseline',
@@ -2120,18 +2148,18 @@ export function TimetablePage() {
                         </span>
                     </div>
 
-                    <div style={{ 
-                        display: 'grid', 
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
                         gap: '1.25rem'
                     }}>
                         {teacherLegend.map((teacher) => {
                             const tColor = getTeacherColor(teacher.fullName);
                             return (
-                                <div 
-                                    key={teacher.id} 
+                                <div
+                                    key={teacher.id}
                                     className="card teacher-card"
-                                    style={{ 
+                                    style={{
                                         padding: '1rem',
                                         display: 'flex',
                                         alignItems: 'center',
@@ -2146,11 +2174,11 @@ export function TimetablePage() {
                                         overflow: 'hidden'
                                     }}
                                 >
-                                    <div style={{ 
-                                        width: '3rem', 
-                                        height: '3rem', 
-                                        borderRadius: '12px', 
-                                        background: tColor, 
+                                    <div style={{
+                                        width: '3rem',
+                                        height: '3rem',
+                                        borderRadius: '12px',
+                                        background: tColor,
                                         color: '#000',
                                         display: 'flex',
                                         alignItems: 'center',
@@ -2163,9 +2191,9 @@ export function TimetablePage() {
                                         {teacher.shortName || teacher.fullName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
                                     </div>
                                     <div style={{ flex: 1, minWidth: 0, zIndex: 1 }}>
-                                        <div style={{ 
-                                            fontSize: '0.9375rem', 
-                                            fontWeight: 700, 
+                                        <div style={{
+                                            fontSize: '0.9375rem',
+                                            fontWeight: 700,
                                             color: 'var(--text-primary)',
                                             overflow: 'hidden',
                                             textOverflow: 'ellipsis',
@@ -2177,12 +2205,12 @@ export function TimetablePage() {
                                             Faculty ID: #{teacher.id}
                                         </div>
                                     </div>
-                                    <div style={{ 
-                                        position: 'absolute', 
-                                        top: 0, 
-                                        bottom: 0, 
-                                        left: 0, 
-                                        width: '4px', 
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        bottom: 0,
+                                        left: 0,
+                                        width: '4px',
                                         background: tColor,
                                         opacity: 0.8
                                     }} />
@@ -2194,28 +2222,28 @@ export function TimetablePage() {
             )}
 
             {/* ═══ Constraints footer ═══ */}
-            <div style={{ 
-                display: 'flex', 
-                gap: '1.5rem', 
-                padding: '0.875rem 1.25rem', 
-                background: 'var(--bg-card)', 
-                borderRadius: 'var(--radius-xl)', 
+            <div style={{
+                display: 'flex',
+                gap: '1.5rem',
+                padding: '0.875rem 1.25rem',
+                background: 'var(--bg-card)',
+                borderRadius: 'var(--radius-xl)',
                 border: '1px solid var(--border)',
                 alignItems: 'center',
                 flexWrap: 'wrap'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    <Info size={14} style={{ color: '#3b82f6' }} /> 
+                    <Info size={14} style={{ color: '#3b82f6' }} />
                     <span>Teacher Availability</span>
                 </div>
                 <span style={{ width: '1px', height: '14px', background: 'var(--border)' }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    <MapPin size={14} style={{ color: '#10b981' }} /> 
+                    <MapPin size={14} style={{ color: '#10b981' }} />
                     <span>Room Optimization</span>
                 </div>
                 <span style={{ width: '1px', height: '14px', background: 'var(--border)' }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    <AlertCircle size={14} style={{ color: '#7c3aed' }} /> 
+                    <AlertCircle size={14} style={{ color: '#7c3aed' }} />
                     <span>Zero Conflicts Guaranteed</span>
                 </div>
             </div>
@@ -2339,10 +2367,10 @@ export function TimetablePage() {
                                             const hasConf = timetable.some((e: TimetableEntry) => {
                                                 if (e.id === suggestingEntry.id) return false;
                                                 if (e.day !== d || e.timeslot !== s) return false;
-                                                
+
                                                 const teacherConflict = e.teacher?.id === suggestingEntry.teacher?.id;
                                                 const roomConflict = e.room?.id === suggestingEntry.room?.id;
-                                                const sectionConflict = e.sections?.some(as => 
+                                                const sectionConflict = e.sections?.some(as =>
                                                     suggestingEntry.sections?.some(es => es.id === as.id)
                                                 );
 

@@ -497,7 +497,7 @@ export function SettingsPage() {
                       className="input w-full"
                     />
                   </div>
-                  <div className="flex-[2] min-w-[180px]">
+                  <div className="flex-2 min-w-[180px]">
                     <label className="text-xs font-medium text-surface-600 dark:text-surface-400 block mb-1">Label</label>
                     <input
                       type="text"
@@ -602,7 +602,7 @@ export function SettingsPage() {
                       className="input w-full"
                     />
                   </div>
-                  <div className="flex-[2] min-w-[160px]">
+                  <div className="flex-2 min-w-[160px]">
                     <label className="text-xs font-medium text-surface-600 dark:text-surface-400 block mb-1">Label</label>
                     <input
                       type="text"

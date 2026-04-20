@@ -129,6 +129,36 @@ def update_schedule_settings():
     if errors:
         return jsonify({'error': 'Validation failed', 'details': errors}), 422
 
+    # Sanitize time_slots: remove any slots that overlap with breaks
+    if settings.time_slots and settings.breaks:
+        valid_slots = []
+        for ts in settings.time_slots:
+            ts_start = ts.get('start')
+            ts_end = ts.get('end')
+            if not ts_start or not ts_end:
+                continue
+                
+            overlap = False
+            for brk in settings.breaks:
+                b_start = brk.get('start')
+                b_end = brk.get('end')
+                if not b_start or not b_end:
+                    continue
+                if (ts_start >= b_start and ts_start < b_end) or \
+                   (ts_end > b_start and ts_end <= b_end) or \
+                   (ts_start <= b_start and ts_end >= b_end):
+                    overlap = True
+                    break
+            
+            if not overlap:
+                valid_slots.append(ts)
+        
+        # Renumber the remaining valid slots sequentially
+        for i, slot in enumerate(valid_slots):
+            slot['label'] = f'Period {i + 1}'
+            
+        settings.time_slots = valid_slots
+
     db.session.commit()
     return jsonify({
         'message': 'Schedule settings updated',
@@ -191,10 +221,35 @@ def preview_schedule():
         slots = []
         current = start_time
         slot_num = 1
+        
+        # Sort breaks by start time
+        sorted_breaks = sorted(breaks, key=lambda x: x.get('start', ''))
+        
         while current < end_time:
             slot_end = time_add_minutes(current, slot_duration)
             if slot_end > end_time:
                 break
+            
+            # Check if this slot overlaps with any break
+            overlap_break = None
+            for b in sorted_breaks:
+                b_start = b.get('start')
+                b_end = b.get('end')
+                if not b_start or not b_end:
+                    continue
+                
+                # Check for any kind of overlap
+                if (current >= b_start and current < b_end) or \
+                   (slot_end > b_start and slot_end <= b_end) or \
+                   (current <= b_start and slot_end >= b_end):
+                    overlap_break = b
+                    break
+            
+            if overlap_break:
+                # Move to the end of the break and try again
+                current = overlap_break.get('end')
+                continue
+
             slots.append({
                 'start': current,
                 'end': slot_end,

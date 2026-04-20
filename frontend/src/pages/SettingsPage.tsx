@@ -187,10 +187,30 @@ export function SettingsPage() {
       return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
     }
 
+    // Sort breaks to handle them in order
+    const sortedBreaks = [...breaks].sort((a, b) => a.start.localeCompare(b.start))
+    const breakTimes = sortedBreaks.map(b => ({
+      start: timeToMinutes(b.start),
+      end: timeToMinutes(b.end)
+    }))
+
     let currentMinutes = timeToMinutes(startTime)
     const endMinutes = timeToMinutes(endTime)
 
     while (currentMinutes + slotDuration <= endMinutes) {
+      // Check if current time is inside or overlaps any break
+      const activeBreak = breakTimes.find(b => 
+        (currentMinutes >= b.start && currentMinutes < b.end) || // Start is inside a break
+        (currentMinutes + slotDuration > b.start && currentMinutes + slotDuration <= b.end) || // End is inside a break
+        (currentMinutes <= b.start && currentMinutes + slotDuration >= b.end) // Slot spans across a break
+      )
+      
+      if (activeBreak) {
+        // If there's an overlap, move to the end of the break and continue
+        currentMinutes = activeBreak.end
+        continue
+      }
+
       const start = minutesToTime(currentMinutes)
       const end = minutesToTime(currentMinutes + slotDuration)
       slots.push({ start, end, label: `Period ${slotNum}` })
@@ -199,7 +219,7 @@ export function SettingsPage() {
     }
 
     setTimeSlots(slots)
-    toast('success', `Generated ${slots.length} time slots`)
+    toast('success', `Generated ${slots.length} time slots (aligned with breaks)`)
   }
 
   if (loading) {

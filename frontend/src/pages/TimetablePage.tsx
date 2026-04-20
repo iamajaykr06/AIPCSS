@@ -115,7 +115,7 @@ interface BatchTimetableViewProps {
     sections: Section[]
     teachers: Teacher[]
     workingDays: string[]
-    displaySlots: Array<{ key: string; label: string; isBreak: boolean }>
+    displaySlots: Array<{ key: string; label: string; isBreak: boolean; start: string; end: string; periodNumber: number }>
     onDelete: (id: number) => void
     conflictIds?: Set<number>
 }
@@ -214,12 +214,13 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                 return
             }
 
+            let entries: TimetableEntry[] = []
             if (slot.isBreak) {
-                meta[slot.key] = { entry: null, colSpan: 1, skip: false }
-                return
+                const overlapKey = `${slot.start}-${slot.end}`
+                entries = grid[day]?.[batchId]?.[overlapKey] || []
+            } else {
+                entries = grid[day]?.[batchId]?.[slot.key] || []
             }
-
-            const entries = grid[day]?.[batchId]?.[slot.key] || []
             const entry = entries[0] || null
 
             let colSpan = 1
@@ -306,15 +307,17 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                 <thead>
                     <tr>
                         <th style={th('var(--bg)', 'var(--text-muted)', '100px')}>Batch</th>
-                        {displaySlots.map((slot, idx) => {
-                            const [start, end] = slot.key.split('-')
+                        {displaySlots.map((slot) => {
+                            const { start, end } = slot
                             return (
                                 <th key={slot.key} style={th(slot.isBreak ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg)', slot.isBreak ? '#ef4444' : 'var(--text-primary)')}>
                                     <div style={{ fontSize: '0.6rem', fontWeight: 600, opacity: 0.5, marginBottom: '2px' }}>
-                                        {slot.isBreak ? 'BREAK' : `SLOT ${idx + 1}`}
+                                        {slot.isBreak ? 'BREAK' : `SLOT ${slot.periodNumber}`}
                                     </div>
                                     <div style={{ fontSize: '0.75rem', fontWeight: 800, color: slot.isBreak ? '#ef4444' : 'var(--text-primary)' }}>
-                                        {slot.label === slot.key ? (slot.isBreak ? 'LUNCH' : `Period ${idx + 1}`) : slot.label}
+                                        {slot.isBreak 
+                                            ? (slot.label && slot.label !== slot.key ? slot.label : 'LUNCH') 
+                                            : `Period ${slot.periodNumber}`}
                                     </div>
                                     <div style={{ fontSize: '0.625rem', fontWeight: 600, opacity: 0.9, marginTop: '3px', color: 'var(--primary)' }}>
                                         {start} - {end}
@@ -408,7 +411,7 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
 
                                             const isBreakSlot = slot.isBreak
 
-                                            if (isBreakSlot) {
+                                            if (isBreakSlot && !entry) {
                                                 return (
                                                     <td key={slot.key} style={{
                                                         borderRight: '1px solid var(--border)',
@@ -419,13 +422,20 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                         color: '#999',
                                                         fontWeight: 700,
                                                         fontSize: '0.5rem',
-                                                        letterSpacing: '0.1em'
+                                                        letterSpacing: '0.05em'
                                                     }}>
-                                                        LUNCH BREAK
+                                                        <div style={{ fontSize: '0.6rem' }}>
+                                                            {slot.label && slot.label !== slot.key ? slot.label : 'BREAK'}
+                                                        </div>
+                                                        <div style={{ fontSize: '0.45rem', opacity: 0.8, marginTop: '2px', fontWeight: 600 }}>
+                                                            {slot.start} - {slot.end}
+                                                        </div>
                                                     </td>
-
                                                 )
                                             }
+                                            
+                                            // Highlight illegal entries in break slots
+                                            const isIllegalBreakAssignment = isBreakSlot && entry;
 
                                             if (!entry) {
                                                 return (
@@ -452,26 +462,42 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                             const teacherAbbr = entry.teacher?.abbreviation ||
                                                 entry.teacher?.name?.split(' ').map(n => n[0]).join('').toUpperCase() || '?'
                                             const theoryRoomOnHeader = batchDayRooms[batchKey]?.[day]
+                                            const breakLabel = isIllegalBreakAssignment ? (slot.label && slot.label !== slot.key ? slot.label : 'LUNCH').toUpperCase() : '';
 
                                             return (
                                                 <td
                                                     key={slot.key}
                                                     colSpan={colSpan}
-                                                    title={hasConflict ? `CONFLICT: ${entry.course?.name} has a scheduling clash!` : `${entry.course?.name} | ${entry.teacher?.name} | ${entry.room?.name}`}
+                                                    title={hasConflict || isIllegalBreakAssignment ? `CONFLICT: ${courseName} scheduled during ${breakLabel || 'break'}!` : `${courseName} | ${entry.teacher?.name} | ${entry.room?.name}`}
                                                     style={{
                                                         padding: '0.4rem 0.5rem',
                                                         borderRight: '1px solid var(--border)',
                                                         borderBottom: '1px solid var(--border)',
-                                                        background: hasConflict ? 'rgba(239, 68, 68, 0.1)' : bgColor,
+                                                        background: (hasConflict || isIllegalBreakAssignment) ? 'rgba(239, 68, 68, 0.1)' : bgColor,
                                                         verticalAlign: 'top',
                                                         position: 'relative',
-                                                        borderLeft: `5px solid ${hasConflict ? '#ef4444' : teacherColor}`,
-                                                        boxShadow: hasConflict ? 'inset 0 0 0 1px rgba(239, 68, 68, 0.4)' : 'none',
+                                                        borderLeft: `5px solid ${(hasConflict || isIllegalBreakAssignment) ? '#ef4444' : teacherColor}`,
+                                                        boxShadow: (hasConflict || isIllegalBreakAssignment) ? 'inset 0 0 0 2px #ef4444' : 'none',
                                                         cursor: 'pointer',
                                                         transition: 'all 0.2s ease',
                                                         overflow: 'hidden'
                                                     }}
                                                 >
+                                                    {isIllegalBreakAssignment && (
+                                                        <div style={{
+                                                            fontSize: '0.55rem',
+                                                            fontWeight: 900,
+                                                            color: '#ef4444',
+                                                            marginBottom: '4px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '3px',
+                                                            textTransform: 'uppercase'
+                                                        }}>
+                                                            <AlertCircle size={10} />
+                                                            {breakLabel} CONFLICT
+                                                        </div>
+                                                    )}
                                                     {isMultiSpan && (
                                                         <span style={{
                                                             position: 'absolute',
@@ -608,16 +634,27 @@ export function TimetablePage() {
     const [activeId, setActiveId] = useState<number | null>(null)
 
     const displaySlots = useMemo(() => {
-        const teaching = timeSlots.map(slot => {
-            const [start, end] = slot.split('-')
-            return { key: slot, label: slot, isBreak: false, start, end }
-        })
+        // Parse breaks for overlap detection
+        const breakLines = (breaks || []).map(b => ({ start: b.start, end: b.end }))
+
+        const teaching = timeSlots
+            .filter(slot => {
+                const [s, e] = slot.split('-')
+                // Exclude teaching slot if it's actually a break
+                return !breakLines.some(b => (s >= b.start && s < b.end) || (e > b.start && e <= b.end) || (s <= b.start && e >= b.end))
+            })
+            .map((slot, index) => {
+                const [start, end] = slot.split('-')
+                return { key: slot, label: slot, isBreak: false, start, end, periodNumber: index + 1 }
+            })
+
         const pauseSlots = (breaks || []).map((item, index) => ({
             key: `break-${item.start}-${item.end}-${index}`,
             label: item.label || `${item.start}-${item.end}`,
             isBreak: true,
             start: item.start,
             end: item.end,
+            periodNumber: 0
         }))
 
         return [...teaching, ...pauseSlots].sort((left, right) => left.start.localeCompare(right.start))

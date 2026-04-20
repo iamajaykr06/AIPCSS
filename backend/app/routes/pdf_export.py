@@ -522,6 +522,18 @@ def _build_timetable_data(dept_id: int, program_id=None, batch_id=None, section_
     breaks = settings.breaks or []
     all_slots = []
     for ts in time_slots:
+        # Exclude teaching slot if it overlaps with a break
+        overlap = False
+        for br in breaks:
+            if (ts["start"] >= br["start"] and ts["start"] < br["end"]) or \
+               (ts["end"] > br["start"] and ts["end"] <= br["end"]) or \
+               (ts["start"] <= br["start"] and ts["end"] >= br["end"]):
+                overlap = True
+                break
+                
+        if overlap:
+            continue
+
         all_slots.append({
             "key": f"{ts['start']}-{ts['end']}",
             "label": ts.get("label", f"{ts['start']}-{ts['end']}"),
@@ -537,6 +549,9 @@ def _build_timetable_data(dept_id: int, program_id=None, batch_id=None, section_
             "end": br["end"],
             "is_break": True,
         })
+
+    # SORT SLOTS BY START TIME (otherwise breaks will be at the end)
+    all_slots.sort(key=lambda x: x["start"])
 
     return {
         "department": dept,
@@ -592,13 +607,19 @@ def _render_pdf(data, semester_label=""):
     # Columns: [BATCH, SLOT1, SLOT2, ...]
     header_row = [Paragraph("<b>BATCH / TIME</b>", styles["day_header"])]
     for slot in all_slots:
-        # Show both slot label (e.g. Period 1) and actual time
         time_str = f"{slot['start']}-{slot['end']}"
         label = slot['label']
-        if label and label != time_str:
-            slot_label = f"<b>{label}</b><br/><font size='7' color='#475569'>{time_str}</font>"
+        
+        if slot['is_break']:
+            # For breaks, just show the label (e.g. LUNCH) and time
+            display_label = label.upper()
+            slot_label = f"<b>{display_label}</b><br/><font size='7' color='#475569'>{time_str}</font>"
         else:
-            slot_label = f"<b>{time_str}</b>"
+            # For periods, show "SLOT X" and time
+            # Convert "Period 1" to "SLOT 1" if needed
+            display_label = label.upper().replace("PERIOD", "SLOT")
+            slot_label = f"<b>{display_label}</b><br/><font size='7' color='#475569'>{time_str}</font>"
+            
         header_row.append(Paragraph(slot_label, styles["day_header"]))
 
 
@@ -643,22 +664,39 @@ def _render_pdf(data, semester_label=""):
             row = [Paragraph(batch_label_txt, styles["batch_label"])]
             
             for slot_info in all_slots:
-                if slot_info["is_break"]:
-                    row.append(Paragraph("<b>LUNCH BREAK</b>", styles["cell"]))
-                    style_cmds.append(('BACKGROUND', (len(row)-1, current_row), (len(row)-1, current_row), colors.HexColor("#fff7ed")))
+                is_break = slot_info["is_break"]
+                
+                search_key = slot_info["key"]
+                if is_break:
+                    search_key = f"{slot_info['start']}-{slot_info['end']}"
+                    
+                entries_list = grid.get(day, {}).get(search_key, {}).get(batch.id, [])
+
+                if is_break and not entries_list:
+                    label_txt = slot_info["label"].upper() if slot_info["label"].upper() != "BREAK" else "LUNCH"
+                    row.append(Paragraph(f"<b>{label_txt}</b><br/><font size='4'>{slot_info['start']}-{slot_info['end']}</font>", styles["cell"]))
+                    # Use the defined BREAK_BG
+                    from reportlab.lib import colors
+                    style_cmds.append(('BACKGROUND', (len(row)-1, current_row), (len(row)-1, current_row), colors.Color(*BREAK_BG)))
                     continue
 
-                entries_list = grid[day][slot_info["key"]].get(batch.id, [])
                 if not entries_list:
                     row.append("")
                     continue
 
                 entry = entries_list[0]
+                # Highlighting logic for PDF export - if scheduled in a break, use a red tint
+                is_illegal = is_break
                 course_name = entry["course"].name if entry["course"] else "Course"
                 teacher_abbr = entry["teacher"].abbreviation or _auto_abbreviation(entry["teacher"].name) if entry["teacher"] else "?"
                 ctype = "P" if entry["is_lab"] else "T"
                 
                 cell_txt = f"<b>{course_name}</b> ({ctype})<br/>({teacher_abbr})"
+                
+                if is_illegal:
+                    # Explicitly show that this is a break conflict
+                    l_txt = slot_info["label"].upper() if slot_info["label"].upper() != "BREAK" else "LUNCH"
+                    cell_txt = f"<font color='#b91c1c' size='5'><b>{l_txt} CONFLICT</b></font><br/>{cell_txt}"
                 
                 # Rule: Lab room always shows in cell. Theory room only shows if it differs from batch header room.
                 if entry["is_lab"] and entry["room"]:
@@ -669,7 +707,11 @@ def _render_pdf(data, semester_label=""):
                 row.append(Paragraph(cell_txt, styles["cell"]))
                 
                 # Color coding background
-                bg_color = colors.HexColor("#f0fdf4") if entry["is_lab"] else colors.HexColor("#eff6ff")
+                if is_illegal:
+                    bg_color = colors.HexColor("#fee2e2") # Light red for illegal break assignment
+                else:
+                    bg_color = colors.HexColor("#f0fdf4") if entry["is_lab"] else colors.HexColor("#eff6ff")
+                
                 style_cmds.append(('BACKGROUND', (len(row)-1, current_row), (len(row)-1, current_row), bg_color))
 
             table_data.append(row)
@@ -818,7 +860,15 @@ def _build_department_table(data, page_w, normal_font='Helvetica', bold_font='He
     # Header Row
     header_row = [Paragraph("<b>BATCH</b>", styles["day_header"])]
     for slot in all_slots:
-        header_row.append(Paragraph(f"<b>SLOT</b><br/>{slot['label']}", styles["day_header"]))
+        time_str = f"{slot['start']}-{slot['end']}"
+        label = slot['label']
+        if slot['is_break']:
+            display_label = label.upper()
+        else:
+            display_label = label.upper().replace("PERIOD", "SLOT")
+            
+        slot_label = f"<b>{display_label}</b><br/><font size='5' color='#475569'>{time_str}</font>"
+        header_row.append(Paragraph(slot_label, styles["day_header"]))
 
     table_data = [header_row]
     style_cmds = [
@@ -839,16 +889,26 @@ def _build_department_table(data, page_w, normal_font='Helvetica', bold_font='He
         for batch in batches:
             row = [Paragraph(f"<b>{batch.name}</b>", styles["batch_label"])]
             for slot_info in all_slots:
-                if slot_info["is_break"]:
-                    row.append(Paragraph("LUNCH", styles["cell"]))
+                is_break = slot_info["is_break"]
+                
+                search_key = slot_info["key"]
+                if is_break:
+                    search_key = f"{slot_info['start']}-{slot_info['end']}"
+                    
+                entries = grid.get(day, {}).get(search_key, {}).get(batch.id, [])
+
+                if is_break and not entries:
+                    label_txt = slot_info["label"].upper() if slot_info["label"].upper() != "BREAK" else "LUNCH"
+                    row.append(Paragraph(f"<b>{label_txt}</b><br/><font size='4'>{slot_info['start']}-{slot_info['end']}</font>", styles["cell"]))
+                    style_cmds.append(('BACKGROUND', (len(row)-1, current_row), (len(row)-1, current_row), colors.Color(*BREAK_BG)))
                     continue
                     
-                entries = grid[day][slot_info["key"]].get(batch.id, [])
                 if not entries:
                     row.append("")
                     continue
                     
                 entry = entries[0]
+                is_illegal = is_break
                 teacher_abbr = entry["teacher"].abbreviation or _auto_abbreviation(entry["teacher"].name) if entry["teacher"] else "?"
                 cell_txt = f"<b>{entry['course'].name if entry['course'] else 'Course'}</b> ({teacher_abbr})"
                 row.append(Paragraph(cell_txt, styles["cell"]))

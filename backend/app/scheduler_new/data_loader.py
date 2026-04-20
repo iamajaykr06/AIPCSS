@@ -3,12 +3,15 @@ DataLoader - Loads scheduling data from SQLAlchemy models
 """
 
 import re
-from typing import List, Optional, Dict, Set, Tuple
+from typing import List, Optional, Dict, Set, Tuple, TYPE_CHECKING
 from collections import defaultdict
 from sqlalchemy.orm import joinedload
 from .. import db
 from ..models import Teacher, Course, Section, Room, ScheduleSettings, Batch, Program, WorkloadAllocation, TimetableEntry
 from .models import Faculty, Room as SchedulerRoom, Course as SchedulerCourse, Section as SchedulerSection, Timeslot
+
+if TYPE_CHECKING:
+    from .models import SchedulingProblem
 
 
 class DataLoader:
@@ -315,17 +318,44 @@ class DataLoader:
         return section_list, workload_map
     
     def load_timeslots(self) -> List[Timeslot]:
-        """Generate timeslots from settings"""
+        """Generate timeslots from settings, excluding break times."""
         timeslots = []
         
+        # Parse breaks to check for overlaps
+        breaks_list = []
+        for b in (self.settings.breaks or []):
+            try:
+                b_start = b.get('start')
+                b_end = b.get('end')
+                if b_start and b_end:
+                    breaks_list.append((b_start, b_end))
+            except:
+                continue
+
+        def is_break(start, end):
+            for b_start, b_end in breaks_list:
+                # Check for any overlap
+                if (start >= b_start and start < b_end) or \
+                   (end > b_start and end <= b_end) or \
+                   (start <= b_start and end >= b_end):
+                    return True
+            return False
+
         if self.settings.time_slots:
             for slot in self.settings.time_slots:
+                s_start = slot['start']
+                s_end = slot['end']
+                
+                # Only include slots that are NOT breaks
+                if is_break(s_start, s_end):
+                    continue
+
                 for day in self.settings.working_days:
                     timeslots.append(Timeslot(
                         day=day,
-                        start_time=slot['start'],
-                        end_time=slot['end'],
-                        slot_id=f"{day}_{slot['start']}"
+                        start_time=s_start,
+                        end_time=s_end,
+                        slot_id=f"{day}_{s_start}"
                     ))
         else:
             # Default timeslots if settings not configured
@@ -343,6 +373,8 @@ class DataLoader:
             
             for day in default_days:
                 for start, end in default_slots:
+                    if is_break(start, end):
+                        continue
                     timeslots.append(Timeslot(
                         day=day,
                         start_time=start,
@@ -354,7 +386,7 @@ class DataLoader:
     
     def load_problem(self) -> 'SchedulingProblem':
         """Load complete scheduling problem"""
-        from .models import SchedulingProblem
+        from .models import SchedulingProblem # Keep local import for runtime to avoid circularity
         
         sections, workload_map = self.load_sections()
         

@@ -649,6 +649,8 @@ def _render_pdf(data, semester_label=""):
             # Determine the theory room used by this batch on this specific day
             day_theory_room = None
             day_slots = grid.get(day, {})
+            
+            # First pass: try to find a theory room
             for slot_key, batch_entries in day_slots.items():
                 entries = batch_entries.get(batch.id, [])
                 for e in entries:
@@ -656,10 +658,20 @@ def _render_pdf(data, semester_label=""):
                         day_theory_room = e["room"].name
                         break
                 if day_theory_room: break
+                
+            # Second pass: fallback to any room (e.g., lab room) if no theory room found
+            if not day_theory_room:
+                for slot_key, batch_entries in day_slots.items():
+                    entries = batch_entries.get(batch.id, [])
+                    for e in entries:
+                        if e["room"]:
+                            day_theory_room = e["room"].name
+                            break
+                    if day_theory_room: break
 
             batch_label_txt = f"<b>{batch.name}</b>"
             if day_theory_room:
-                batch_label_txt += f"<br/><font color='#1e40af' size='4'>[{day_theory_room}]</font>"
+                batch_label_txt += f"<br/><font color='#1e40af' size='4'>{day_theory_room}</font>"
                 
             row = [Paragraph(batch_label_txt, styles["batch_label"])]
             
@@ -700,9 +712,9 @@ def _render_pdf(data, semester_label=""):
                 
                 # Rule: Lab room always shows in cell. Theory room only shows if it differs from batch header room.
                 if entry["is_lab"] and entry["room"]:
-                    cell_txt += f"<br/><font color='#b91c1c'>[{entry['room'].name}]</font>"
+                    cell_txt += f"<br/><font color='#b91c1c'>{entry['room'].name}</font>"
                 elif entry["room"] and entry["room"].name != day_theory_room:
-                    cell_txt += f"<br/>[{entry['room'].name}]"
+                    cell_txt += f"<br/>{entry['room'].name}"
                 
                 row.append(Paragraph(cell_txt, styles["cell"]))
                 
@@ -887,7 +899,35 @@ def _build_department_table(data, page_w, normal_font='Helvetica', bold_font='He
         current_row += 1
 
         for batch in batches:
-            row = [Paragraph(f"<b>{batch.name}</b>", styles["batch_label"])]
+            # Determine the theory room used by this batch on this specific day
+            day_theory_room = None
+            day_slots = grid.get(day, {})
+            
+            # First pass: try to find a theory room
+            for slot_key, batch_entries in day_slots.items():
+                entries = batch_entries.get(batch.id, [])
+                for e in entries:
+                    if not e["is_lab"] and e["room"]:
+                        day_theory_room = e["room"].name
+                        break
+                if day_theory_room: break
+                
+            # Second pass: fallback to any room (e.g., lab room) if no theory room found
+            if not day_theory_room:
+                for slot_key, batch_entries in day_slots.items():
+                    entries = batch_entries.get(batch.id, [])
+                    for e in entries:
+                        if e["room"]:
+                            day_theory_room = e["room"].name
+                            break
+                    if day_theory_room: break
+
+            batch_label_txt = f"<b>{batch.name}</b>"
+            if day_theory_room:
+                batch_label_txt += f"<br/><font color='#1e40af' size='4'>{day_theory_room}</font>"
+                
+            row = [Paragraph(batch_label_txt, styles["batch_label"])]
+            
             for slot_info in all_slots:
                 is_break = slot_info["is_break"]
                 
@@ -909,11 +949,29 @@ def _build_department_table(data, page_w, normal_font='Helvetica', bold_font='He
                     
                 entry = entries[0]
                 is_illegal = is_break
+                course_name = entry["course"].name if entry["course"] else "Course"
                 teacher_abbr = entry["teacher"].abbreviation or _auto_abbreviation(entry["teacher"].name) if entry["teacher"] else "?"
-                cell_txt = f"<b>{entry['course'].name if entry['course'] else 'Course'}</b> ({teacher_abbr})"
+                ctype = "P" if entry["is_lab"] else "T"
+                
+                cell_txt = f"<b>{course_name}</b> ({ctype})<br/>({teacher_abbr})"
+                
+                if is_illegal:
+                    # Explicitly show that this is a break conflict
+                    l_txt = slot_info["label"].upper() if slot_info["label"].upper() != "BREAK" else "LUNCH"
+                    cell_txt = f"<font color='#b91c1c' size='5'><b>{l_txt} CONFLICT</b></font><br/>{cell_txt}"
+                
+                # Rule: Lab room always shows in cell. Theory room only shows if it differs from batch header room.
+                if entry["is_lab"] and entry["room"]:
+                    cell_txt += f"<br/><font color='#b91c1c'>{entry['room'].name}</font>"
+                elif entry["room"] and entry["room"].name != day_theory_room:
+                    cell_txt += f"<br/>{entry['room'].name}"
+                
                 row.append(Paragraph(cell_txt, styles["cell"]))
                 
-                bg_color = colors.HexColor("#f0fdf4") if entry["is_lab"] else colors.HexColor("#eff6ff")
+                if is_illegal:
+                    bg_color = colors.HexColor("#fee2e2")
+                else:
+                    bg_color = colors.HexColor("#f0fdf4") if entry["is_lab"] else colors.HexColor("#eff6ff")
                 style_cmds.append(('BACKGROUND', (len(row)-1, current_row), (len(row)-1, current_row), bg_color))
 
             table_data.append(row)

@@ -49,8 +49,10 @@ export function SectionsPage() {
     const [importModalOpen, setImportModalOpen] = useState(false)
     const { toast } = useToast()
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const table = useTable({ data: sections as any, searchFields: ['name'], defaultSortKey: 'name' })
     const { register, handleSubmit, reset, formState: { errors }, setValue } = useForm<FormData>({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         resolver: zodResolver(schema) as any,
     })
 
@@ -171,6 +173,7 @@ export function SectionsPage() {
                             }
                         },
                     ]}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     data={table.paginated as any}
                     search={table.search}
                     onSearch={table.setSearch}
@@ -204,7 +207,7 @@ export function SectionsPage() {
                     </>
                 }
             >
-                <form id="section-form" onSubmit={handleSubmit(onSubmit as any)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <form id="section-form" onSubmit={handleSubmit(onSubmit as (data: FormData) => Promise<void>)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div className="form-group">
                         <label className="label">Section Name</label>
                         <input {...register('name')} className={`input ${errors.name ? 'input-error' : ''}`} placeholder="e.g. Section A" />

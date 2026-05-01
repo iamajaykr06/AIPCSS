@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { Check, ClipboardList, Search, User, UserPlus, X, GraduationCap as BatchIcon, Filter, ArrowLeft, Upload, Zap, RefreshCw } from 'lucide-react'
 import { sectionService, workloadService, departmentService, teacherService } from '@/services/resources.service'
 import { useToast } from '@/context/useToast'
-import { PageLoader, ErrorState } from '@/components/ui/Loading'
+import { PageLoader } from '@/components/ui/Loading'
 import { BulkImportModal } from '@/components/common/BulkImportModal'
 import type { Section, Department, Teacher } from '@/types'
 
@@ -64,7 +64,7 @@ export function WorkloadPage() {
     const [importModalOpen, setImportModalOpen] = useState(false)
 
     // ── Load initial data ──────────────────────────────────────────────────────
-    async function loadResources() {
+    const loadResources = useCallback(async () => {
         setLoading(true)
         try {
             const [secsRes, deptsRes, teachersRes] = await Promise.all([
@@ -75,16 +75,16 @@ export function WorkloadPage() {
             setSections(secsRes.data)
             setDepartments(deptsRes.data)
             setAllTeachers(teachersRes.data)
-        } catch (err) {
+        } catch {
             toast('error', 'Failed to load resources')
         } finally {
             setLoading(false)
         }
-    }
+    }, [toast])
 
     useEffect(() => {
         loadResources()
-    }, [])
+    }, [loadResources])
 
     // ── Load workload for selected section ─────────────────────────────────────
     useEffect(() => {
@@ -100,14 +100,14 @@ export function WorkloadPage() {
                 const data = await workloadService.getSectionWorkload(selectedSectionId!)
                 setWorkloadData(data)
                 setViewMode('mapping')
-            } catch (err) {
+            } catch {
                 toast('error', 'Failed to fetch workload assignments')
             } finally {
                 setLoadingWorkload(false)
             }
         }
         fetchWorkload()
-    }, [selectedSectionId])
+    }, [selectedSectionId, toast])
 
     // ── Filtered sections ──────────────────────────────────────────────────────
     const filteredSections = useMemo(() => {
@@ -132,7 +132,7 @@ export function WorkloadPage() {
             // Refresh local data
             const data = await workloadService.getSectionWorkload(selectedSectionId)
             setWorkloadData(data)
-        } catch (err) {
+        } catch {
             toast('error', 'Assignment failed')
         }
     }
@@ -145,7 +145,7 @@ export function WorkloadPage() {
             // Refresh
             const data = await workloadService.getSectionWorkload(selectedSectionId)
             setWorkloadData(data)
-        } catch (err) {
+        } catch {
             toast('error', 'Failed to remove assignment')
         }
     }
@@ -157,7 +157,7 @@ export function WorkloadPage() {
             const res = await workloadService.autoAssignAll()
             toast('success', res.message)
             await loadResources()
-        } catch (err) {
+        } catch {
             toast('error', 'Auto-assignment failed')
         } finally {
             setLoading(false)
@@ -171,7 +171,7 @@ export function WorkloadPage() {
             const res = await workloadService.rebalanceAll()
             toast('success', res.message || 'Workload rebalanced successfully')
             await loadResources()
-        } catch (err) {
+        } catch {
             toast('error', 'Rebalance failed')
         } finally {
             setLoading(false)

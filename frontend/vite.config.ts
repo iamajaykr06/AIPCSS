@@ -30,11 +30,11 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
         // Suppress proxy errors when backend is not running
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
             console.warn('[Vite Proxy] Socket.IO proxy error (backend may not be running):', err.message)
           })
-          proxy.on('proxyReqWs', (proxyReq, _req, socket) => {
+          proxy.on('proxyReqWs', (_proxyReq, _req, socket) => {
             socket.on('error', (err) => {
               console.warn('[Vite Proxy] WebSocket error:', err.message)
             })

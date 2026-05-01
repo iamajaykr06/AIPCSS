@@ -19,11 +19,12 @@ limitations under the License.
 # Using threading mode for SocketIO instead.
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from app import create_app, socketio
 
 app = create_app()
 
-if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
+if __name__ == "__main__":
+    socketio.run(app, host="0.0.0.0", port=5000, debug=False, allow_unsafe_werkzeug=True)

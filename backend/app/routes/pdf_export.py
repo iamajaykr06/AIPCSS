@@ -34,12 +34,18 @@ from io import BytesIO
 from collections import defaultdict
 
 from ..models import (
-    Teacher, Course, Section, Room, TimetableEntry,
-    Department, ScheduleSettings, Program, Batch,
+    Teacher,
+    Course,
+    Section,
+    Room,
+    TimetableEntry,
+    Department,
+    ScheduleSettings,
+    Batch,
 )
 from .. import db
 
-pdf_export_bp = Blueprint('pdf_export', __name__)
+pdf_export_bp = Blueprint("pdf_export", __name__)
 
 # ── Colour palette (matching the manual PDF style) ────────────────────────
 
@@ -62,6 +68,7 @@ DAY_HEADER_BG = (0.90, 0.93, 1.0)
 
 # ── Font helpers ─────────────────────────────────────────────────────────
 
+
 def _register_fonts():
     """
     Register DejaVu fonts cross-platform (Windows + Linux + macOS).
@@ -74,20 +81,20 @@ def _register_fonts():
 
     candidate_dirs = [
         # Linux
-        '/usr/share/fonts/truetype/dejavu',
-        '/usr/share/fonts/dejavu',
-        '/usr/local/share/fonts',
+        "/usr/share/fonts/truetype/dejavu",
+        "/usr/share/fonts/dejavu",
+        "/usr/local/share/fonts",
         # Windows
-        r'C:\Windows\Fonts',
-        os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'Fonts'),
+        r"C:\Windows\Fonts",
+        os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"),
         # macOS
-        '/Library/Fonts',
-        '/System/Library/Fonts',
+        "/Library/Fonts",
+        "/System/Library/Fonts",
     ]
 
     font_files = {
-        'DejaVu':     'DejaVuSans.ttf',
-        'DejaVuBold': 'DejaVuSans-Bold.ttf',
+        "DejaVu": "DejaVuSans.ttf",
+        "DejaVuBold": "DejaVuSans-Bold.ttf",
     }
 
     already = set(pdfmetrics.getRegisteredFontNames())
@@ -112,10 +119,10 @@ def _register_fonts():
 
         if not found:
             # Map to built-in Helvetica so we never crash
-            fallback = 'Helvetica-Bold' if 'Bold' in font_key else 'Helvetica'
+            fallback = "Helvetica-Bold" if "Bold" in font_key else "Helvetica"
             registered[font_key] = fallback
 
-    return registered.get('DejaVu', 'Helvetica'), registered.get('DejaVuBold', 'Helvetica-Bold')
+    return registered.get("DejaVu", "Helvetica"), registered.get("DejaVuBold", "Helvetica-Bold")
 
 
 # Module-level font names (resolved once at import time is avoided; resolved per call)
@@ -124,6 +131,7 @@ def _get_fonts():
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+
 
 def _auto_abbreviation(name: str) -> str:
     """Create initials-based abbreviation when none is set."""
@@ -135,7 +143,7 @@ def _auto_abbreviation(name: str) -> str:
     return name[:2].upper() if len(name) >= 2 else name.upper()
 
 
-def _make_styles(normal_font='Helvetica', bold_font='Helvetica-Bold'):
+def _make_styles(normal_font="Helvetica", bold_font="Helvetica-Bold"):
     """Return a dict of reusable ParagraphStyle objects."""
     from reportlab.lib import colors
     from reportlab.lib.styles import ParagraphStyle
@@ -143,41 +151,70 @@ def _make_styles(normal_font='Helvetica', bold_font='Helvetica-Bold'):
 
     return {
         "title": ParagraphStyle(
-            'CustomTitle', fontName=bold_font, fontSize=14, alignment=1,
-            spaceAfter=2 * mm, textColor=colors.black,
+            "CustomTitle",
+            fontName=bold_font,
+            fontSize=14,
+            alignment=1,
+            spaceAfter=2 * mm,
+            textColor=colors.black,
         ),
         "subtitle": ParagraphStyle(
-            'CustomSubtitle', fontName=normal_font, fontSize=9, alignment=1,
-            spaceAfter=4 * mm, textColor=colors.HexColor("#333333"),
+            "CustomSubtitle",
+            fontName=normal_font,
+            fontSize=9,
+            alignment=1,
+            spaceAfter=4 * mm,
+            textColor=colors.HexColor("#333333"),
         ),
         "cell": ParagraphStyle(
-            'Cell', fontName=normal_font, fontSize=5, leading=6.2, alignment=1,
-            spaceBefore=0, spaceAfter=0,
+            "Cell",
+            fontName=normal_font,
+            fontSize=5,
+            leading=6.2,
+            alignment=1,
+            spaceBefore=0,
+            spaceAfter=0,
         ),
         "day_header": ParagraphStyle(
-            'DayHeader', fontName=bold_font, fontSize=7, leading=9, alignment=1,
+            "DayHeader",
+            fontName=bold_font,
+            fontSize=7,
+            leading=9,
+            alignment=1,
             textColor=colors.HexColor("#1a1a1a"),
         ),
         "batch_label": ParagraphStyle(
-            'BatchLabel', fontName=bold_font, fontSize=5, leading=7, alignment=1,
+            "BatchLabel",
+            fontName=bold_font,
+            fontSize=5,
+            leading=7,
+            alignment=1,
             textColor=colors.HexColor("#1a1a1a"),
         ),
         "section_title": ParagraphStyle(
-            'SectionTitle', fontName=bold_font, fontSize=9, spaceAfter=2 * mm,
+            "SectionTitle",
+            fontName=bold_font,
+            fontSize=9,
+            spaceAfter=2 * mm,
             spaceBefore=4 * mm,
         ),
         "legend_text": ParagraphStyle(
-            'LegendText', fontName=normal_font, fontSize=7, leading=9,
+            "LegendText",
+            fontName=normal_font,
+            fontSize=7,
+            leading=9,
         ),
         "signature": ParagraphStyle(
-            'Signature', fontName=normal_font, fontSize=9, alignment=0,
+            "Signature",
+            fontName=normal_font,
+            fontSize=9,
+            alignment=0,
             spaceBefore=10 * mm,
         ),
     }
 
 
-
-def _build_course_legend_table(entries, courses, avail_w, styles, normal_font='Helvetica', bold_font='Helvetica-Bold'):
+def _build_course_legend_table(entries, courses, avail_w, styles, normal_font="Helvetica", bold_font="Helvetica-Bold"):
     """
     Build a Course Details legend: Code | Full Name | Type.
     Only includes courses that appear in this department's timetable entries.
@@ -205,9 +242,9 @@ def _build_course_legend_table(entries, courses, avail_w, styles, normal_font='H
     elements = []
     elements.append(Paragraph("<b>Course Details</b>", styles["section_title"]))
 
-    ch_style = ParagraphStyle('CH', fontName=bold_font, fontSize=6.5, leading=8, alignment=0)
-    ch_right = ParagraphStyle('CHR', fontName=bold_font, fontSize=6.5, leading=8, alignment=1)
-    ct_style = ParagraphStyle('CT', fontName=normal_font, fontSize=7, leading=9, alignment=1)
+    ch_style = ParagraphStyle("CH", fontName=bold_font, fontSize=6.5, leading=8, alignment=0)
+    ch_right = ParagraphStyle("CHR", fontName=bold_font, fontSize=6.5, leading=8, alignment=1)
+    ct_style = ParagraphStyle("CT", fontName=normal_font, fontSize=7, leading=9, alignment=1)
 
     header = [
         Paragraph("<b>Code</b>", ch_style),
@@ -224,40 +261,46 @@ def _build_course_legend_table(entries, courses, avail_w, styles, normal_font='H
         code_text = c.code or "-"
         name_text = c.name or "-"
         ctype = (c.course_type or "Theory").capitalize()
-        rows.append([
-            code_text,
-            name_text,
-            Paragraph(ctype, ct_style),
-        ])
+        rows.append(
+            [
+                code_text,
+                name_text,
+                Paragraph(ctype, ct_style),
+            ]
+        )
 
     tbl = Table(rows, colWidths=[code_w, name_w, type_w])
-    tbl.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2a3990")),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, 0), bold_font),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
-
-        ('FONTNAME', (0, 1), (-1, -1), normal_font),
-        ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 2),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-        ('LEFTPADDING', (0, 0), (-1, -1), 3),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 3),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5fa")]),
-    ]))
+    tbl.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2a3990")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), bold_font),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("FONTNAME", (0, 1), (-1, -1), normal_font),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5fa")]),
+            ]
+        )
+    )
     elements.append(tbl)
     return elements
 
 
-def _build_faculty_legend_table(entries, teachers, avail_w, styles, normal_font='Helvetica', bold_font='Helvetica-Bold'):
+def _build_faculty_legend_table(
+    entries, teachers, avail_w, styles, normal_font="Helvetica", bold_font="Helvetica-Bold"
+):
     """
     Build a Faculty Details legend: Abbreviation | Full Name.
     Only includes teachers that appear in this department's timetable entries.
     """
     from reportlab.lib import colors
     from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.units import mm
     from reportlab.platypus import Table, TableStyle, Paragraph
 
     seen_teacher_ids = set()
@@ -277,7 +320,7 @@ def _build_faculty_legend_table(entries, teachers, avail_w, styles, normal_font=
     elements = []
     elements.append(Paragraph("<b>Faculty Details</b>", styles["section_title"]))
 
-    header_style = ParagraphStyle('FH', fontName=bold_font, fontSize=6.5, leading=8, alignment=0)
+    header_style = ParagraphStyle("FH", fontName=bold_font, fontSize=6.5, leading=8, alignment=0)
     half = (len(teacher_list) + 1) // 2
 
     header = [
@@ -302,21 +345,24 @@ def _build_faculty_legend_table(entries, teachers, avail_w, styles, normal_font=
         rows.append(left_row + right_row)
 
     tbl = Table(rows, colWidths=[col_w, col_w, col_w, col_w])
-    tbl.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2a3990")),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, 0), bold_font),
-        ('FONTSIZE', (0, 1), (-1, -1), 8),
-
-        ('FONTNAME', (0, 1), (-1, -1), normal_font),
-        ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 2),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-        ('LEFTPADDING', (0, 0), (-1, -1), 3),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 3),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5fa")]),
-    ]))
+    tbl.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2a3990")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), bold_font),
+                ("FONTSIZE", (0, 1), (-1, -1), 8),
+                ("FONTNAME", (0, 1), (-1, -1), normal_font),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5fa")]),
+            ]
+        )
+    )
     elements.append(tbl)
     return elements
 
@@ -408,26 +454,26 @@ def _build_table_style_cmds(all_slots, working_days, batches, has_break):
     batch_col_start = 2
 
     style_cmds = [
-        ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('FONTSIZE', (0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 0), (-1, -1), 2),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-        ('LEFTPADDING', (0, 0), (-1, -1), 2),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("FONTSIZE", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
         # Header rows styling
-        ('BACKGROUND', (0, 0), (1, 2), colors.HexColor("#2a3990")),
-        ('TEXTCOLOR', (0, 0), (1, 2), colors.white),
-        ('FONTNAME', (0, 0), (1, 2), 'Helvetica-Bold'),
+        ("BACKGROUND", (0, 0), (1, 2), colors.HexColor("#2a3990")),
+        ("TEXTCOLOR", (0, 0), (1, 2), colors.white),
+        ("FONTNAME", (0, 0), (1, 2), "Helvetica-Bold"),
     ]
 
     # Day header spans
     col_idx = batch_col_start
     for _di, day in enumerate(working_days):
         span_end = col_idx + num_batches - 1
-        style_cmds.append(('SPAN', (col_idx, 0), (span_end, 0)))
-        style_cmds.append(('BACKGROUND', (col_idx, 0), (span_end, 0), DAY_HEADER_BG))
-        style_cmds.append(('ALIGN', (col_idx, 0), (span_end, 0), 'CENTER'))
+        style_cmds.append(("SPAN", (col_idx, 0), (span_end, 0)))
+        style_cmds.append(("BACKGROUND", (col_idx, 0), (span_end, 0), DAY_HEADER_BG))
+        style_cmds.append(("ALIGN", (col_idx, 0), (span_end, 0), "CENTER"))
         col_idx += num_batches
 
     # Batch label row colours
@@ -435,8 +481,7 @@ def _build_table_style_cmds(all_slots, working_days, batches, has_break):
     for di, day in enumerate(working_days):
         for bi, batch in enumerate(batches):
             bg = BATCH_COLORS[(di * num_batches + bi) % len(BATCH_COLORS)]
-            style_cmds.append(('BACKGROUND', (col_idx, 2), (col_idx, 2),
-                              colors.Color(*bg, alpha=0.3)))
+            style_cmds.append(("BACKGROUND", (col_idx, 2), (col_idx, 2), colors.Color(*bg, alpha=0.3)))
             col_idx += 1
 
     # Content row column colours (subtle alternating)
@@ -445,23 +490,23 @@ def _build_table_style_cmds(all_slots, working_days, batches, has_break):
         for bi, batch in enumerate(batches):
             bg = BATCH_COLORS[(di * num_batches + bi) % len(BATCH_COLORS)]
             alpha = 0.08 if bi % 2 == 0 else 0.15
-            style_cmds.append(('BACKGROUND', (col_idx, 3), (col_idx, -1),
-                              colors.Color(*bg, alpha=alpha)))
+            style_cmds.append(("BACKGROUND", (col_idx, 3), (col_idx, -1), colors.Color(*bg, alpha=alpha)))
             col_idx += 1
 
     # Break row styling
     for ri, slot_info in enumerate(all_slots):
         if slot_info["is_break"]:
             row_num = 3 + ri
-            style_cmds.append(('BACKGROUND', (2, row_num), (-1, row_num), BREAK_BG))
-            style_cmds.append(('SPAN', (0, row_num), (1, row_num)))
-            style_cmds.append(('ALIGN', (0, row_num), (-1, row_num), 'CENTER'))
-            style_cmds.append(('FONTNAME', (0, row_num), (-1, row_num), 'Helvetica-Bold'))
+            style_cmds.append(("BACKGROUND", (2, row_num), (-1, row_num), BREAK_BG))
+            style_cmds.append(("SPAN", (0, row_num), (1, row_num)))
+            style_cmds.append(("ALIGN", (0, row_num), (-1, row_num), "CENTER"))
+            style_cmds.append(("FONTNAME", (0, row_num), (-1, row_num), "Helvetica-Bold"))
 
     return style_cmds
 
 
 # ── Data loader ──────────────────────────────────────────────────────────
+
 
 def _build_timetable_data(dept_id: int, program_id=None, batch_id=None, section_id=None):
     """Load and organise timetable data for PDF rendering."""
@@ -470,7 +515,7 @@ def _build_timetable_data(dept_id: int, program_id=None, batch_id=None, section_
         return None
 
     query = TimetableEntry.query.filter_by(department_id=dept_id)
-    
+
     # Apply filters
     if section_id:
         query = query.filter(TimetableEntry.sections.any(id=section_id))
@@ -511,10 +556,12 @@ def _build_timetable_data(dept_id: int, program_id=None, batch_id=None, section_
             seen_batches.add(key)
             unique_batches.append(batch)
 
-    unique_batches.sort(key=lambda b: (
-        b.program.name if b.program else "",
-        b.code or b.name,
-    ))
+    unique_batches.sort(
+        key=lambda b: (
+            b.program.name if b.program else "",
+            b.code or b.name,
+        )
+    )
 
     # Build grid: day -> timeslot -> batch_id -> entry list
     grid = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
@@ -523,13 +570,15 @@ def _build_timetable_data(dept_id: int, program_id=None, batch_id=None, section_
         teacher = teachers.get(e.teacher_id)
         room = rooms.get(e.room_id)
         for sec in e.sections:
-            grid[e.day][e.timeslot][sec.batch_id].append({
-                "course": course,
-                "teacher": teacher,
-                "room": room,
-                "entry_id": e.id,
-                "is_lab": course and course.course_type == "Lab",
-            })
+            grid[e.day][e.timeslot][sec.batch_id].append(
+                {
+                    "course": course,
+                    "teacher": teacher,
+                    "room": room,
+                    "entry_id": e.id,
+                    "is_lab": course and course.course_type == "Lab",
+                }
+            )
 
     # Schedule settings
     settings = ScheduleSettings.get_or_create_default()
@@ -541,30 +590,36 @@ def _build_timetable_data(dept_id: int, program_id=None, batch_id=None, section_
         # Exclude teaching slot if it overlaps with a break
         overlap = False
         for br in breaks:
-            if (ts["start"] >= br["start"] and ts["start"] < br["end"]) or \
-               (ts["end"] > br["start"] and ts["end"] <= br["end"]) or \
-               (ts["start"] <= br["start"] and ts["end"] >= br["end"]):
+            if (
+                (ts["start"] >= br["start"] and ts["start"] < br["end"])
+                or (ts["end"] > br["start"] and ts["end"] <= br["end"])
+                or (ts["start"] <= br["start"] and ts["end"] >= br["end"])
+            ):
                 overlap = True
                 break
-                
+
         if overlap:
             continue
 
-        all_slots.append({
-            "key": f"{ts['start']}-{ts['end']}",
-            "label": ts.get("label", f"{ts['start']}-{ts['end']}"),
-            "start": ts["start"],
-            "end": ts["end"],
-            "is_break": False,
-        })
+        all_slots.append(
+            {
+                "key": f"{ts['start']}-{ts['end']}",
+                "label": ts.get("label", f"{ts['start']}-{ts['end']}"),
+                "start": ts["start"],
+                "end": ts["end"],
+                "is_break": False,
+            }
+        )
     for br in breaks:
-        all_slots.append({
-            "key": f"break-{br['start']}-{br['end']}",
-            "label": br.get("label", "BREAK"),
-            "start": br["start"],
-            "end": br["end"],
-            "is_break": True,
-        })
+        all_slots.append(
+            {
+                "key": f"break-{br['start']}-{br['end']}",
+                "label": br.get("label", "BREAK"),
+                "start": br["start"],
+                "end": br["end"],
+                "is_break": True,
+            }
+        )
 
     # SORT SLOTS BY START TIME (otherwise breaks will be at the end)
     all_slots.sort(key=lambda x: x["start"])
@@ -588,13 +643,13 @@ def _build_timetable_data(dept_id: int, program_id=None, batch_id=None, section_
 
 # ── Single-department PDF ────────────────────────────────────────────────
 
+
 def _render_pdf(data, semester_label=""):
     """Render the timetable data into a PDF bytes buffer using ReportLab."""
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.units import mm
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Paragraph
-    from reportlab.lib.styles import ParagraphStyle
 
     normal_font, bold_font = _register_fonts()
     styles = _make_styles(normal_font, bold_font)
@@ -608,9 +663,12 @@ def _render_pdf(data, semester_label=""):
     buf = BytesIO()
     page_w, page_h = landscape(A4)
     doc = SimpleDocTemplate(
-        buf, pagesize=landscape(A4),
-        leftMargin=10 * mm, rightMargin=10 * mm,
-        topMargin=10 * mm, bottomMargin=10 * mm,
+        buf,
+        pagesize=landscape(A4),
+        leftMargin=10 * mm,
+        rightMargin=10 * mm,
+        topMargin=10 * mm,
+        bottomMargin=10 * mm,
     )
 
     elements = []
@@ -624,9 +682,9 @@ def _render_pdf(data, semester_label=""):
     header_row = [Paragraph("<b>BATCH / TIME</b>", styles["day_header"])]
     for slot in all_slots:
         time_str = f"{slot['start']}-{slot['end']}"
-        label = slot['label']
-        
-        if slot['is_break']:
+        label = slot["label"]
+
+        if slot["is_break"]:
             # For breaks, just show the label (e.g. LUNCH) and time
             display_label = label.upper()
             slot_label = f"<b>{display_label}</b><br/><font size='7' color='#475569'>{time_str}</font>"
@@ -635,29 +693,28 @@ def _render_pdf(data, semester_label=""):
             # Convert "Period 1" to "SLOT 1" if needed
             display_label = label.upper().replace("PERIOD", "SLOT")
             slot_label = f"<b>{display_label}</b><br/><font size='7' color='#475569'>{time_str}</font>"
-            
-        header_row.append(Paragraph(slot_label, styles["day_header"]))
 
+        header_row.append(Paragraph(slot_label, styles["day_header"]))
 
     table_data = [header_row]
     style_cmds = [
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]
 
     current_row = 1
     avail_w = page_w - 20 * mm
-    
+
     for day in working_days:
         # Day Header Row
         day_header = [Paragraph(f"<b>{day.upper()}</b>", styles["day_header"])] + [""] * len(all_slots)
         table_data.append(day_header)
-        style_cmds.append(('SPAN', (0, current_row), (-1, current_row)))
-        style_cmds.append(('BACKGROUND', (0, current_row), (-1, current_row), colors.HexColor("#f0f7ff")))
-        style_cmds.append(('TEXTCOLOR', (0, current_row), (-1, current_row), colors.HexColor("#1e40af")))
+        style_cmds.append(("SPAN", (0, current_row), (-1, current_row)))
+        style_cmds.append(("BACKGROUND", (0, current_row), (-1, current_row), colors.HexColor("#f0f7ff")))
+        style_cmds.append(("TEXTCOLOR", (0, current_row), (-1, current_row), colors.HexColor("#1e40af")))
         current_row += 1
 
         # Rows for each batch
@@ -665,7 +722,7 @@ def _render_pdf(data, semester_label=""):
             # Determine the theory room used by this batch on this specific day
             day_theory_room = None
             day_slots = grid.get(day, {})
-            
+
             # First pass: try to find a theory room
             for slot_key, batch_entries in day_slots.items():
                 entries = batch_entries.get(batch.id, [])
@@ -673,8 +730,9 @@ def _render_pdf(data, semester_label=""):
                     if not e["is_lab"] and e["room"]:
                         day_theory_room = e["room"].name
                         break
-                if day_theory_room: break
-                
+                if day_theory_room:
+                    break
+
             # Second pass: fallback to any room (e.g., lab room) if no theory room found
             if not day_theory_room:
                 for slot_key, batch_entries in day_slots.items():
@@ -683,29 +741,43 @@ def _render_pdf(data, semester_label=""):
                         if e["room"]:
                             day_theory_room = e["room"].name
                             break
-                    if day_theory_room: break
+                    if day_theory_room:
+                        break
 
             batch_label_txt = f"<b>{batch.name}</b>"
             if day_theory_room:
                 batch_label_txt += f"<br/><font color='#1e40af' size='4'>{day_theory_room}</font>"
-                
+
             row = [Paragraph(batch_label_txt, styles["batch_label"])]
-            
+
             for slot_info in all_slots:
                 is_break = slot_info["is_break"]
-                
+
                 search_key = slot_info["key"]
                 if is_break:
                     search_key = f"{slot_info['start']}-{slot_info['end']}"
-                    
+
                 entries_list = grid.get(day, {}).get(search_key, {}).get(batch.id, [])
 
                 if is_break and not entries_list:
                     label_txt = slot_info["label"].upper() if slot_info["label"].upper() != "BREAK" else "LUNCH"
-                    row.append(Paragraph(f"<b>{label_txt}</b><br/><font size='4'>{slot_info['start']}-{slot_info['end']}</font>", styles["cell"]))
+                    row.append(
+                        Paragraph(
+                            f"<b>{label_txt}</b><br/><font size='4'>{slot_info['start']}-{slot_info['end']}</font>",
+                            styles["cell"],
+                        )
+                    )
                     # Use the defined BREAK_BG
                     from reportlab.lib import colors
-                    style_cmds.append(('BACKGROUND', (len(row)-1, current_row), (len(row)-1, current_row), colors.Color(*BREAK_BG)))
+
+                    style_cmds.append(
+                        (
+                            "BACKGROUND",
+                            (len(row) - 1, current_row),
+                            (len(row) - 1, current_row),
+                            colors.Color(*BREAK_BG),
+                        )
+                    )
                     continue
 
                 if not entries_list:
@@ -716,31 +788,35 @@ def _render_pdf(data, semester_label=""):
                 # Highlighting logic for PDF export - if scheduled in a break, use a red tint
                 is_illegal = is_break
                 course_name = entry["course"].name if entry["course"] else "Course"
-                teacher_abbr = entry["teacher"].abbreviation or _auto_abbreviation(entry["teacher"].name) if entry["teacher"] else "?"
+                teacher_abbr = (
+                    entry["teacher"].abbreviation or _auto_abbreviation(entry["teacher"].name)
+                    if entry["teacher"]
+                    else "?"
+                )
                 ctype = "P" if entry["is_lab"] else "T"
-                
+
                 cell_txt = f"<b>{course_name}</b> ({ctype})<br/>({teacher_abbr})"
-                
+
                 if is_illegal:
                     # Explicitly show that this is a break conflict
                     l_txt = slot_info["label"].upper() if slot_info["label"].upper() != "BREAK" else "LUNCH"
                     cell_txt = f"<font color='#b91c1c' size='5'><b>{l_txt} CONFLICT</b></font><br/>{cell_txt}"
-                
+
                 # Rule: Lab room always shows in cell. Theory room only shows if it differs from batch header room.
                 if entry["is_lab"] and entry["room"]:
                     cell_txt += f"<br/><font color='#b91c1c'>{entry['room'].name}</font>"
                 elif entry["room"] and entry["room"].name != day_theory_room:
                     cell_txt += f"<br/>{entry['room'].name}"
-                
+
                 row.append(Paragraph(cell_txt, styles["cell"]))
-                
+
                 # Color coding background
                 if is_illegal:
-                    bg_color = colors.HexColor("#fee2e2") # Light red for illegal break assignment
+                    bg_color = colors.HexColor("#fee2e2")  # Light red for illegal break assignment
                 else:
                     bg_color = colors.HexColor("#f0fdf4") if entry["is_lab"] else colors.HexColor("#eff6ff")
-                
-                style_cmds.append(('BACKGROUND', (len(row)-1, current_row), (len(row)-1, current_row), bg_color))
+
+                style_cmds.append(("BACKGROUND", (len(row) - 1, current_row), (len(row) - 1, current_row), bg_color))
 
             table_data.append(row)
             current_row += 1
@@ -757,16 +833,23 @@ def _render_pdf(data, semester_label=""):
     # ── Faculty Details Legend ───────────────────────────────────────────
     elements.append(Spacer(1, 10 * mm))
     faculty_elements = _build_faculty_legend_table(
-        data["entries"], data["teachers"], avail_w, styles, normal_font, bold_font,
+        data["entries"],
+        data["teachers"],
+        avail_w,
+        styles,
+        normal_font,
+        bold_font,
     )
     elements.extend(faculty_elements)
 
     # ── Signature line ──────────────────────────────────────────────────
     elements.append(Spacer(1, 12 * mm))
-    elements.append(Paragraph(
-        "Signature: ________________________    HOD / Coordinator",
-        styles["signature"],
-    ))
+    elements.append(
+        Paragraph(
+            "Signature: ________________________    HOD / Coordinator",
+            styles["signature"],
+        )
+    )
 
     # ── Build PDF ───────────────────────────────────────────────────────
     doc.build(elements)
@@ -778,11 +861,13 @@ def _render_pdf(data, semester_label=""):
 # ROUTES
 # ══════════════════════════════════════════════════════════════════════════
 
-@pdf_export_bp.route('/ping', methods=['GET'])
+
+@pdf_export_bp.route("/ping", methods=["GET"])
 def ping():
     return {"message": "PDF blueprint is reachable"}, 200
 
-@pdf_export_bp.route('/all', methods=['GET'])
+
+@pdf_export_bp.route("/all", methods=["GET"])
 @jwt_required()
 def export_all_departments_pdf():
     """Generate and download a combined PDF with all department timetables."""
@@ -801,9 +886,12 @@ def export_all_departments_pdf():
         page_w, page_h = landscape(A4)
 
         doc = SimpleDocTemplate(
-            buf, pagesize=landscape(A4),
-            leftMargin=10 * mm, rightMargin=10 * mm,
-            topMargin=10 * mm, bottomMargin=10 * mm,
+            buf,
+            pagesize=landscape(A4),
+            leftMargin=10 * mm,
+            rightMargin=10 * mm,
+            topMargin=10 * mm,
+            bottomMargin=10 * mm,
         )
 
         elements = []
@@ -827,52 +915,53 @@ def export_all_departments_pdf():
         buf.seek(0)
         return send_file(
             buf,
-            mimetype='application/pdf',
+            mimetype="application/pdf",
             as_attachment=True,
-            download_name='Timetable_All_Departments.pdf',
+            download_name="Timetable_All_Departments.pdf",
         )
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         return {"error": f"PDF generation failed: {str(e)}"}, 500
 
 
-@pdf_export_bp.route('/<int:dept_id>', methods=['GET'])
+@pdf_export_bp.route("/<int:dept_id>", methods=["GET"])
 @jwt_required()
 def export_department_pdf(dept_id):
     """Generate and download a PDF timetable for a single department."""
     try:
-        program_id = request.args.get('program_id', type=int)
-        batch_id = request.args.get('batch_id', type=int)
-        section_id = request.args.get('section_id', type=int)
+        program_id = request.args.get("program_id", type=int)
+        batch_id = request.args.get("batch_id", type=int)
+        section_id = request.args.get("section_id", type=int)
 
         data = _build_timetable_data(dept_id, program_id, batch_id, section_id)
         if not data:
             return {"error": "No timetable found with the selected filters."}, 404
 
-        semester_label = request.args.get('semester', f" - {data['department'].name}")
+        semester_label = request.args.get("semester", f" - {data['department'].name}")
         pdf_buf = _render_pdf(data, semester_label)
 
         safe_name = data["department"].name.replace(" ", "_").replace("/", "-")
         return send_file(
             pdf_buf,
-            mimetype='application/pdf',
+            mimetype="application/pdf",
             as_attachment=True,
-            download_name=f'Timetable_{safe_name}.pdf',
+            download_name=f"Timetable_{safe_name}.pdf",
         )
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         return {"error": f"PDF generation failed: {str(e)}"}, 500
 
 
-
-def _build_department_table(data, page_w, normal_font='Helvetica', bold_font='Helvetica-Bold'):
+def _build_department_table(data, page_w, normal_font="Helvetica", bold_font="Helvetica-Bold"):
     """Build platypus elements for a single department (used in combined PDF)."""
     from reportlab.platypus import Table, TableStyle, Spacer, Paragraph
     from reportlab.lib import colors
     from reportlab.lib.units import mm
-    
+
     styles = _make_styles(normal_font, bold_font)
 
     dept = data["department"]
@@ -889,20 +978,20 @@ def _build_department_table(data, page_w, normal_font='Helvetica', bold_font='He
     header_row = [Paragraph("<b>BATCH</b>", styles["day_header"])]
     for slot in all_slots:
         time_str = f"{slot['start']}-{slot['end']}"
-        label = slot['label']
-        if slot['is_break']:
+        label = slot["label"]
+        if slot["is_break"]:
             display_label = label.upper()
         else:
             display_label = label.upper().replace("PERIOD", "SLOT")
-            
+
         slot_label = f"<b>{display_label}</b><br/><font size='5' color='#475569'>{time_str}</font>"
         header_row.append(Paragraph(slot_label, styles["day_header"]))
 
     table_data = [header_row]
     style_cmds = [
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
     ]
 
     current_row = 1
@@ -910,15 +999,15 @@ def _build_department_table(data, page_w, normal_font='Helvetica', bold_font='He
         # Day Header
         day_header = [Paragraph(f"<b>{day.upper()}</b>", styles["day_header"])] + [""] * len(all_slots)
         table_data.append(day_header)
-        style_cmds.append(('SPAN', (0, current_row), (-1, current_row)))
-        style_cmds.append(('BACKGROUND', (0, current_row), (-1, current_row), colors.HexColor("#f0f7ff")))
+        style_cmds.append(("SPAN", (0, current_row), (-1, current_row)))
+        style_cmds.append(("BACKGROUND", (0, current_row), (-1, current_row), colors.HexColor("#f0f7ff")))
         current_row += 1
 
         for batch in batches:
             # Determine the theory room used by this batch on this specific day
             day_theory_room = None
             day_slots = grid.get(day, {})
-            
+
             # First pass: try to find a theory room
             for slot_key, batch_entries in day_slots.items():
                 entries = batch_entries.get(batch.id, [])
@@ -926,8 +1015,9 @@ def _build_department_table(data, page_w, normal_font='Helvetica', bold_font='He
                     if not e["is_lab"] and e["room"]:
                         day_theory_room = e["room"].name
                         break
-                if day_theory_room: break
-                
+                if day_theory_room:
+                    break
+
             # Second pass: fallback to any room (e.g., lab room) if no theory room found
             if not day_theory_room:
                 for slot_key, batch_entries in day_slots.items():
@@ -936,59 +1026,76 @@ def _build_department_table(data, page_w, normal_font='Helvetica', bold_font='He
                         if e["room"]:
                             day_theory_room = e["room"].name
                             break
-                    if day_theory_room: break
+                    if day_theory_room:
+                        break
 
             batch_label_txt = f"<b>{batch.name}</b>"
             if day_theory_room:
                 batch_label_txt += f"<br/><font color='#1e40af' size='4'>{day_theory_room}</font>"
-                
+
             row = [Paragraph(batch_label_txt, styles["batch_label"])]
-            
+
             for slot_info in all_slots:
                 is_break = slot_info["is_break"]
-                
+
                 search_key = slot_info["key"]
                 if is_break:
                     search_key = f"{slot_info['start']}-{slot_info['end']}"
-                    
+
                 entries = grid.get(day, {}).get(search_key, {}).get(batch.id, [])
 
                 if is_break and not entries:
                     label_txt = slot_info["label"].upper() if slot_info["label"].upper() != "BREAK" else "LUNCH"
-                    row.append(Paragraph(f"<b>{label_txt}</b><br/><font size='4'>{slot_info['start']}-{slot_info['end']}</font>", styles["cell"]))
-                    style_cmds.append(('BACKGROUND', (len(row)-1, current_row), (len(row)-1, current_row), colors.Color(*BREAK_BG)))
+                    row.append(
+                        Paragraph(
+                            f"<b>{label_txt}</b><br/><font size='4'>{slot_info['start']}-{slot_info['end']}</font>",
+                            styles["cell"],
+                        )
+                    )
+                    style_cmds.append(
+                        (
+                            "BACKGROUND",
+                            (len(row) - 1, current_row),
+                            (len(row) - 1, current_row),
+                            colors.Color(*BREAK_BG),
+                        )
+                    )
                     continue
-                    
+
                 if not entries:
                     row.append("")
                     continue
-                    
+
                 entry = entries[0]
                 is_illegal = is_break
                 course_name = entry["course"].name if entry["course"] else "Course"
-                teacher_abbr = entry["teacher"].abbreviation or _auto_abbreviation(entry["teacher"].name) if entry["teacher"] else "?"
+                teacher_abbr = (
+                    entry["teacher"].abbreviation or _auto_abbreviation(entry["teacher"].name)
+                    if entry["teacher"]
+                    else "?"
+                )
                 ctype = "P" if entry["is_lab"] else "T"
-                
+
                 cell_txt = f"<b>{course_name}</b> ({ctype})<br/>({teacher_abbr})"
-                
+
                 if is_illegal:
                     # Explicitly show that this is a break conflict
                     l_txt = slot_info["label"].upper() if slot_info["label"].upper() != "BREAK" else "LUNCH"
                     cell_txt = f"<font color='#b91c1c' size='5'><b>{l_txt} CONFLICT</b></font><br/>{cell_txt}"
-                
+
                 # Rule: Lab room always shows in cell. Theory room only shows if it differs from batch header room.
                 if entry["is_lab"] and entry["room"]:
                     cell_txt += f"<br/><font color='#b91c1c'>{entry['room'].name}</font>"
                 elif entry["room"] and entry["room"].name != day_theory_room:
                     cell_txt += f"<br/>{entry['room'].name}"
-                
+
                 row.append(Paragraph(cell_txt, styles["cell"]))
-                
+
                 if is_illegal:
                     bg_color = colors.HexColor("#fee2e2")
                 else:
                     bg_color = colors.HexColor("#f0fdf4") if entry["is_lab"] else colors.HexColor("#eff6ff")
-                style_cmds.append(('BACKGROUND', (len(row)-1, current_row), (len(row)-1, current_row), bg_color))
+                style_cmds.append(("BACKGROUND", (len(row) - 1, current_row), (len(row) - 1, current_row), bg_color))
 
             table_data.append(row)
             current_row += 1
@@ -996,16 +1103,17 @@ def _build_department_table(data, page_w, normal_font='Helvetica', bold_font='He
     avail_w = page_w - 20 * mm
     batch_col_w = 35 * mm
     slot_col_w = (avail_w - batch_col_w) / len(all_slots)
-    
+
     table = Table(table_data, colWidths=[batch_col_w] + [slot_col_w] * len(all_slots), repeatRows=1)
     table.setStyle(TableStyle(style_cmds))
     elements.append(table)
-    
+
     elements.append(Spacer(1, 10 * mm))
-    elements.extend(_build_faculty_legend_table(data["entries"], data["teachers"], avail_w, styles, normal_font, bold_font))
-    
+    elements.extend(
+        _build_faculty_legend_table(data["entries"], data["teachers"], avail_w, styles, normal_font, bold_font)
+    )
+
     elements.append(Spacer(1, 10 * mm))
     elements.append(Paragraph("Signature: ________________________    HOD / Coordinator", styles["signature"]))
 
     return elements
-

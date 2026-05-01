@@ -47,6 +47,7 @@ export function DepartmentsPage() {
     const { toast } = useToast()
 
     const table = useTable({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         data: departments as any,
         searchFields: ['name', 'code'],
         defaultSortKey: 'name',
@@ -154,6 +155,7 @@ export function DepartmentsPage() {
                             )
                         },
                     ]}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     data={table.paginated as any}
                     search={table.search}
                     onSearch={table.setSearch}
@@ -198,7 +200,7 @@ export function DepartmentsPage() {
                     </>
                 }
             >
-                <form id="dept-form" onSubmit={handleSubmit(onSubmit as any)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <form id="dept-form" onSubmit={handleSubmit(onSubmit as (data: FormData) => Promise<void>)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div className="form-group">
                         <label className="label">Department Name</label>
                         <input {...register('name')} className={`input ${errors.name ? 'input-error' : ''}`}

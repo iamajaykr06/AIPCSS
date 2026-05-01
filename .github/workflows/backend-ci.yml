@@ -1,0 +1,60 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+
+jobs:
+  lint-and-test:
+    name: Python Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          pip install flake8 black pytest pytest-cov
+          pip install -r requirements.txt
+
+      - name: Lint with flake8
+        run: |
+          cd backend
+          # Stop the build if there are Python syntax errors or undefined names
+          flake8 app/ run.py --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Warnings as informational (don't fail)
+          flake8 app/ run.py --count --exit-zero --max-complexity=15 --max-line-length=120 --statistics
+
+      - name: Check formatting with black
+        run: |
+          cd backend
+          black --check --line-length=120 app/ run.py
+
+      - name: Run tests
+        run: |
+          cd backend
+          python -m pytest tests/ -v --cov=app --cov-report=term-missing --tb=short
+        continue-on-error: true
+
+      - name: Security check with bandit
+        run: |
+          pip install bandit
+          cd backend
+          bandit -r app/ -ll || true

@@ -1,0 +1,66 @@
+name: License Header Check
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  check-headers:
+    name: Verify Apache 2.0 License Headers
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Python files for license header
+        run: |
+          MISSING=0
+          for f in $(find backend -type f -name "*.py"); do
+            if ! head -20 "$f" | grep -q "Licensed under the Apache License"; then
+              echo "MISSING HEADER: $f"
+              MISSING=$((MISSING + 1))
+            fi
+          done
+          if [ $MISSING -gt 0 ]; then
+            echo "::error::$MISSING Python file(s) missing Apache 2.0 license header"
+            exit 1
+          fi
+          echo "All Python files have Apache 2.0 license headers"
+
+      - name: Check TypeScript files for license header
+        run: |
+          MISSING=0
+          for f in $(find frontend/src -type f \( -name "*.ts" -o -name "*.tsx" \)); do
+            if ! head -20 "$f" | grep -q "Licensed under the Apache License"; then
+              echo "MISSING HEADER: $f"
+              MISSING=$((MISSING + 1))
+            fi
+          done
+          if [ $MISSING -gt 0 ]; then
+            echo "::error::$MISSING TypeScript file(s) missing Apache 2.0 license header"
+            exit 1
+          fi
+          echo "All TypeScript files have Apache 2.0 license headers"
+
+      - name: Verify LICENSE file exists
+        run: |
+          if [ ! -f "LICENSE" ]; then
+            echo "::error::LICENSE file not found"
+            exit 1
+          fi
+          if ! head -5 LICENSE | grep -q "Apache License"; then
+            echo "::error::LICENSE file is not Apache License"
+            exit 1
+          fi
+          echo "LICENSE file verified"
+
+      - name: Verify NOTICE file exists
+        run: |
+          if [ ! -f "NOTICE" ]; then
+            echo "::error::NOTICE file not found"
+            exit 1
+          fi
+          echo "NOTICE file verified"

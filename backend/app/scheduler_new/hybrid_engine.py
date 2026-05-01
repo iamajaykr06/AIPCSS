@@ -62,7 +62,8 @@ class HybridSchedulerEngine:
 
         # Pass 1: Strict matching (Lab -> Lab room)
         candidates = [
-            room for room in self.problem.rooms
+            room
+            for room in self.problem.rooms
             if room.can_accommodate(section.student_count)
             and room.can_be_used_by_program(None, section_dept_id)
             and room.is_suitable_for(course.course_type)
@@ -73,9 +74,9 @@ class HybridSchedulerEngine:
             if self.debug:
                 print(f"DEBUG: No specialized rooms for {course.course_type}. Falling back to general rooms.")
             candidates = [
-                room for room in self.problem.rooms
-                if room.can_accommodate(section.student_count)
-                and room.can_be_used_by_program(None, section_dept_id)
+                room
+                for room in self.problem.rooms
+                if room.can_accommodate(section.student_count) and room.can_be_used_by_program(None, section_dept_id)
                 # Allow fallback to regular classrooms for labs if no labs fit
             ]
 
@@ -106,13 +107,13 @@ class HybridSchedulerEngine:
         # We convert these labels into timeslot indices so the engine's
         # O(1) conflict check works automatically.
         for room in self.problem.rooms:
-            global_busy = getattr(room, 'global_busy_slots', None)
+            global_busy = getattr(room, "global_busy_slots", None)
             if not global_busy:
                 continue
             for day, busy_labels in global_busy.items():
                 for label in busy_labels:
                     # label is "HH:MM-HH:MM" — extract start time as slot key
-                    start = label.split('-')[0] if '-' in label else label
+                    start = label.split("-")[0] if "-" in label else label
                     slot_idx = self._timeslot_index.get((day, start))
                     if slot_idx is not None:
                         state["room_slots"][room.id].add(slot_idx)
@@ -120,11 +121,13 @@ class HybridSchedulerEngine:
         return state
 
     @staticmethod
-    def _occupy_assignment(state, section_id, batch_id, course_id, faculty_id, room_id, day, program_code, slots_needed, hours, is_lab):
+    def _occupy_assignment(
+        state, section_id, batch_id, course_id, faculty_id, room_id, day, program_code, slots_needed, hours, is_lab
+    ):
         """Apply one accepted assignment block to all trackers."""
         for slot_idx in slots_needed:
             state["section_hours"][section_id].add(slot_idx)
-            state["batch_hours"][batch_id].add(slot_idx) # C6
+            state["batch_hours"][batch_id].add(slot_idx)  # C6
             state["faculty_slots"][faculty_id].add(slot_idx)
             state["room_slots"][room_id].add(slot_idx)
 
@@ -156,8 +159,7 @@ class HybridSchedulerEngine:
             key=lambda timeslot: (day_order.get(timeslot.day, 99), timeslot.start_time),
         )
         self._timeslot_index = {
-            (timeslot.day, timeslot.start_time): index
-            for index, timeslot in enumerate(timeslot_list)
+            (timeslot.day, timeslot.start_time): index for index, timeslot in enumerate(timeslot_list)
         }
 
         valid_starts = self._compute_valid_starts(timeslot_list)
@@ -219,10 +221,7 @@ class HybridSchedulerEngine:
             return f"No faculty assigned for course {course.code}"
 
         if not self._get_room_candidates(section, course):
-            return (
-                f"No suitable room configured for {course.course_type} "
-                f"with capacity >= {section.student_count}"
-            )
+            return f"No suitable room configured for {course.course_type} " f"with capacity >= {section.student_count}"
 
         return "Could not satisfy remaining timeslot/resource constraints"
 
@@ -249,7 +248,11 @@ class HybridSchedulerEngine:
         for section_id, course_id in sorted(
             missing_hours,
             key=lambda key: (
-                self.problem.section_map.get(key[0]).get_full_name() if self.problem.section_map.get(key[0]) else str(key[0]),
+                (
+                    self.problem.section_map.get(key[0]).get_full_name()
+                    if self.problem.section_map.get(key[0])
+                    else str(key[0])
+                ),
                 self.problem.course_map.get(key[1]).name if self.problem.course_map.get(key[1]) else str(key[1]),
             ),
         ):
@@ -259,14 +262,16 @@ class HybridSchedulerEngine:
             missing = missing_hours[(section_id, course_id)]
             section_demand = section_required_hours.get(section_id, 0)
             reason = self._get_failure_reason(section, course, weekly_section_capacity, section_demand)
-            details.append({
-                "course": course.name if course else str(course_id),
-                "section": section.get_full_name() if section else str(section_id),
-                "teacher": "Unassigned",
-                "allocated": allocated,
-                "required": allocated + missing,
-                "reason": reason,
-            })
+            details.append(
+                {
+                    "course": course.name if course else str(course_id),
+                    "section": section.get_full_name() if section else str(section_id),
+                    "teacher": "Unassigned",
+                    "allocated": allocated,
+                    "required": allocated + missing,
+                    "reason": reason,
+                }
+            )
         return details
 
     def _compute_valid_starts(self, timeslot_list):
@@ -279,7 +284,7 @@ class HybridSchedulerEngine:
                 if start_idx + hours > num_timeslots:
                     continue
 
-                consecutive_slots = timeslot_list[start_idx:start_idx + hours]
+                consecutive_slots = timeslot_list[start_idx : start_idx + hours]
                 is_valid = True
                 for offset in range(hours - 1):
                     current = consecutive_slots[offset]
@@ -296,7 +301,7 @@ class HybridSchedulerEngine:
     def _build_class_order(self, classes, valid_starts):
         """
         Order classes by difficulty and Batch-Isolation (E3).
-        
+
         Difficulty: items with fewest valid resources first (MRV).
         Isolation: Group by batch_id to keep a batch's schedule together.
         """
@@ -306,13 +311,13 @@ class HybridSchedulerEngine:
             section = self.problem.section_map[section_id]
             faculty_count = len(self._get_faculty_candidates(section, course))
             room_count = len(self._get_room_candidates(section, course))
-            
+
             # MRV (Minimum Remaining Values) heuristic
             difficulty = 1.0 / (faculty_count * room_count + 0.1)
-            
+
             # E3 Priority: Use batch_id as primary grouping key
             batch_id = section.batch_id
-            
+
             ranked.append((difficulty, batch_id, section_id, course_id, hours, class_idx))
 
         # Sort by batch_id first (E3), then difficulty (MRV)
@@ -368,36 +373,38 @@ class HybridSchedulerEngine:
                     for room in possible_rooms:
                         if any(slot_idx in state["room_slots"][room.id] for slot_idx in slots_needed):
                             continue
-                        
+
                         # E4: Score candidate based on daily load balance and gap penalty
                         # Prefer days where the faculty has fewer hours
                         fac_day_load = state["faculty_daily_hours"][faculty.id][day]
                         balance_score = 10 - fac_day_load
-                        
-                        all_candidates.append({
-                            'score': balance_score,
-                            'start_idx': start_idx,
-                            'faculty_id': faculty.id,
-                            'room_id': room.id,
-                            'day': day,
-                            'slots_needed': slots_needed
-                        })
+
+                        all_candidates.append(
+                            {
+                                "score": balance_score,
+                                "start_idx": start_idx,
+                                "faculty_id": faculty.id,
+                                "room_id": room.id,
+                                "day": day,
+                                "slots_needed": slots_needed,
+                            }
+                        )
 
             if all_candidates:
                 # E4: Sort by score descending
-                all_candidates.sort(key=lambda x: x['score'], reverse=True)
+                all_candidates.sort(key=lambda x: x["score"], reverse=True)
                 best = all_candidates[0]
-                
+
                 self._occupy_assignment(
                     state,
                     section_id,
                     section.batch_id,
                     course_id,
-                    best['faculty_id'],
-                    best['room_id'],
-                    best['day'],
+                    best["faculty_id"],
+                    best["room_id"],
+                    best["day"],
                     program_code,
-                    best['slots_needed'],
+                    best["slots_needed"],
                     hours,
                     is_lab,
                 )
@@ -405,12 +412,12 @@ class HybridSchedulerEngine:
                     ScheduleEntry(
                         section_id=section_id,
                         course_id=course_id,
-                        faculty_id=best['faculty_id'],
-                        room_id=best['room_id'],
-                        timeslot=timeslot_list[best['start_idx']],
+                        faculty_id=best["faculty_id"],
+                        room_id=best["room_id"],
+                        timeslot=timeslot_list[best["start_idx"]],
                     )
                 )
-                state["section_course_faculty"].setdefault(sc_key, best['faculty_id'])
+                state["section_course_faculty"].setdefault(sc_key, best["faculty_id"])
                 assigned = True
 
             if not assigned:

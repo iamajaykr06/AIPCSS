@@ -16,7 +16,7 @@ limitations under the License.
 
 from .user import User
 from .department import Department
-from .teacher import Teacher, teacher_departments, teacher_qualifications
+from .teacher import Teacher
 from .room import Room
 from .course import Course
 from .program import Program
@@ -27,15 +27,15 @@ from .schedule_settings import ScheduleSettings
 from .workload import WorkloadAllocation
 
 __all__ = [
-    'User',
-    'Department',
-    'Program',
-    'Batch',
-    'Section',
-    'Teacher',
-    'Course',
-    'Room',
-    'TimetableEntry',
-    'ScheduleSettings',
-    'WorkloadAllocation',
+    "User",
+    "Department",
+    "Program",
+    "Batch",
+    "Section",
+    "Teacher",
+    "Course",
+    "Room",
+    "TimetableEntry",
+    "ScheduleSettings",
+    "WorkloadAllocation",
 ]

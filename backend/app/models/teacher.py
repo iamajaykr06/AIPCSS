@@ -17,16 +17,19 @@ limitations under the License.
 from .. import db
 
 # Association table for Many-to-Many relationship between Teacher and Department
-teacher_departments = db.Table('teacher_departments',
-    db.Column('teacher_id', db.Integer, db.ForeignKey('teacher.id'), primary_key=True),
-    db.Column('department_id', db.Integer, db.ForeignKey('department.id'), primary_key=True)
+teacher_departments = db.Table(
+    "teacher_departments",
+    db.Column("teacher_id", db.Integer, db.ForeignKey("teacher.id"), primary_key=True),
+    db.Column("department_id", db.Integer, db.ForeignKey("department.id"), primary_key=True),
 )
 
 # Association table for Courses a teacher is qualified to teach
-teacher_qualifications = db.Table('teacher_qualifications',
-    db.Column('teacher_id', db.Integer, db.ForeignKey('teacher.id'), primary_key=True),
-    db.Column('course_id', db.Integer, db.ForeignKey('course.id'), primary_key=True)
+teacher_qualifications = db.Table(
+    "teacher_qualifications",
+    db.Column("teacher_id", db.Integer, db.ForeignKey("teacher.id"), primary_key=True),
+    db.Column("course_id", db.Integer, db.ForeignKey("course.id"), primary_key=True),
 )
+
 
 class Teacher(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -37,14 +40,16 @@ class Teacher(db.Model):
     availability = db.Column(db.JSON, nullable=True)
     max_hours_per_day = db.Column(db.Integer, nullable=True, default=6)
     max_hours_per_week = db.Column(db.Integer, nullable=True, default=30)
-    
+
     # Many-to-Many relationship with Department (Administrative)
-    departments = db.relationship('Department', secondary=teacher_departments, 
-                                  backref=db.backref('teachers', lazy='dynamic'))
-    
+    departments = db.relationship(
+        "Department", secondary=teacher_departments, backref=db.backref("teachers", lazy="dynamic")
+    )
+
     # Many-to-Many relationship with Course (Domain Expertise)
-    qualified_courses = db.relationship('Course', secondary=teacher_qualifications,
-                                       backref=db.backref('qualified_teachers', lazy='dynamic'))
+    qualified_courses = db.relationship(
+        "Course", secondary=teacher_qualifications, backref=db.backref("qualified_teachers", lazy="dynamic")
+    )
 
     def __repr__(self):
-        return f'<Teacher {self.name}>'
+        return f"<Teacher {self.name}>"

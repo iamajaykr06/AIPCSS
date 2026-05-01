@@ -34,17 +34,15 @@ jobs:
           pip install flake8 black pytest pytest-cov bandit
           pip install -r requirements.txt
 
-      - name: Lint with flake8 (informational)
+      - name: Lint with flake8
         run: |
           cd backend
-          flake8 app/ run.py --count --exit-zero --max-complexity=15 --max-line-length=120 --statistics
-        continue-on-error: true
+          flake8 app/ run.py --count --max-line-length=120 --statistics
 
-      - name: Check formatting with black (informational)
+      - name: Check formatting with black
         run: |
           cd backend
-          black --check --line-length=120 app/ run.py || true
-        continue-on-error: true
+          black --check --line-length=120 app/ run.py
 
       - name: Verify app can be imported
         env:
@@ -65,10 +63,8 @@ jobs:
         run: |
           cd backend
           python -m pytest tests/ -v --cov=app --cov-report=term-missing --tb=short 2>/dev/null || echo "No tests found yet - skipping"
-        continue-on-error: true
 
       - name: Security check with bandit
         run: |
           cd backend
           bandit -r app/ -ll || true
-        continue-on-error: true

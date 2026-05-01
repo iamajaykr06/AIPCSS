@@ -143,7 +143,7 @@ This project is licensed under the **Apache License 2.0**. See the [LICENSE](LIC
 ## Team
 
 - **Zaid Alam** — Developer
-- **Ajay Kumar Roy** — Developer & Maintainer
+- **Ajay Kumar** — Developer & Maintainer
 - **Aboni Mohan Sahu** — Developer
 - **Rohit Kumar Yadav** — Developer
 

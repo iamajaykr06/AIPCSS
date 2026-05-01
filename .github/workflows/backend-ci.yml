@@ -31,13 +31,13 @@ jobs:
         run: |
           cd backend
           python -m pip install --upgrade pip
-          pip install flake8 black pytest pytest-cov
+          pip install flake8 black pytest pytest-cov bandit
           pip install -r requirements.txt
 
       - name: Lint with flake8 (informational)
         run: |
           cd backend
-          flake8 app/ run.py --count --exit-zero --max-complexity=15 --max-line-length=120 --statistics --show-source
+          flake8 app/ run.py --count --exit-zero --max-complexity=15 --max-line-length=120 --statistics
         continue-on-error: true
 
       - name: Check formatting with black (informational)
@@ -47,19 +47,28 @@ jobs:
         continue-on-error: true
 
       - name: Verify app can be imported
+        env:
+          SECRET_KEY: ci-test-secret-key-do-not-use-in-production
+          JWT_SECRET_KEY: ci-test-jwt-secret-do-not-use-in-production
+          DATABASE_URL: sqlite:///test.db
+          FLASK_ENV: testing
         run: |
           cd backend
           python -c "from app import create_app; app = create_app(); print('App created successfully')"
 
       - name: Run tests
+        env:
+          SECRET_KEY: ci-test-secret-key-do-not-use-in-production
+          JWT_SECRET_KEY: ci-test-jwt-secret-do-not-use-in-production
+          DATABASE_URL: sqlite:///test.db
+          FLASK_ENV: testing
         run: |
           cd backend
-          python -m pytest tests/ -v --cov=app --cov-report=term-missing --tb=short || echo "No tests found yet - skipping"
+          python -m pytest tests/ -v --cov=app --cov-report=term-missing --tb=short 2>/dev/null || echo "No tests found yet - skipping"
         continue-on-error: true
 
       - name: Security check with bandit
         run: |
-          pip install bandit
           cd backend
           bandit -r app/ -ll || true
         continue-on-error: true

@@ -33,16 +33,20 @@ jobs:
           cd frontend
           npm ci
 
-      - name: Lint with ESLint (informational)
+      - name: Lint with ESLint
         run: |
           cd frontend
-          npx eslint src/ --max-warnings 9999 || true
-        continue-on-error: true
+          npm run lint
+
+      - name: Type check
+        run: |
+          cd frontend
+          npx tsc -b --noEmit
 
       - name: Build
         run: |
           cd frontend
-          npx vite build
+          npm run build
 
       - name: Upload build artifacts
         if: github.ref == 'refs/heads/main'

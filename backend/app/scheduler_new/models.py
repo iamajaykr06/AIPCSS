@@ -32,14 +32,15 @@ class CourseType(Enum):
 @dataclass(frozen=True)
 class Timeslot:
     """Immutable timeslot representation"""
+
     day: str
     start_time: str
     end_time: str
     slot_id: str = field(compare=False)
-    
+
     def __hash__(self):
         return hash((self.day, self.start_time, self.end_time))
-    
+
     def __repr__(self) -> str:
         return f"{self.day} {self.start_time}-{self.end_time}"
 
@@ -47,24 +48,25 @@ class Timeslot:
 @dataclass
 class Faculty:
     """Faculty/Teacher model"""
+
     id: int
     name: str
     email: str
     availability: Dict[str, Set[str]] = field(default_factory=dict)  # day -> set of slot_ids
     max_hours_per_day: int = 6
     max_hours_per_week: int = 30
-    
+
     def is_available(self, timeslot: Timeslot) -> bool:
         """Check if faculty is available for given timeslot"""
         # 1. Check Global Cross-Dept Busy Slots (from TimetableEntry)
-        busy_slots = getattr(self, 'global_busy_slots', None)
+        busy_slots = getattr(self, "global_busy_slots", None)
         if busy_slots:
             day_busy = busy_slots.get(timeslot.day)
             # Match the label used in TimetableEntry (HH:MM-HH:MM)
             label = f"{timeslot.start_time}-{timeslot.end_time}"
             if day_busy and label in day_busy:
                 return False
-                
+
         # 2. Check local availability settings
         if not self.availability:
             return True
@@ -75,44 +77,44 @@ class Faculty:
 @dataclass
 class Room:
     """Room/Classroom model"""
+
     id: int
     name: str
     capacity: int
     room_type: str = "Classroom"
     department_id: Optional[int] = None
     program_id: Optional[int] = None
-    
+
     def can_accommodate(self, section_size: int) -> bool:
         """Check if room can accommodate section"""
         return self.capacity >= section_size
-    
+
     def is_suitable_for(self, course_type: str) -> bool:
         """Check if room is suitable for course type"""
         course_type_lower = (course_type or "Theory").lower().strip()
         room_type_lower = (self.room_type or "Classroom").lower().strip()
-        
+
         is_lab_course = "lab" in course_type_lower
         is_lab_room = "lab" in room_type_lower
-        
+
         # Absolute restriction: Lab courses must be in lab rooms
         if is_lab_course:
             return is_lab_room
-            
+
         # Absolute restriction: Theory courses must be in Non-Lab rooms
         if course_type_lower == "theory":
             return not is_lab_room
-            
+
         # Specific handling for Moot Court
         if "moot" in course_type_lower:
             return "moot" in room_type_lower or "court" in room_type_lower
-            
+
         return True
 
-    
     def can_be_used_by_program(self, program_id: Optional[int], department_id: Optional[int]) -> bool:
         """
         Check if this room can be used by a given program.
-        
+
         Rules:
         - If room has no program_id restriction, it's available to all
         - If room has program_id:
@@ -123,16 +125,16 @@ class Room:
         # If room has no program restriction, any program can use it
         if self.program_id is None:
             return True
-        
+
         # If a specific program is requesting and it matches the room's program
         if program_id is not None and self.program_id == program_id:
             return True
-        
+
         # Allow same-department sharing if department matches
         if self.department_id is not None and department_id is not None:
             if self.department_id == department_id:
                 return True
-        
+
         # If no specific program match and no department sharing, deny access
         return False
 
@@ -140,6 +142,7 @@ class Room:
 @dataclass
 class Course:
     """Course model"""
+
     id: int
     name: str
     code: str
@@ -152,7 +155,7 @@ class Course:
     def is_lab(self) -> bool:
         """Return True when this course must be scheduled as a lab block."""
         return (self.course_type or "").strip().lower() == "lab"
-    
+
     def get_hours_needed(self) -> int:
         """Get hours required for a single scheduled occurrence."""
         if self.is_lab():
@@ -164,6 +167,7 @@ class Course:
 @dataclass
 class Section:
     """Section/Class model"""
+
     id: int
     name: str
     student_count: int
@@ -174,7 +178,7 @@ class Section:
     current_semester: Optional[int] = None
     batch_code: Optional[str] = None
     course_ids: List[int] = field(default_factory=list)  # Courses to schedule
-    
+
     def get_full_name(self) -> str:
         """Get full section identifier"""
         base_name = f"{self.program_code or 'UNK'}-{self.name}"
@@ -191,12 +195,13 @@ class Section:
 @dataclass
 class ScheduleEntry:
     """Single schedule assignment"""
+
     section_id: int
     course_id: int
     faculty_id: int
     room_id: int
     timeslot: Timeslot
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "section_id": self.section_id,
@@ -206,18 +211,19 @@ class ScheduleEntry:
             "timeslot": str(self.timeslot),
             "day": self.timeslot.day,
             "start_time": self.timeslot.start_time,
-            "end_time": self.timeslot.end_time
+            "end_time": self.timeslot.end_time,
         }
 
 
 @dataclass
 class AssignmentVariable:
     """Represents a class that needs to be scheduled"""
+
     section_id: int
     course_id: int
     hours_needed: int
     assigned: bool = False
-    
+
     def __hash__(self):
         return hash((self.section_id, self.course_id, self.hours_needed))
 
@@ -225,10 +231,11 @@ class AssignmentVariable:
 @dataclass
 class DomainValue:
     """A possible assignment: (faculty, room, timeslot)"""
+
     faculty_id: int
     room_id: int
     timeslot: Timeslot
-    
+
     def __hash__(self):
         return hash((self.faculty_id, self.room_id, self.timeslot))
 
@@ -236,31 +243,33 @@ class DomainValue:
 @dataclass
 class ScheduleResult:
     """Result of scheduling attempt"""
+
     success: bool
     schedule: List[ScheduleEntry] = field(default_factory=list)
     error_message: Optional[str] = None
     conflicts: Dict[str, int] = field(default_factory=dict)
     stats: Dict[str, Any] = field(default_factory=dict)
-    
+
     def to_dict(self) -> Dict:
         return {
             "status": "success" if self.success else "failure",
             "schedule": [e.to_dict() for e in self.schedule] if self.success else [],
             "error": self.error_message,
             "conflicts": self.conflicts,
-            "stats": self.stats
+            "stats": self.stats,
         }
 
 
 @dataclass
 class SchedulingProblem:
     """Complete scheduling problem definition"""
+
     sections: List[Section]
     courses: List[Course]
     faculty: List[Faculty]
     rooms: List[Room]
     timeslots: List[Timeslot]
-    
+
     # Explicit Workload Allocation: (section_id, course_id) -> teacher_id
     workload_map: Dict[Tuple[int, int], int] = field(default_factory=dict)
 
@@ -269,7 +278,7 @@ class SchedulingProblem:
     course_map: Dict[int, Course] = field(init=False)
     faculty_map: Dict[int, Faculty] = field(init=False)
     room_map: Dict[int, Room] = field(init=False)
-    
+
     def __post_init__(self):
         self.section_map = {s.id: s for s in self.sections}
         self.course_map = {c.id: c for c in self.courses}

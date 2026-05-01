@@ -31,6 +31,7 @@ export interface NavigationItem {
     path: string
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const mainLinks: NavigationItem[] = [
     { label: 'Dashboard', icon: <LayoutDashboard size={18} />, path: '/' },
     { label: 'Timetable', icon: <CalendarDays size={18} />, path: '/timetable' },
@@ -38,6 +39,7 @@ export const mainLinks: NavigationItem[] = [
     { label: 'Settings', icon: <Cog size={18} />, path: '/settings' },
 ]
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const managementLinks: NavigationItem[] = [
     { label: 'Departments', icon: <Building2 size={16} />, path: '/departments' },
     { label: 'Programs', icon: <Layers size={16} />, path: '/programs' },

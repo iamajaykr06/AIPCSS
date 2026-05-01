@@ -25,7 +25,7 @@ from flask_socketio import SocketIO
 db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
-socketio = SocketIO(async_mode='threading')
+socketio = SocketIO(async_mode="threading")
 
 
 def create_app(env=None):
@@ -34,8 +34,9 @@ def create_app(env=None):
     # Load configuration
     from .config import config, Config
     import os
+
     if env is None:
-        env = os.environ.get('FLASK_ENV', 'development')
+        env = os.environ.get("FLASK_ENV", "development")
     app.config.from_object(config[env])
 
     # Validate secrets are configured
@@ -48,9 +49,8 @@ def create_app(env=None):
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
-    socketio.init_app(app, cors_allowed_origins=app.config['CORS_ORIGINS'])
-    CORS(app, resources={r"/api/*": {"origins": app.config['CORS_ORIGINS']}},
-         supports_credentials=True)
+    socketio.init_app(app, cors_allowed_origins=app.config["CORS_ORIGINS"])
+    CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}}, supports_credentials=True)
 
     # ── Development safety: ensure base tables exist ───────────────────────
     # If a local DB is created in a partially migrated state, endpoints like
@@ -58,7 +58,8 @@ def create_app(env=None):
     # tables when the critical `users` table is missing.
     if env in ("development", "testing"):
         with app.app_context():
-            from . import models
+            from . import models  # noqa: F401
+
             try:
                 db.create_all()
             except Exception as e:
@@ -66,28 +67,36 @@ def create_app(env=None):
 
     # ── Blueprints ────────────────────────────────────────────────────────────
     from .routes.auth import auth_bp
-    app.register_blueprint(auth_bp, url_prefix='/api/auth')
+
+    app.register_blueprint(auth_bp, url_prefix="/api/auth")
 
     from .routes.resources import resources_bp
-    app.register_blueprint(resources_bp, url_prefix='/api/resources')
+
+    app.register_blueprint(resources_bp, url_prefix="/api/resources")
 
     from .routes.scheduling import scheduling_bp
-    app.register_blueprint(scheduling_bp, url_prefix='/api/scheduling')
+
+    app.register_blueprint(scheduling_bp, url_prefix="/api/scheduling")
 
     from .routes.curriculum import curriculum_bp
-    app.register_blueprint(curriculum_bp, url_prefix='/api/curriculum')
+
+    app.register_blueprint(curriculum_bp, url_prefix="/api/curriculum")
 
     from .routes.workload import workload_bp
-    app.register_blueprint(workload_bp, url_prefix='/api/workload')
+
+    app.register_blueprint(workload_bp, url_prefix="/api/workload")
 
     from .routes.settings import settings_bp
-    app.register_blueprint(settings_bp, url_prefix='/api/settings')
+
+    app.register_blueprint(settings_bp, url_prefix="/api/settings")
 
     from .routes.pdf_export import pdf_export_bp
-    app.register_blueprint(pdf_export_bp, url_prefix='/api/pdf')
+
+    app.register_blueprint(pdf_export_bp, url_prefix="/api/pdf")
 
     from .scheduler_new.api import scheduler_bp
-    app.register_blueprint(scheduler_bp, url_prefix='/api/scheduler')
+
+    app.register_blueprint(scheduler_bp, url_prefix="/api/scheduler")
 
     # ── Global error handlers ─────────────────────────────────────────────────
     @app.errorhandler(400)

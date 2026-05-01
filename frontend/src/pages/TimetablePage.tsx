@@ -15,7 +15,7 @@
  */
 
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import { Calendar, Play, Download, Info, CheckCircle2, AlertCircle, MapPin, User, Users, BookOpen, Trash2, Plus, GripVertical, Zap, FileText, ShieldCheck, Filter, Building2, GraduationCap, Layers, FolderTree } from 'lucide-react'
+import { Calendar, Play, Download, Info, CheckCircle2, AlertCircle, MapPin, Users, BookOpen, Trash2, Plus, Zap, FileText, ShieldCheck, Filter, Building2, GraduationCap, Layers, FolderTree } from 'lucide-react'
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { schedulingService } from '@/services/scheduling.service'
 import { departmentService, teacherService, roomService, courseService, sectionService, programService, batchService } from '@/services/resources.service'
@@ -47,19 +47,6 @@ const emptyReadiness: TimetableReadiness = {
     labRoomsCount: 0,
     blockers: [],
     warnings: [],
-}
-
-// Color palette matching the manual timetable
-const BATCH_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-    'BCA I': { bg: '#90EE90', text: '#000', border: '#228B22' },
-    'BCA III': { bg: '#87CEEB', text: '#000', border: '#4169E1' },
-    'BCA V': { bg: '#DDA0DD', text: '#000', border: '#8B008B' },
-    'MCA I': { bg: '#F4A460', text: '#000', border: '#D2691E' },
-    'MCA III': { bg: '#FFB6C1', text: '#000', border: '#C71585' },
-    'B.TECH CSE I': { bg: '#20B2AA', text: '#fff', border: '#008B8B' },
-    'B.TECH CSE III': { bg: '#98FB98', text: '#000', border: '#32CD32' },
-    'B.TECH CSE V': { bg: '#87CEFA', text: '#000', border: '#1E90FF' },
-    'B.TECH CSE VII': { bg: '#D8BFD8', text: '#000', border: '#9932CC' },
 }
 
 const COURSE_COLORS: Record<string, string> = {
@@ -115,16 +102,6 @@ function getCourseColor(courseName: string, isLab: boolean): string {
     return colors[Math.abs(hash) % colors.length] || COURSE_COLORS.Default
 }
 
-// Get batch display info
-function getBatchColor(batchName: string): { bg: string; text: string; border: string } {
-    for (const [key, value] of Object.entries(BATCH_COLORS)) {
-        if (batchName.toUpperCase().includes(key.toUpperCase())) {
-            return value
-        }
-    }
-    return { bg: '#E0E0E0', text: '#000', border: '#999' }
-}
-
 interface BatchTimetableViewProps {
     timetable: TimetableEntry[]
     batches: Batch[]
@@ -136,7 +113,7 @@ interface BatchTimetableViewProps {
     conflictIds?: Set<number>
 }
 
-function BatchTimetableView({ timetable, batches, sections, teachers, workingDays, displaySlots, onDelete, conflictIds }: BatchTimetableViewProps) {
+function BatchTimetableView({ timetable, batches, sections, teachers, workingDays, displaySlots, conflictIds }: BatchTimetableViewProps) {
 
     // Build teacher color mapping using teacher name hash (consistent with legend)
     const teacherColors = useMemo(() => {
@@ -617,7 +594,7 @@ export function TimetablePage() {
     const [pdfExporting, setPdfExporting] = useState(false)
     const [resolutionModalOpen, setResolutionModalOpen] = useState(false)
 
-    const [suggestingEntry, setSuggestingEntry] = useState<TimetableEntry | null>(null)
+    const [suggestingEntry, _setSuggestingEntry] = useState<TimetableEntry | null>(null)
     const [readinessLoading, setReadinessLoading] = useState(false)
     const [readiness, setReadiness] = useState<TimetableReadiness>(emptyReadiness)
     const [generationResult, setGenerationResult] = useState<GenerateScheduleResult | null>(null)
@@ -642,12 +619,12 @@ export function TimetablePage() {
     const { toast } = useToast()
 
     // Sensors for DND
-    const sensors = useSensors(
+    const _sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
         useSensor(KeyboardSensor)
     )
 
-    const [activeId, setActiveId] = useState<number | null>(null)
+    const [_activeId, _setActiveId] = useState<number | null>(null)
 
     const displaySlots = useMemo(() => {
         // Parse breaks for overlap detection
@@ -874,18 +851,18 @@ export function TimetablePage() {
         try {
             toast('info', 'Generation started', targetDept === 'all' ? 'AI is generating timetables for all departments...' : 'AI is calculating the optimal schedule...')
             if (targetDept === 'all') {
-                const res: any = await schedulingService.generateAllTimetables({})
-                const results = res.results || []
+                const res = await schedulingService.generateAllTimetables({})
+                const results = res || []
 
-                const totalCreated = results.reduce((sum: number, r: any) => sum + (r.entries_created || 0), 0)
-                const totalSkipped = results.reduce((sum: number, r: any) => sum + (r.incomplete_workloads?.length || 0), 0)
+                const totalCreated = results.reduce((sum: number, r: { entries_created?: number }) => sum + (r.entries_created || 0), 0)
+                const totalSkipped = results.reduce((sum: number, r: { incomplete_workloads?: unknown[] }) => sum + (r.incomplete_workloads?.length || 0), 0)
 
                 const combinedResult: GenerateScheduleResult = {
                     status: totalSkipped > 0 ? 'partial_success' : 'success',
                     entries_created: totalCreated,
-                    incomplete_workloads: results.flatMap((r: any) => r.incomplete_workloads || []),
-                    errors: results.flatMap((r: any) => r.errors || []),
-                    message: res.message || `Generated ${totalCreated} entries across all departments.`
+                    incomplete_workloads: results.flatMap((r: GenerateScheduleResult) => r.incomplete_workloads || []),
+                    errors: results.flatMap((r: GenerateScheduleResult) => r.errors || []),
+                    message: `Generated ${totalCreated} entries across all departments.`
                 }
                 setGenerationResult(combinedResult)
 
@@ -1045,7 +1022,7 @@ export function TimetablePage() {
         }
     }
 
-    const openAddModal = (day: string, slot: string) => {
+    const _openAddModal = (day: string, slot: string) => {
         setSelectedSlot({ day, slot })
         setEntryModalOpen(true)
         loadModalData()
@@ -1096,13 +1073,13 @@ export function TimetablePage() {
         }
     }
 
-    const handleDragStart = (event: DragStartEvent) => {
-        setActiveId(event.active.id as number)
+    const _handleDragStart = (event: DragStartEvent) => {
+        _setActiveId(event.active.id as number)
     }
 
-    const handleDragEnd = async (event: DragEndEvent) => {
+    const _handleDragEnd = async (event: DragEndEvent) => {
         const { active, over } = event
-        setActiveId(null)
+        _setActiveId(null)
 
         if (!over || !selectedDeptId) return
 
@@ -1257,7 +1234,7 @@ export function TimetablePage() {
         return sessions
     }, [filteredTimetable, timeSlots])
 
-    const scheduleGrid = useMemo(() => {
+    const _scheduleGrid = useMemo(() => {
         const grid: Record<string, Record<string, TimetableEntry[]>> = {}
         workingDays.forEach((day: string) => {
             grid[day] = {}
@@ -1294,7 +1271,7 @@ export function TimetablePage() {
             })
     }, [timetable])
 
-    const sectionLegend = useMemo(() => {
+    const _sectionLegend = useMemo(() => {
         const seen = new Set<number>()
         const sectionsWithBatch: Array<{
             id: number
@@ -1327,7 +1304,7 @@ export function TimetablePage() {
         return sectionsWithBatch.sort((a, b) => a.shortName.localeCompare(b.shortName))
     }, [timetable, readiness.sections, batches])
 
-    const courseLegend = useMemo(() => {
+    const _courseLegend = useMemo(() => {
         const seen = new Set<number>()
         const coursesList: Array<{
             id: number
@@ -1364,7 +1341,7 @@ export function TimetablePage() {
             if (!entry.teacher || seen.has(entry.teacher.id)) return
             seen.add(entry.teacher.id)
 
-            const fullTeacher = readiness.teachers.find(t => t.id === entry.teacher.id)
+            const _fullTeacher = readiness.teachers.find(t => t.id === entry.teacher.id)
             const abbr = entry.teacher.abbreviation || entry.teacher.name?.split(' ').map(n => n[0]).join('').toUpperCase() || '-'
             teachersList.push({
                 id: entry.teacher.id,

@@ -62,8 +62,10 @@ export function CoursesPage() {
         return courses.filter(c => c.program_code === selectedProgram)
     }, [courses, selectedProgram])
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const table = useTable({ data: filteredCourses as any, searchFields: ['name', 'code'] as any, defaultSortKey: 'name' })
     const { register, handleSubmit, reset, formState: { errors }, setValue } = useForm<FormData>({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         resolver: zodResolver(schema) as any,
         defaultValues: { course_type: 'Theory', semester: 1 },
     })
@@ -191,6 +193,7 @@ export function CoursesPage() {
                             )
                         },
                     ]}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     data={table.paginated as any}
                     search={table.search}
                     onSearch={table.setSearch}
@@ -224,7 +227,7 @@ export function CoursesPage() {
                     </>
                 }
             >
-                <form id="course-form" onSubmit={handleSubmit(onSubmit as any)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <form id="course-form" onSubmit={handleSubmit(onSubmit as (data: FormData) => Promise<void>)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                         <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                             <label className="label">Course Name</label>

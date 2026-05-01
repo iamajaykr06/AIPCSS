@@ -48,9 +48,11 @@ export function ProgramsPage() {
     const [importModalOpen, setImportModalOpen] = useState(false)
     const { toast } = useToast()
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const table = useTable({ data: programs as any, searchFields: ['name', 'code'] as any, defaultSortKey: 'name' })
 
     const { register, handleSubmit, reset, formState: { errors }, setValue } = useForm<FormData>({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         resolver: zodResolver(schema) as any,
     })
 
@@ -157,6 +159,7 @@ export function ProgramsPage() {
                             )
                         },
                     ]}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     data={table.paginated as any}
                     search={table.search}
                     onSearch={table.setSearch}
@@ -190,7 +193,7 @@ export function ProgramsPage() {
                     </>
                 }
             >
-                <form id="prog-form" onSubmit={handleSubmit(onSubmit as any)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <form id="prog-form" onSubmit={handleSubmit(onSubmit as (data: FormData) => Promise<void>)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div className="form-group">
                         <label className="label">Program Name</label>
                         <input {...register('name')} className={`input ${errors.name ? 'input-error' : ''}`} placeholder="e.g. B.Tech Computer Science" />

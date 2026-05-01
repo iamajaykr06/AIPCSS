@@ -22,33 +22,33 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 import logging
 import time
-from typing import Optional, List, Dict, Any
+from typing import List, Dict, Any
 from collections import defaultdict
 
 from .. import db, socketio
-from ..models import TimetableEntry, Department, ScheduleSettings, Section
+from ..models import TimetableEntry, Department, Section
 from ..models.timetable import entry_sections
 from .data_loader import DataLoader
 from .hybrid_engine import HybridSchedulerEngine
+
 try:
     from .ortools_engine import OrtoolsSchedulerEngine
+
     ORTOOLS_AVAILABLE = True
 except ModuleNotFoundError:
     OrtoolsSchedulerEngine = None
     ORTOOLS_AVAILABLE = False
 
-scheduler_bp = Blueprint('scheduler_new', __name__)
+scheduler_bp = Blueprint("scheduler_new", __name__)
 AUTO_HYBRID_CLASS_THRESHOLD = 1000  # Increased from 300 to allow OR-Tools for larger problems
 
 
 def emit_progress(department_id: int, percentage: int, message: str):
     """Emit progress update via Socket.IO to all connected clients."""
     # Broadcast to all clients (frontend doesn't join rooms, so room-based emit won't work)
-    socketio.emit('generation_progress', {
-        'percentage': percentage,
-        'current_section': message,
-        'status': 'Generating...'
-    })
+    socketio.emit(
+        "generation_progress", {"percentage": percentage, "current_section": message, "status": "Generating..."}
+    )
 
 
 def _validate_problem(problem):
@@ -67,27 +67,55 @@ def _validate_problem(problem):
     # FEASIBILITY CHECKS
     total_classes = problem.get_section_courses()
     if not total_classes:
-        return jsonify({
-            "status": "failure", "schedule": [],
-            "error": "No section-course assignments found. Check that Batch.current_semester is set and program codes match."
-        }), 400
+        return (
+            jsonify(
+                {
+                    "status": "failure",
+                    "schedule": [],
+                    "error": (
+                        "No section-course assignments found. "
+                        "Check that Batch.current_semester is set "
+                        "and program codes match."
+                    ),
+                }
+            ),
+            400,
+        )
 
     # Check faculty capacity
     faculty_capacity = sum(f.max_hours_per_week for f in problem.faculty)
     required_hours = sum(hours for _, _, hours in total_classes)
     if faculty_capacity < required_hours:
-        return jsonify({
-            "status": "failure", "schedule": [],
-            "error": f"Insufficient faculty capacity: {required_hours} hours needed, {faculty_capacity} available."
-        }), 400
+        return (
+            jsonify(
+                {
+                    "status": "failure",
+                    "schedule": [],
+                    "error": (
+                        f"Insufficient faculty capacity: {required_hours} hours needed, "
+                        f"{faculty_capacity} available."
+                    ),
+                }
+            ),
+            400,
+        )
 
     # Check room capacity
     room_slot_capacity = len(problem.timeslots) * len(problem.rooms)
     if room_slot_capacity < len(total_classes):
-        return jsonify({
-            "status": "failure", "schedule": [],
-            "error": f"Insufficient room capacity: {len(total_classes)} classes need slots, {room_slot_capacity} available."
-        }), 400
+        return (
+            jsonify(
+                {
+                    "status": "failure",
+                    "schedule": [],
+                    "error": (
+                        f"Insufficient room capacity: {len(total_classes)} classes need slots, "
+                        f"{room_slot_capacity} available."
+                    ),
+                }
+            ),
+            400,
+        )
 
     return None
 
@@ -95,28 +123,32 @@ def _validate_problem(problem):
 def _pre_schedule_feasibility_check(problem) -> List[Dict[str, Any]]:
     """Check if scheduling is feasible BEFORE running the solver. Returns list of warnings."""
     warnings = []
-    
+
     # 1. Check every section has courses
     for section in problem.sections:
         if not section.course_ids:
-            warnings.append({
-                "type": "section_no_courses",
-                "section": section.get_full_name(),
-                "message": f"Section '{section.get_full_name()}' has 0 courses assigned"
-            })
-    
+            warnings.append(
+                {
+                    "type": "section_no_courses",
+                    "section": section.get_full_name(),
+                    "message": f"Section '{section.get_full_name()}' has 0 courses assigned",
+                }
+            )
+
     # 2. Check every course has qualified faculty
     for section in problem.sections:
         for course_id in section.course_ids:
             course = problem.course_map.get(course_id)
             if course and not course.qualified_faculty_ids:
-                warnings.append({
-                    "type": "course_no_faculty",
-                    "course": course.code,
-                    "course_name": course.name,
-                    "message": f"Course '{course.code}' has NO qualified faculty"
-                })
-    
+                warnings.append(
+                    {
+                        "type": "course_no_faculty",
+                        "course": course.code,
+                        "course_name": course.name,
+                        "message": f"Course '{course.code}' has NO qualified faculty",
+                    }
+                )
+
     # 3. Check total required hours vs available room-slots per section
     total_timeslots = len(problem.timeslots)
     for section in problem.sections:
@@ -126,14 +158,19 @@ def _pre_schedule_feasibility_check(problem) -> List[Dict[str, Any]]:
             if course:
                 required += course.get_hours_needed()
         if required > total_timeslots:
-            warnings.append({
-                "type": "section_overload",
-                "section": section.get_full_name(),
-                "required_hours": required,
-                "available_slots": total_timeslots,
-                "message": f"Section '{section.get_full_name()}' needs {required} hours but only {total_timeslots} slots exist"
-            })
-    
+            warnings.append(
+                {
+                    "type": "section_overload",
+                    "section": section.get_full_name(),
+                    "required_hours": required,
+                    "available_slots": total_timeslots,
+                    "message": (
+                        f"Section '{section.get_full_name()}' needs {required} hours "
+                        f"but only {total_timeslots} slots exist"
+                    ),
+                }
+            )
+
     # 4. Check lab room capacity
     lab_course_count = 0
     for section in problem.sections:
@@ -141,15 +178,17 @@ def _pre_schedule_feasibility_check(problem) -> List[Dict[str, Any]]:
             course = problem.course_map.get(course_id)
             if course and course.is_lab():
                 lab_course_count += 1
-    
+
     lab_rooms = sum(1 for r in problem.rooms if "lab" in (r.room_type or "").lower())
     if lab_course_count > 0 and lab_rooms == 0:
-        warnings.append({
-            "type": "no_lab_rooms",
-            "lab_courses": lab_course_count,
-            "message": f"No lab rooms configured for {lab_course_count} lab courses"
-        })
-    
+        warnings.append(
+            {
+                "type": "no_lab_rooms",
+                "lab_courses": lab_course_count,
+                "message": f"No lab rooms configured for {lab_course_count} lab courses",
+            }
+        )
+
     # 5. Check faculty total capacity
     total_required = 0
     for section in problem.sections:
@@ -157,25 +196,31 @@ def _pre_schedule_feasibility_check(problem) -> List[Dict[str, Any]]:
             course = problem.course_map.get(course_id)
             if course:
                 total_required += course.get_hours_needed()
-    
+
     total_faculty_capacity = sum(f.max_hours_per_week for f in problem.faculty)
     if total_required > total_faculty_capacity:
-        warnings.append({
-            "type": "faculty_overload",
-            "total_required_hours": total_required,
-            "total_faculty_capacity": total_faculty_capacity,
-            "message": f"Total required {total_required} hours > faculty capacity {total_faculty_capacity} hours"
-        })
-    
+        warnings.append(
+            {
+                "type": "faculty_overload",
+                "total_required_hours": total_required,
+                "total_faculty_capacity": total_faculty_capacity,
+                "message": f"Total required {total_required} hours > faculty capacity {total_faculty_capacity} hours",
+            }
+        )
+
     # 6. Check current_semester is set for all sections
     for section in problem.sections:
         if section.current_semester is None:
-            warnings.append({
-                "type": "missing_semester",
-                "section": section.get_full_name(),
-                "message": f"Section '{section.get_full_name()}' has no semester set - NO courses will be scheduled"
-            })
-    
+            warnings.append(
+                {
+                    "type": "missing_semester",
+                    "section": section.get_full_name(),
+                    "message": (
+                        f"Section '{section.get_full_name()}' has no semester set " f"- NO courses will be scheduled"
+                    ),
+                }
+            )
+
     return warnings
 
 
@@ -187,7 +232,7 @@ def _verify_completeness(result, problem) -> Dict[str, Any]:
         course = problem.course_map.get(entry.course_id)
         hours = course.get_hours_needed() if course and course.is_lab() else 1
         scheduled_hours[(entry.section_id, entry.course_id)] += hours
-    
+
     # Check against required hours
     missing = []
     for section in problem.sections:
@@ -198,21 +243,23 @@ def _verify_completeness(result, problem) -> Dict[str, Any]:
             required = course.get_hours_needed()
             allocated = scheduled_hours.get((section.id, course_id), 0)
             if allocated < required:
-                missing.append({
-                    "section": section.get_full_name(),
-                    "course": course.code,
-                    "course_name": course.name,
-                    "required_hours": required,
-                    "allocated_hours": allocated,
-                    "missing_hours": required - allocated
-                })
-    
+                missing.append(
+                    {
+                        "section": section.get_full_name(),
+                        "course": course.code,
+                        "course_name": course.name,
+                        "required_hours": required,
+                        "allocated_hours": allocated,
+                        "missing_hours": required - allocated,
+                    }
+                )
+
     return {
         "is_complete": len(missing) == 0,
         "total_section_courses": sum(len(s.course_ids) for s in problem.sections),
         "fully_scheduled": sum(len(s.course_ids) for s in problem.sections) - len(missing),
         "incomplete": len(missing),
-        "missing_details": missing
+        "missing_details": missing,
     }
 
 
@@ -223,14 +270,22 @@ def _build_scheduler(problem, requested_engine, time_limit, debug_mode):
 
     # E6/C8: Always try OR-Tools first if available, unless Hybrid is explicitly requested
     if normalized_engine == "ortools" and ORTOOLS_AVAILABLE:
-        return OrtoolsSchedulerEngine(problem=problem, time_limit_seconds=time_limit, debug=debug_mode), "ortools", total_classes
+        return (
+            OrtoolsSchedulerEngine(problem=problem, time_limit_seconds=time_limit, debug=debug_mode),
+            "ortools",
+            total_classes,
+        )
 
     if normalized_engine == "hybrid":
         return HybridSchedulerEngine(problem=problem, debug=debug_mode), "hybrid", total_classes
 
     # Auto mode: Use OR-Tools if available (E6)
     if ORTOOLS_AVAILABLE:
-        return OrtoolsSchedulerEngine(problem=problem, time_limit_seconds=time_limit, debug=debug_mode), "ortools", total_classes
+        return (
+            OrtoolsSchedulerEngine(problem=problem, time_limit_seconds=time_limit, debug=debug_mode),
+            "ortools",
+            total_classes,
+        )
 
     # Fallback to Hybrid only if OR-Tools is missing
     return HybridSchedulerEngine(problem=problem, debug=debug_mode), "hybrid", total_classes
@@ -242,19 +297,14 @@ def _save_schedule_entries(result, department_id, problem):
         # Delete old entries
         if department_id:
             entry_ids = [
-                entry_id for (entry_id,) in db.session.query(TimetableEntry.id)
-                .filter_by(department_id=department_id)
-                .all()
+                entry_id
+                for (entry_id,) in db.session.query(TimetableEntry.id).filter_by(department_id=department_id).all()
             ]
         else:
             entry_ids = [entry_id for (entry_id,) in db.session.query(TimetableEntry.id).all()]
 
         if entry_ids:
-            db.session.execute(
-                entry_sections.delete().where(
-                    entry_sections.c.entry_id.in_(entry_ids)
-                )
-            )
+            db.session.execute(entry_sections.delete().where(entry_sections.c.entry_id.in_(entry_ids)))
 
         if department_id:
             TimetableEntry.query.filter_by(department_id=department_id).delete()
@@ -263,16 +313,17 @@ def _save_schedule_entries(result, department_id, problem):
 
         # Build new entries
         section_ids = {entry.section_id for entry in result.schedule}
-        sections = {
-            section.id: section
-            for section in Section.query.filter(Section.id.in_(section_ids)).all()
-        } if section_ids else {}
+        sections = (
+            {section.id: section for section in Section.query.filter(Section.id.in_(section_ids)).all()}
+            if section_ids
+            else {}
+        )
         course_ids = {entry.course_id for entry in result.schedule}
-        courses = {
-            course.id: course
-            for course in problem.course_map.values()
-            if course.id in course_ids
-        } if result.schedule else {}
+        courses = (
+            {course.id: course for course in problem.course_map.values() if course.id in course_ids}
+            if result.schedule
+            else {}
+        )
         day_order = {
             "Monday": 1,
             "Tuesday": 2,
@@ -282,10 +333,7 @@ def _save_schedule_entries(result, department_id, problem):
             "Saturday": 6,
             "Sunday": 7,
         }
-        ordered_timeslots = sorted(
-            problem.timeslots,
-            key=lambda slot: (day_order.get(slot.day, 99), slot.start_time)
-        )
+        ordered_timeslots = sorted(problem.timeslots, key=lambda slot: (day_order.get(slot.day, 99), slot.start_time))
         per_day_slots = {}
         for slot in ordered_timeslots:
             per_day_slots.setdefault(slot.day, []).append(slot)
@@ -298,10 +346,11 @@ def _save_schedule_entries(result, department_id, problem):
             day_slots = per_day_slots.get(entry.timeslot.day, [])
             start_index = next(
                 (
-                    index for index, slot in enumerate(day_slots)
+                    index
+                    for index, slot in enumerate(day_slots)
                     if slot.start_time == entry.timeslot.start_time and slot.end_time == entry.timeslot.end_time
                 ),
-                None
+                None,
             )
             slot_labels = []
             if start_index is not None:
@@ -321,7 +370,7 @@ def _save_schedule_entries(result, department_id, problem):
                     course_id=entry.course_id,
                     teacher_id=entry.faculty_id,
                     room_id=entry.room_id,
-                    department_id=department_id
+                    department_id=department_id,
                 )
                 if section:
                     timetable_entry.sections.append(section)
@@ -344,17 +393,17 @@ def _result_status(result):
     return "failure"
 
 
-@scheduler_bp.route('/generate', methods=['POST'])
+@scheduler_bp.route("/generate", methods=["POST"])
 @jwt_required()
 def generate():
     """POST /api/scheduler/generate - adaptive scheduler endpoint."""
     start_time = time.time()
     data = request.get_json() or {}
 
-    department_id = data.get('department_id')
-    debug_mode = data.get('debug', False)
-    time_limit = data.get('time_limit_seconds', 60.0)
-    requested_engine = data.get('engine', 'auto')
+    department_id = data.get("department_id")
+    debug_mode = data.get("debug", False)
+    time_limit = data.get("time_limit_seconds", 60.0)
+    requested_engine = data.get("engine", "auto")
 
     if debug_mode:
         logging.basicConfig(level=logging.DEBUG)
@@ -373,35 +422,36 @@ def generate():
             logger.warning("Pre-scheduling validation warnings: %s", feasibility_warnings)
             # Return warnings but allow user to proceed if they want
             # Critical warnings should block scheduling
-            critical_warnings = [w for w in feasibility_warnings if w["type"] in [
-                "section_no_courses",
-                "no_lab_rooms",
-                "faculty_overload",
-                "section_overload",
-            ]]
+            critical_warnings = [
+                w
+                for w in feasibility_warnings
+                if w["type"]
+                in [
+                    "section_no_courses",
+                    "no_lab_rooms",
+                    "faculty_overload",
+                    "section_overload",
+                ]
+            ]
             if critical_warnings:
-                return jsonify({
-                    "status": "failure",
-                    "error": "Pre-scheduling validation failed",
-                    "validation_errors": feasibility_warnings,
-                    "schedule": [],
-                    "stats": {}
-                }), 422
+                return (
+                    jsonify(
+                        {
+                            "status": "failure",
+                            "error": "Pre-scheduling validation failed",
+                            "validation_errors": feasibility_warnings,
+                            "schedule": [],
+                            "stats": {},
+                        }
+                    ),
+                    422,
+                )
 
-        scheduler, engine_name, total_classes = _build_scheduler(
-            problem,
-            requested_engine,
-            time_limit,
-            debug_mode
-        )
-        logger.info(
-            "Scheduler generate using %s engine for %s classes",
-            engine_name,
-            total_classes
-        )
+        scheduler, engine_name, total_classes = _build_scheduler(problem, requested_engine, time_limit, debug_mode)
+        logger.info("Scheduler generate using %s engine for %s classes", engine_name, total_classes)
 
         result = scheduler.solve()
-        
+
         # Post-schedule completeness verification
         completeness = _verify_completeness(result, problem)
         if not completeness["is_complete"]:
@@ -409,8 +459,8 @@ def generate():
             if not result.error_message:
                 result.error_message = f"{completeness['incomplete']} courses have incomplete scheduling"
             result.stats["completeness_report"] = completeness
-            logger.warning("Incomplete scheduling: %s courses missing hours", completeness['incomplete'])
-        
+            logger.warning("Incomplete scheduling: %s courses missing hours", completeness["incomplete"])
+
         response_status = _result_status(result)
 
         if result.schedule:
@@ -421,59 +471,74 @@ def generate():
                 faculty = problem.faculty_map.get(entry.faculty_id)
                 room = problem.room_map.get(entry.room_id)
 
-                schedule_output.append({
-                    "section": section.get_full_name() if section else str(entry.section_id),
-                    "course": course.code if course else str(entry.course_id),
-                    "faculty": faculty.name if faculty else str(entry.faculty_id),
-                    "room": room.name if room else str(entry.room_id),
-                    "timeslot": str(entry.timeslot)
-                })
+                schedule_output.append(
+                    {
+                        "section": section.get_full_name() if section else str(entry.section_id),
+                        "course": course.code if course else str(entry.course_id),
+                        "faculty": faculty.name if faculty else str(entry.faculty_id),
+                        "room": room.name if room else str(entry.room_id),
+                        "timeslot": str(entry.timeslot),
+                    }
+                )
 
-            return jsonify({
-                "status": response_status,
-                "engine": engine_name,
-                "schedule": schedule_output,
-                "error": None if result.success else result.error_message,
-                "stats": {
-                    **result.stats,
-                    "total_time_seconds": time.time() - start_time
-                }
-            }), 200
+            return (
+                jsonify(
+                    {
+                        "status": response_status,
+                        "engine": engine_name,
+                        "schedule": schedule_output,
+                        "error": None if result.success else result.error_message,
+                        "stats": {**result.stats, "total_time_seconds": time.time() - start_time},
+                    }
+                ),
+                200,
+            )
         else:
-            return jsonify({
-                "status": response_status,
-                "engine": engine_name,
-                "schedule": [],
-                "error": result.error_message or "Could not find valid schedule",
-                "stats": {
-                    **result.stats,
-                    "total_time_seconds": time.time() - start_time
-                }
-            }), 422
+            return (
+                jsonify(
+                    {
+                        "status": response_status,
+                        "engine": engine_name,
+                        "schedule": [],
+                        "error": result.error_message or "Could not find valid schedule",
+                        "stats": {**result.stats, "total_time_seconds": time.time() - start_time},
+                    }
+                ),
+                422,
+            )
 
     except Exception as e:
         logger.exception("Error in scheduler generate")
         return jsonify({"status": "failure", "schedule": [], "error": str(e)}), 500
 
 
-@scheduler_bp.route('/generate-timetable', methods=['POST'])
+@scheduler_bp.route("/generate-timetable", methods=["POST"])
 @jwt_required()
 def generate_timetable():
     """POST /generate-timetable - Generate timetable using adaptive engine selection."""
     start_time = time.time()
     data = request.get_json() or {}
 
-    department_id = data.get('department_id')
-    debug_mode = data.get('debug', False)
-    time_limit = data.get('time_limit_seconds', 60.0)
-    requested_engine = data.get('engine', 'auto')
+    department_id = data.get("department_id")
+    debug_mode = data.get("debug", False)
+    time_limit = data.get("time_limit_seconds", 60.0)
+    requested_engine = data.get("engine", "auto")
 
     if department_id:
         dept = db.session.get(Department, department_id)
         if not dept:
-            return jsonify(
-                {"status": "failure", "error": f"Department {department_id} not found", "schedule": [], "conflicts": {},
-                 "stats": {}}), 404
+            return (
+                jsonify(
+                    {
+                        "status": "failure",
+                        "error": f"Department {department_id} not found",
+                        "schedule": [],
+                        "conflicts": {},
+                        "stats": {},
+                    }
+                ),
+                404,
+            )
 
     if debug_mode:
         logging.basicConfig(level=logging.DEBUG)
@@ -489,13 +554,18 @@ def generate_timetable():
         if invalid_problem:
             response, status = invalid_problem
             payload = response.get_json()
-            return jsonify({
-                "status": payload.get("status", "failure"),
-                "error": payload.get("error"),
-                "schedule": [],
-                "conflicts": {},
-                "stats": {}
-            }), status
+            return (
+                jsonify(
+                    {
+                        "status": payload.get("status", "failure"),
+                        "error": payload.get("error"),
+                        "schedule": [],
+                        "conflicts": {},
+                        "stats": {},
+                    }
+                ),
+                status,
+            )
 
         # Pre-scheduling feasibility check
         feasibility_warnings = _pre_schedule_feasibility_check(problem)
@@ -504,21 +574,21 @@ def generate_timetable():
             critical_warnings = [w for w in feasibility_warnings if w["type"] in ["section_no_courses", "no_lab_rooms"]]
             if critical_warnings:
                 emit_progress(department_id or 0, 100, "Validation failed")
-                return jsonify({
-                    "status": "failure",
-                    "error": "Pre-scheduling validation failed",
-                    "validation_errors": feasibility_warnings,
-                    "schedule": [],
-                    "conflicts": {},
-                    "stats": {}
-                }), 422
+                return (
+                    jsonify(
+                        {
+                            "status": "failure",
+                            "error": "Pre-scheduling validation failed",
+                            "validation_errors": feasibility_warnings,
+                            "schedule": [],
+                            "conflicts": {},
+                            "stats": {},
+                        }
+                    ),
+                    422,
+                )
 
-        scheduler, engine_name, total_classes = _build_scheduler(
-            problem,
-            requested_engine,
-            time_limit,
-            debug_mode
-        )
+        scheduler, engine_name, total_classes = _build_scheduler(problem, requested_engine, time_limit, debug_mode)
 
         emit_progress(department_id or 0, 10, f"Initializing {engine_name} scheduler...")
         logger.info(f"Starting timetable generation for department {department_id}")
@@ -530,14 +600,14 @@ def generate_timetable():
             len(problem.courses),
             len(problem.faculty),
             len(problem.rooms),
-            len(problem.timeslots)
+            len(problem.timeslots),
         )
 
         def progress_callback(pct, msg):
             emit_progress(department_id or 0, 10 + int(pct * 0.8), msg)
 
         result = scheduler.solve(progress_callback=progress_callback)
-        
+
         # Post-schedule completeness verification
         completeness = _verify_completeness(result, problem)
         if not completeness["is_complete"]:
@@ -545,8 +615,8 @@ def generate_timetable():
             if not result.error_message:
                 result.error_message = f"{completeness['incomplete']} courses have incomplete scheduling"
             result.stats["completeness_report"] = completeness
-            logger.warning("Incomplete scheduling: %s courses missing hours", completeness['incomplete'])
-        
+            logger.warning("Incomplete scheduling: %s courses missing hours", completeness["incomplete"])
+
         response_status = _result_status(result)
 
         if result.schedule:
@@ -563,22 +633,29 @@ def generate_timetable():
             "schedule": [entry.to_dict() for entry in result.schedule] if result.schedule else [],
             "error": None if result.success else result.error_message,
             "conflicts": result.conflicts,
-            "stats": {
-                **result.stats,
-                "total_time_seconds": time.time() - start_time
-            },
-            "engine": engine_name
+            "stats": {**result.stats, "total_time_seconds": time.time() - start_time},
+            "engine": engine_name,
         }
 
         return jsonify(response_data), 200 if result.schedule else 422
 
     except Exception as e:
         logger.exception("Error in generate_timetable")
-        return jsonify({"status": "failure", "error": str(e), "schedule": [], "conflicts": {},
-                        "stats": {"error_time": time.time() - start_time}}), 500
+        return (
+            jsonify(
+                {
+                    "status": "failure",
+                    "error": str(e),
+                    "schedule": [],
+                    "conflicts": {},
+                    "stats": {"error_time": time.time() - start_time},
+                }
+            ),
+            500,
+        )
 
 
-@scheduler_bp.route('/scheduler-stats', methods=['GET'])
+@scheduler_bp.route("/scheduler-stats", methods=["GET"])
 @jwt_required()
 def get_scheduler_stats():
     """Get statistics about the current scheduling configuration"""
@@ -596,29 +673,37 @@ def get_scheduler_stats():
 
         total_classes = len(problem.get_section_courses())
 
-        return jsonify({
-            "status": "success",
-            "stats": {
-                "resources": {
-                    "sections": len(problem.sections),
-                    "courses": len(problem.courses),
-                    "faculty": total_faculty,
-                    "rooms": total_rooms,
-                    "timeslots": total_timeslots
-                },
-                "capacity": {
-                    "room_slots": room_capacity,
-                    "faculty_hours": faculty_capacity,
-                    "classes_to_schedule": total_classes
-                },
-                "feasibility": {
-                    "rooms_sufficient": room_capacity >= total_classes,
-                    "faculty_sufficient": faculty_capacity >= total_classes,
-                    "recommendation": "Add more rooms" if room_capacity < total_classes else
-                    "Add more faculty" if faculty_capacity < total_classes else "OK"
+        return (
+            jsonify(
+                {
+                    "status": "success",
+                    "stats": {
+                        "resources": {
+                            "sections": len(problem.sections),
+                            "courses": len(problem.courses),
+                            "faculty": total_faculty,
+                            "rooms": total_rooms,
+                            "timeslots": total_timeslots,
+                        },
+                        "capacity": {
+                            "room_slots": room_capacity,
+                            "faculty_hours": faculty_capacity,
+                            "classes_to_schedule": total_classes,
+                        },
+                        "feasibility": {
+                            "rooms_sufficient": room_capacity >= total_classes,
+                            "faculty_sufficient": faculty_capacity >= total_classes,
+                            "recommendation": (
+                                "Add more rooms"
+                                if room_capacity < total_classes
+                                else "Add more faculty" if faculty_capacity < total_classes else "OK"
+                            ),
+                        },
+                    },
                 }
-            }
-        }), 200
+            ),
+            200,
+        )
 
     except Exception as e:
         return jsonify({"status": "failure", "error": str(e)}), 500

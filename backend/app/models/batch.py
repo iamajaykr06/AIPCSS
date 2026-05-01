@@ -16,17 +16,18 @@ limitations under the License.
 
 from .. import db
 
+
 class Batch(db.Model):
-    __tablename__ = 'batches'
-    
+    __tablename__ = "batches"
+
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False) # e.g., "Batch 2023-26"
-    code = db.Column(db.String(50), nullable=False, unique=True) # e.g., "B23"
-    academic_year = db.Column(db.String(20), nullable=False) # e.g., "2023-2024"
-    program_id = db.Column(db.Integer, db.ForeignKey('programs.id'), nullable=False)
+    name = db.Column(db.String(100), nullable=False)  # e.g., "Batch 2023-26"
+    code = db.Column(db.String(50), nullable=False, unique=True)  # e.g., "B23"
+    academic_year = db.Column(db.String(20), nullable=False)  # e.g., "2023-2024"
+    program_id = db.Column(db.Integer, db.ForeignKey("programs.id"), nullable=False)
     current_semester = db.Column(db.Integer, nullable=False, default=1)  # 1-8
-    
-    sections = db.relationship('Section', backref='batch', lazy=True)
+
+    sections = db.relationship("Section", backref="batch", lazy=True)
 
     def __repr__(self):
-        return f'<Batch {self.name}>'
+        return f"<Batch {self.name}>"

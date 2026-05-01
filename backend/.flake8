@@ -1,0 +1,6 @@
+[flake8]
+max-line-length = 120
+# E402: module level import not at top of file (license headers)
+# E203: whitespace before ':' (conflicts with black)
+# W503: line break before binary operator (conflicts with black)
+ignore = E402, E203, W503

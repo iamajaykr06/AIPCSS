@@ -58,9 +58,11 @@ export function TeachersPage() {
         return teachers.filter(t => t.departments.some(d => d.name === selectedDeptFilter))
     }, [teachers, selectedDeptFilter])
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const table = useTable({ data: filteredTeachers as any, searchFields: ['name', 'email'] as any, defaultSortKey: 'name' })
 
     const { register, handleSubmit, reset, formState: { errors }, setValue } = useForm<FormData>({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         resolver: zodResolver(schema) as any,
     })
 
@@ -224,6 +226,7 @@ export function TeachersPage() {
                         },
 
                     ]}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     data={table.paginated as any}
                     search={table.search}
                     onSearch={table.setSearch}
@@ -258,7 +261,7 @@ export function TeachersPage() {
                     </>
                 }
             >
-                <form id="teacher-form" onSubmit={handleSubmit(onSubmit as any)} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <form id="teacher-form" onSubmit={handleSubmit(onSubmit as (data: FormData) => Promise<void>)} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                         <div className="form-group">
                             <label className="label">Full Name</label>

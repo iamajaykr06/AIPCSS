@@ -216,8 +216,7 @@ def _pre_schedule_feasibility_check(problem) -> List[Dict[str, Any]]:
                     "type": "missing_semester",
                     "section": section.get_full_name(),
                     "message": (
-                        f"Section '{section.get_full_name()}' has no semester set "
-                        f"- NO courses will be scheduled"
+                        f"Section '{section.get_full_name()}' has no semester set " f"- NO courses will be scheduled"
                     ),
                 }
             )

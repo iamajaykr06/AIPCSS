@@ -1,0 +1,25 @@
+Apache AIPCSS
+Copyright 2026 Zaid Alam, Ajay Kumar, Aboni Mohan Sahu, Rohit Kumar Yadav
+
+This product includes software developed at
+Jharkhand Rai University (https://jharkhandraiuniversity.org.in).
+
+Supervised by:
+Dr. Kumar Amrendra
+Department of Computer Science & Engineering
+Jharkhand Rai University
+
+---
+
+This software uses the following open-source components:
+
+- Flask (https://flask.palletsprojects.com/) - BSD 3-Clause License
+- React.js (https://react.dev/) - MIT License
+- TypeScript (https://www.typescriptlang.org/) - Apache License 2.0
+- Google OR-Tools (https://developers.google.com/optimization/) - Apache License 2.0
+- Vite (https://vitejs.dev/) - MIT License
+- Tailwind CSS (https://tailwindcss.com/) - MIT License
+- React Router (https://reactrouter.com/) - MIT License
+
+For details on the licenses of these dependencies, please refer to the
+package-lock.json file and the respective project websites.

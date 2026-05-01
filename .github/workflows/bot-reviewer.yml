@@ -1,0 +1,345 @@
+name: PR Bot Reviewer
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+  checks: read
+
+jobs:
+  review:
+    name: Automated PR Review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # ── Backend Checks ──────────────────────────────────────────
+
+      - name: Install backend lint tools
+        run: pip install flake8 bandit
+
+      - name: Run flake8 on changed Python files
+        id: flake8
+        run: |
+          echo "## Flake8 Lint Report" > flake8_report.md
+          echo "" >> flake8_report.md
+
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q '^backend/.*\.py$'; then
+            CHANGED_PY=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^backend/.*\.py$')
+            RESULT=$(flake8 $CHANGED_PY --max-line-length=120 2>&1)
+            if [ $? -ne 0 ]; then
+              echo "### Issues Found" >> flake8_report.md
+              echo "\`\`\`" >> flake8_report.md
+              echo "$RESULT" >> flake8_report.md
+              echo "\`\`\`" >> flake8_report.md
+              echo "flake8_failed=true" >> $GITHUB_OUTPUT
+            else
+              echo "All Python files pass flake8 linting." >> flake8_report.md
+              echo "flake8_failed=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No Python files changed." >> flake8_report.md
+            echo "flake8_failed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Bandit security scan on changed files
+        id: bandit
+        run: |
+          echo "## Security Scan Report" >> bandit_report.md
+          echo "" >> bandit_report.md
+
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q '^backend/.*\.py$'; then
+            CHANGED_PY=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^backend/.*\.py$')
+            RESULT=$(bandit $CHANGED_PY -f txt 2>&1)
+            if [ $? -ne 0 ]; then
+              echo "### Security Issues Found" >> bandit_report.md
+              echo "\`\`\`" >> bandit_report.md
+              echo "$RESULT" >> bandit_report.md
+              echo "\`\`\`" >> bandit_report.md
+              echo "bandit_failed=true" >> $GITHUB_OUTPUT
+            else
+              echo "No security issues found." >> bandit_report.md
+              echo "bandit_failed=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No Python files changed." >> bandit_report.md
+            echo "bandit_failed=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Frontend Checks ─────────────────────────────────────────
+
+      - name: Install frontend lint tools
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run ESLint on changed frontend files
+        id: eslint
+        working-directory: frontend
+        run: |
+          cd $GITHUB_WORKSPACE
+          echo "## ESLint Report" > eslint_report.md
+          echo "" >> eslint_report.md
+
+          CHANGED_TS=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^frontend/src/.*\.\(ts\|tsx\)$' || true)
+
+          if [ -n "$CHANGED_TS" ]; then
+            RESULT=$(cd frontend && npx eslint $CHANGED_TS 2>&1)
+            if [ $? -ne 0 ]; then
+              echo "### Issues Found" >> eslint_report.md
+              echo "\`\`\`" >> eslint_report.md
+              echo "$RESULT" >> eslint_report.md
+              echo "\`\`\`" >> eslint_report.md
+              echo "eslint_failed=true" >> $GITHUB_OUTPUT
+            else
+              echo "All TypeScript files pass ESLint." >> eslint_report.md
+              echo "eslint_failed=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No TypeScript files changed." >> eslint_report.md
+            echo "eslint_failed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run TypeScript check
+        id: tsc
+        working-directory: frontend
+        run: |
+          cd $GITHUB_WORKSPACE
+          echo "## TypeScript Check Report" > tsc_report.md
+          echo "" >> tsc_report.md
+
+          CHANGED_TS=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^frontend/src/.*\.\(ts\|tsx\)$' || true)
+
+          if [ -n "$CHANGED_TS" ]; then
+            RESULT=$(cd frontend && ./node_modules/.bin/tsc -p tsconfig.json --noEmit 2>&1)
+            if [ $? -ne 0 ]; then
+              echo "### Type Errors Found" >> tsc_report.md
+              echo "\`\`\`" >> tsc_report.md
+              echo "$RESULT" >> tsc_report.md
+              echo "\`\`\`" >> tsc_report.md
+              echo "tsc_failed=true" >> $GITHUB_OUTPUT
+            else
+              echo "All TypeScript files compile successfully." >> tsc_report.md
+              echo "tsc_failed=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No TypeScript files changed." >> tsc_report.md
+            echo "tsc_failed=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Code Quality Checks ─────────────────────────────────────
+
+      - name: Check PR description
+        id: pr_desc
+        run: |
+          DESC="${{ github.event.pull_request.body }}"
+          if [ -z "$DESC" ] || [ "$DESC" == "null" ]; then
+            echo "pr_desc_ok=false" >> $GITHUB_OUTPUT
+          else
+            echo "pr_desc_ok=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check file size (prevent large file commits)
+        id: file_size
+        run: |
+          echo "## File Size Check" > size_report.md
+          echo "" >> size_report.md
+          LARGE_FILES=""
+
+          for file in $(git diff --name-only origin/${{ github.base_ref }}...HEAD); do
+            if [ -f "$file" ]; then
+              SIZE=$(wc -c < "$file")
+              if [ "$SIZE" -gt 500000 ]; then
+                LARGE_FILES="$LARGE_FILES\n- \`$file\` ($(( SIZE / 1024 )) KB)"
+              fi
+            fi
+          done
+
+          if [ -n "$LARGE_FILES" ]; then
+            echo "### Large Files Detected (>500KB)" >> size_report.md
+            echo "" >> size_report.md
+            echo -e "$LARGE_FILES" >> size_report.md
+            echo "" >> size_report.md
+            echo "> Consider using Git LFS for large files." >> size_report.md
+            echo "size_ok=false" >> $GITHUB_OUTPUT
+          else
+            echo "All files are within size limits." >> size_report.md
+            echo "size_ok=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check for TODO/FIXME/HACK comments
+        id: todo_check
+        run: |
+          echo "## TODO/FIXME Check" > todo_report.md
+          echo "" >> todo_report.md
+
+          TODOS=$(git diff origin/${{ github.base_ref }}...HEAD | grep -E '^\+.*#?\s*(TODO|FIXME|HACK|XXX)' || true)
+
+          if [ -n "$TODOS" ]; then
+            echo "### New TODO/FIXME/HACK Comments Found" >> todo_report.md
+            echo "" >> todo_report.md
+            echo "\`\`\`" >> todo_report.md
+            echo "$TODOS" >> todo_report.md
+            echo "\`\`\`" >> todo_report.md
+            echo "" >> todo_report.md
+            echo "> Please track these as GitHub Issues and reference them with issue numbers." >> todo_report.md
+            echo "todos_found=true" >> $GITHUB_OUTPUT
+          else
+            echo "No new TODO/FIXME/HACK comments detected." >> todo_report.md
+            echo "todos_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Generate and Post Review ────────────────────────────────
+
+      - name: Generate review body
+        id: review_body
+        run: |
+          cat > review.md << 'REVIEW_EOF'
+          ## 🤖 Automated PR Review
+
+          _This review was automatically generated by the **AIPCSS Bot Reviewer**._
+
+          REVIEW_EOF
+
+          # Approval status
+          if [ "${{ steps.flake8.outputs.flake8_failed }}" == "true" ] || \
+             [ "${{ steps.eslint.outputs.eslint_failed }}" == "true" ] || \
+             [ "${{ steps.tsc.outputs.tsc_failed }}" == "true" ] || \
+             [ "${{ steps.bandit.outputs.bandit_failed }}" == "true" ]; then
+            echo "" >> review.md
+            echo "### ❌ Issues Found - Action Required" >> review.md
+            echo "" >> review.md
+            echo "This PR has **linting, type, or security issues** that need to be addressed before merging." >> review.md
+          else
+            echo "" >> review.md
+            echo "### ✅ All Checks Passed" >> review.md
+            echo "" >> review.md
+            echo "This PR passes all automated quality checks." >> review.md
+          fi
+
+          # Append all reports
+          echo "" >> review.md
+          echo "---" >> review.md
+          cat flake8_report.md >> review.md
+          echo "" >> review.md
+          echo "---" >> review.md
+          cat bandit_report.md >> review.md
+          echo "" >> review.md
+          echo "---" >> review.md
+          cat eslint_report.md >> review.md
+          echo "" >> review.md
+          echo "---" >> review.md
+          cat tsc_report.md >> review.md
+          echo "" >> review.md
+          echo "---" >> review.md
+          cat size_report.md >> review.md
+          echo "" >> review.md
+          echo "---" >> review.md
+          cat todo_report.md >> review.md
+
+          # PR description check
+          if [ "${{ steps.pr_desc.outputs.pr_desc_ok }}" == "false" ]; then
+            echo "" >> review.md
+            echo "---" >> review.md
+            echo "" >> review.md
+            echo "### ⚠️ Missing PR Description" >> review.md
+            echo "" >> review.md
+            echo "Please add a description explaining:" >> review.md
+            echo "- What changes were made" >> review.md
+            echo "- Why these changes are needed" >> review.md
+            echo "- How to test the changes" >> review.md
+          fi
+
+          # Summary footer
+          cat >> review.md << 'FOOTER_EOF'
+
+          ---
+
+          ### 📋 Review Summary
+
+          | Check | Status |
+          |-------|--------|
+          | Flake8 (Backend) | ${{ steps.flake8.outputs.flake8_failed == 'true' && '❌ Failed' || '✅ Passed' }} |
+          | Bandit (Security) | ${{ steps.bandit.outputs.bandit_failed == 'true' && '❌ Failed' || '✅ Passed' }} |
+          | ESLint (Frontend) | ${{ steps.eslint.outputs.eslint_failed == 'true' && '❌ Failed' || '✅ Passed' }} |
+          | TypeScript | ${{ steps.tsc.outputs.tsc_failed == 'true' && '❌ Failed' || '✅ Passed' }} |
+          | File Sizes | ${{ steps.file_size.outputs.size_ok == 'true' && '✅ Passed' || '⚠️ Warning' }} |
+          | PR Description | ${{ steps.pr_desc.outputs.pr_desc_ok == 'true' && '✅ Provided' || '⚠️ Missing' }} |
+
+          FOOTER_EOF
+
+      - name: Post PR review comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const reviewBody = fs.readFileSync('review.md', 'utf8');
+
+            // Find existing bot comment to update
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' &&
+              c.body.includes('🤖 Automated PR Review')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                ...context.repo,
+                comment_id: botComment.id,
+                body: reviewBody,
+              });
+              console.log('Updated existing bot review comment');
+            } else {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: context.issue.number,
+                body: reviewBody,
+              });
+              console.log('Created new bot review comment');
+            }
+
+      - name: Set review status (approve or request changes)
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const needsChanges = '${{ steps.flake8.outputs.flake8_failed }}' === 'true' ||
+              '${{ steps.eslint.outputs.eslint_failed }}' === 'true' ||
+              '${{ steps.tsc.outputs.tsc_failed }}' === 'true' ||
+              '${{ steps.bandit.outputs.bandit_failed }}' === 'true';
+
+            if (needsChanges) {
+              await github.rest.pulls.createReview({
+                ...context.repo,
+                pull_number: context.issue.number,
+                event: 'REQUEST_CHANGES',
+                body: '🤖 **Bot Reviewer**: This PR has linting, type, or security issues. Please fix the issues listed in the review comment above before merging.',
+              });
+              console.log('Created REQUEST_CHANGES review');
+            } else {
+              await github.rest.pulls.createReview({
+                ...context.repo,
+                pull_number: context.issue.number,
+                event: 'APPROVE',
+                body: '🤖 **Bot Reviewer**: All automated checks passed. This PR looks good to merge!',
+              });
+              console.log('Created APPROVE review');
+            }

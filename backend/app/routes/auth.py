@@ -15,22 +15,21 @@ limitations under the License.
 """
 
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import (
-    create_access_token, create_refresh_token,
-    jwt_required, get_jwt_identity, get_jwt
-)
+from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
 from functools import wraps
 
 from .. import db
 from ..models.user import User
 
-auth_bp = Blueprint('auth', __name__)
+auth_bp = Blueprint("auth", __name__)
 
 
 # ── Role guard decorator ───────────────────────────────────────────────────────
 
+
 def roles_required(*roles):
     """Decorator: @roles_required('admin') or @roles_required('admin','dept_head')"""
+
     def decorator(fn):
         @wraps(fn)
         @jwt_required()
@@ -42,27 +41,31 @@ def roles_required(*roles):
             if user.role not in roles:
                 return jsonify({"error": f"Access denied. Required roles: {list(roles)}"}), 403
             return fn(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _validate_register_data(data):
     """Returns list of validation error strings."""
     errors = []
-    if not data.get('username') or len(data['username'].strip()) < 2:
+    if not data.get("username") or len(data["username"].strip()) < 2:
         errors.append("username must be at least 2 characters")
-    if not data.get('email') or '@' not in data['email']:
+    if not data.get("email") or "@" not in data["email"]:
         errors.append("valid email is required")
-    if not data.get('password') or len(data['password']) < 8:
+    if not data.get("password") or len(data["password"]) < 8:
         errors.append("password must be at least 8 characters")
     return errors
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
-@auth_bp.route('/register', methods=['POST'])
+
+@auth_bp.route("/register", methods=["POST"])
 def register():
     data = request.get_json()
     if not data:
@@ -74,42 +77,39 @@ def register():
         return jsonify({"error": "Validation failed", "details": errors}), 422
 
     # Check duplicates
-    if User.query.filter_by(email=data['email'].lower()).first():
+    if User.query.filter_by(email=data["email"].lower()).first():
         return jsonify({"error": "A user with this email already exists"}), 409
-    if User.query.filter_by(username=data['username'].strip()).first():
+    if User.query.filter_by(username=data["username"].strip()).first():
         return jsonify({"error": "This username is already taken"}), 409
 
     # Determine role (first user ever becomes admin, rest are viewers)
-    role = data.get('role', 'viewer')
+    role = data.get("role", "viewer")
     if role not in User.VALID_ROLES:
-        role = 'viewer'
+        role = "viewer"
     if User.query.count() == 0:
-        role = 'admin'  # Bootstrap: very first user is admin
+        role = "admin"  # Bootstrap: very first user is admin
 
     new_user = User(
-        username=data['username'].strip(),
-        email=data['email'].lower().strip(),
+        username=data["username"].strip(),
+        email=data["email"].lower().strip(),
         role=role,
     )
-    new_user.set_password(data['password'])
+    new_user.set_password(data["password"])
 
     db.session.add(new_user)
     db.session.commit()
 
-    return jsonify({
-        "message": "User created successfully",
-        "user": new_user.to_dict()
-    }), 201
+    return jsonify({"message": "User created successfully", "user": new_user.to_dict()}), 201
 
 
-@auth_bp.route('/login', methods=['POST'])
+@auth_bp.route("/login", methods=["POST"])
 def login():
     data = request.get_json()
     if not data:
         return jsonify({"error": "Request body must be JSON"}), 400
 
-    email = data.get('email', '').lower().strip()
-    password = data.get('password', '')
+    email = data.get("email", "").lower().strip()
+    password = data.get("password", "")
 
     if not email or not password:
         return jsonify({"error": "email and password are required"}), 422
@@ -126,14 +126,10 @@ def login():
     access_token = create_access_token(identity=user.email)
     refresh_token = create_refresh_token(identity=user.email)
 
-    return jsonify({
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "user": user.to_dict()
-    }), 200
+    return jsonify({"access_token": access_token, "refresh_token": refresh_token, "user": user.to_dict()}), 200
 
 
-@auth_bp.route('/refresh', methods=['POST'])
+@auth_bp.route("/refresh", methods=["POST"])
 @jwt_required(refresh=True)
 def refresh():
     """Use refresh token to get a new access token without re-logging in."""
@@ -146,7 +142,7 @@ def refresh():
     return jsonify({"access_token": new_access_token}), 200
 
 
-@auth_bp.route('/me', methods=['GET'])
+@auth_bp.route("/me", methods=["GET"])
 @jwt_required()
 def get_current_user():
     """Get the currently logged-in user's profile."""
@@ -157,20 +153,20 @@ def get_current_user():
     return jsonify({"user": user.to_dict()}), 200
 
 
-@auth_bp.route('/users', methods=['GET'])
-@roles_required('admin')
+@auth_bp.route("/users", methods=["GET"])
+@roles_required("admin")
 def list_users():
     """Admin only: list all users."""
     users = User.query.all()
     return jsonify({"users": [u.to_dict() for u in users]}), 200
 
 
-@auth_bp.route('/users/<int:user_id>/role', methods=['PUT'])
-@roles_required('admin')
+@auth_bp.route("/users/<int:user_id>/role", methods=["PUT"])
+@roles_required("admin")
 def update_user_role(user_id):
     """Admin only: change a user's role."""
     data = request.get_json()
-    new_role = data.get('role')
+    new_role = data.get("role")
     if new_role not in User.VALID_ROLES:
         return jsonify({"error": f"Invalid role. Must be one of: {list(User.VALID_ROLES)}"}), 422
 
@@ -183,8 +179,8 @@ def update_user_role(user_id):
     return jsonify({"message": "Role updated", "user": user.to_dict()}), 200
 
 
-@auth_bp.route('/users/<int:user_id>/deactivate', methods=['PUT'])
-@roles_required('admin')
+@auth_bp.route("/users/<int:user_id>/deactivate", methods=["PUT"])
+@roles_required("admin")
 def deactivate_user(user_id):
     """Admin only: deactivate a user account."""
     user = db.session.get(User, user_id)
@@ -195,8 +191,8 @@ def deactivate_user(user_id):
     return jsonify({"message": "User deactivated"}), 200
 
 
-@auth_bp.route('/users/<int:user_id>/activate', methods=['PUT'])
-@roles_required('admin')
+@auth_bp.route("/users/<int:user_id>/activate", methods=["PUT"])
+@roles_required("admin")
 def activate_user(user_id):
     """Admin only: reactivate a deactivated user account."""
     user = db.session.get(User, user_id)
@@ -207,7 +203,7 @@ def activate_user(user_id):
     return jsonify({"message": "User activated", "user": user.to_dict()}), 200
 
 
-@auth_bp.route('/change-password', methods=['PUT'])
+@auth_bp.route("/change-password", methods=["PUT"])
 @jwt_required()
 def change_password():
     """Allow the currently logged-in user to change their password."""
@@ -215,8 +211,8 @@ def change_password():
     if not data:
         return jsonify({"error": "Request body must be JSON"}), 400
 
-    current_password = data.get('current_password', '')
-    new_password = data.get('new_password', '')
+    current_password = data.get("current_password", "")
+    new_password = data.get("new_password", "")
 
     if not current_password or not new_password:
         return jsonify({"error": "current_password and new_password are required"}), 422

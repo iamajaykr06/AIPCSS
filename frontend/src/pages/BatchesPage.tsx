@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Plus, Pencil, Trash2, GraduationCap, Users, Upload } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { batchService, programService, departmentService, sectionService } from '@/services/resources.service'
+import { batchService, programService, sectionService } from '@/services/resources.service'
 import { useToast } from '@/context/useToast'
 import { useTable } from '@/hooks/useTable'
 import { DataTable } from '@/components/common/DataTable'
@@ -27,7 +27,7 @@ import { Modal, ConfirmModal } from '@/components/ui/Modal'
 import { PageLoader, ErrorState } from '@/components/ui/Loading'
 import { BulkImportModal } from '@/components/common/BulkImportModal'
 import { getErrorMessage } from '@/lib/utils'
-import type { Batch, Program, Department, Section } from '@/types'
+import type { Batch, Program, Section } from '@/types'
 
 // ── Batch form schema ────────────────────────────────────────────────────────
 const batchSchema = z.object({
@@ -98,7 +98,6 @@ function BatchesTab() {
     // ── data ──────────────────────────────────────────────────────────────────
     const [batches, setBatches] = useState<Batch[]>([])
     const [programs, setPrograms] = useState<Program[]>([])
-    const [departments, setDepartments] = useState<Department[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const { toast } = useToast()
@@ -111,32 +110,24 @@ function BatchesTab() {
     const [savingBatch, setSavingBatch] = useState(false)
 
     // ── table ─────────────────────────────────────────────────────────────────
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const batchTable = useTable({ data: batches as any, searchFields: ['name', 'academic_year'], defaultSortKey: 'name' })
 
     // ── form ──────────────────────────────────────────────────────────────────
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const batchForm = useForm<BatchFormData>({ resolver: zodResolver(batchSchema) as any })
 
-    // ── lookup maps ────────────────────────────────────────────────────────────
-    const deptMap = useMemo(() => Object.fromEntries(departments.map(d => [d.id, d.name])), [departments])
-
-    const getProgInfo = (progId: number) => {
-        const prog = programs.find(p => p.id === progId)
-        if (!prog) return { progName: '—', deptName: '—' }
-        return { progName: prog.name, deptName: deptMap[prog.department_id] || '—' }
-    }
 
     // ── load ───────────────────────────────────────────────────────────────────
     async function load() {
         try {
             setError(null)
-            const [bat, progs, depts] = await Promise.all([
+            const [bat, progs] = await Promise.all([
                 batchService.list(),
                 programService.list(),
-                departmentService.list(),
             ])
             setBatches(bat.data)
             setPrograms(progs.data)
-            setDepartments(depts.data)
         } catch (err) {
             setError(getErrorMessage(err))
         } finally {
@@ -241,6 +232,7 @@ function BatchesTab() {
                             )
                         },
                     ]}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     data={batchTable.paginated as any}
                     search={batchTable.search}
                     onSearch={batchTable.setSearch}
@@ -275,7 +267,7 @@ function BatchesTab() {
                     </>
                 }
             >
-                <form id="batch-form" onSubmit={batchForm.handleSubmit(onBatchSubmit as any)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <form id="batch-form" onSubmit={batchForm.handleSubmit(onBatchSubmit as (data: BatchFormData) => Promise<void>)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div className="form-group">
                         <label className="label">Batch Name</label>
                         <input {...batchForm.register('name')} className={`input ${batchForm.formState.errors.name ? 'input-error' : ''}`} placeholder="e.g. Batch 2024" />
@@ -347,8 +339,10 @@ function SectionsTab() {
     const [importModalOpen, setImportModalOpen] = useState(false)
     const { toast } = useToast()
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const table = useTable({ data: sections as any, searchFields: ['name'], defaultSortKey: 'name' })
     const { register, handleSubmit, reset, formState: { errors }, setValue } = useForm<SectionFormData>({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         resolver: zodResolver(sectionSchema) as any,
     })
 
@@ -471,6 +465,7 @@ function SectionsTab() {
                             }
                         },
                     ]}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     data={table.paginated as any}
                     search={table.search}
                     onSearch={table.setSearch}
@@ -505,7 +500,7 @@ function SectionsTab() {
                     </>
                 }
             >
-                <form id="section-form-inline" onSubmit={handleSubmit(onSubmit as any)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <form id="section-form-inline" onSubmit={handleSubmit(onSubmit as (data: SectionFormData) => Promise<void>)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div className="form-group">
                         <label className="label">Section Name</label>
                         <input {...register('name')} className={`input ${errors.name ? 'input-error' : ''}`} placeholder="e.g. Section A" />

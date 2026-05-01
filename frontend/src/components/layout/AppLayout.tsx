@@ -19,7 +19,7 @@ import { Outlet, useLocation, Link } from 'react-router-dom'
 import { Navbar } from './Navbar'
 import { 
     Building2, Layers, GraduationCap, Briefcase, 
-    BookOpen, ClipboardList, DoorOpen, LayoutGrid, Users
+    BookOpen, ClipboardList, DoorOpen, Users
 } from 'lucide-react'
 
 const managementLinks = [

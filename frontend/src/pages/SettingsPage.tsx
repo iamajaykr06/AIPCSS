@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, type ComponentType } from 'react'
 import {
   Settings, Clock, Calendar, Coffee, RotateCcw, Save, Plus, Trash2,
   AlertCircle, Check, Sun, Timer, LayoutGrid,
@@ -65,27 +65,7 @@ export function SettingsPage() {
   const [newBreakLabel, setNewBreakLabel] = useState('')
   const [newBreakType, setNewBreakType] = useState<'break' | 'lunch'>('break')
 
-  useEffect(() => {
-    loadSettings()
-  }, [])
-
-  // Track changes
-  useEffect(() => {
-    if (settings) {
-      const changed =
-        JSON.stringify(workingDays) !== JSON.stringify(settings.working_days) ||
-        JSON.stringify(timeSlots) !== JSON.stringify(settings.time_slots) ||
-        JSON.stringify(breaks) !== JSON.stringify(settings.breaks) ||
-        slotDuration !== settings.slot_duration_minutes ||
-        startTime !== settings.start_time ||
-        endTime !== settings.end_time ||
-        maxConsecutive !== settings.max_consecutive_slots ||
-        minBreak !== settings.min_break_between_classes
-      setHasChanges(changed)
-    }
-  }, [workingDays, timeSlots, breaks, slotDuration, startTime, endTime, maxConsecutive, minBreak, settings])
-
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
     try {
       setLoading(true)
       const data = await settingsService.getScheduleSettings()
@@ -103,7 +83,27 @@ export function SettingsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [toast])
+
+  useEffect(() => {
+    loadSettings()
+  }, [loadSettings])
+
+  // Track changes
+  useEffect(() => {
+    if (settings) {
+      const changed =
+        JSON.stringify(workingDays) !== JSON.stringify(settings.working_days) ||
+        JSON.stringify(timeSlots) !== JSON.stringify(settings.time_slots) ||
+        JSON.stringify(breaks) !== JSON.stringify(settings.breaks) ||
+        slotDuration !== settings.slot_duration_minutes ||
+        startTime !== settings.start_time ||
+        endTime !== settings.end_time ||
+        maxConsecutive !== settings.max_consecutive_slots ||
+        minBreak !== settings.min_break_between_classes
+      setHasChanges(changed)
+    }
+  }, [workingDays, timeSlots, breaks, slotDuration, startTime, endTime, maxConsecutive, minBreak, settings])
 
   const handleSave = async () => {
     try {
@@ -249,7 +249,7 @@ export function SettingsPage() {
     )
   }
 
-  const StatCard = ({ icon: Icon, label, value, color }: { icon: any, label: string, value: string | number, color: string }) => (
+  const StatCard = ({ icon: Icon, label, value, color }: { icon: ComponentType<{ size?: number; className?: string }>, label: string, value: string | number, color: string }) => (
     <div className="card p-4 hover:shadow-elevated transition-all duration-300 group">
       <div className="flex items-center gap-4">
         <div className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center transition-transform group-hover:scale-110`}>
@@ -336,7 +336,7 @@ export function SettingsPage() {
         ].map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id as 'general' | 'timeslots' | 'breaks' | 'preview')}
             className={`flex-1 min-w-[140px] flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${activeTab === tab.id
               ? 'bg-white dark:bg-surface-800 shadow-elevated text-primary-600 dark:text-primary-400'
               : 'hover:bg-white/50 dark:hover:bg-surface-800/50 text-surface-600 dark:text-surface-400'

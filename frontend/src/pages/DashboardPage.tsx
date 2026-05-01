@@ -84,8 +84,8 @@ export function DashboardPage() {
         total_entries: 0,
         conflicts: 0,
         optimization: 100,
-        course_type_dist: [] as any[],
-        room_dist: [] as any[],
+        course_type_dist: [] as { name: string; value: number }[],
+        room_dist: [] as { name: string; value: number }[],
     })
     const [loading, setLoading] = useState(true)
 
@@ -418,14 +418,14 @@ export function DashboardPage() {
                             border: '1px solid var(--border)', width: '100%',
                         }}
                         onMouseEnter={e => {
-                            (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)'
-                            (e.currentTarget as HTMLElement).style.borderColor = item.color
-                            (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)'
+                            e.currentTarget.style.borderColor = item.color
+                            e.currentTarget.style.transform = 'translateY(-2px)'
                         }}
                         onMouseLeave={e => {
-                            (e.currentTarget as HTMLElement).style.boxShadow = 'none'
-                            (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'
-                            (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'
+                            e.currentTarget.style.boxShadow = 'none'
+                            e.currentTarget.style.borderColor = 'var(--border)'
+                            e.currentTarget.style.transform = 'translateY(0)'
                         }}
                     >
                         <div style={{

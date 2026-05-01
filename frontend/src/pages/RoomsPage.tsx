@@ -65,8 +65,10 @@ export function RoomsPage() {
     const [importModalOpen, setImportModalOpen] = useState(false)
     const { toast } = useToast()
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const table = useTable({ data: rooms as any, searchFields: ['name', 'room_type'], defaultSortKey: 'name' })
     const { register, handleSubmit, reset, formState: { errors }, setValue, watch } = useForm<FormData>({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         resolver: zodResolver(schema) as any,
         defaultValues: { room_type: 'Classroom', capacity: 40, department_id: null, program_id: null },
     })
@@ -233,6 +235,7 @@ export function RoomsPage() {
                             }
                         },
                     ]}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     data={table.paginated as any}
                     search={table.search}
                     onSearch={table.setSearch}
@@ -266,7 +269,7 @@ export function RoomsPage() {
                     </>
                 }
             >
-                <form id="room-form" onSubmit={handleSubmit(onSubmit as any)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <form id="room-form" onSubmit={handleSubmit(onSubmit as (data: FormData) => void)} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div className="form-group">
                         <label className="label">Room Name / Number</label>
                         <input {...register('name')} className={`input ${errors.name ? 'input-error' : ''}`} placeholder="e.g. Room 101 or Physics Lab" />

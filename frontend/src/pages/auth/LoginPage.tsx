@@ -59,7 +59,7 @@ export function LoginPage() {
         <div style={{
             minHeight: '100vh',
             display: 'flex',
-            background: '#ffffff',
+            background: 'var(--bg-main)',
         }}>
             {/* Left panel - 60% */}
             <div style={{
@@ -167,12 +167,17 @@ export function LoginPage() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: '2rem',
-                background: '#ffffff',
+                background: 'var(--bg-main)',
             }}>
                 <div style={{
                     width: '100%',
                     maxWidth: '420px',
-                    padding: '2.5rem',
+                    padding: '3rem',
+                    background: 'var(--bg-card)',
+                    borderRadius: 'var(--radius-2xl)',
+                    boxShadow: 'var(--shadow-lg)',
+                    border: '1px solid var(--border)',
+                    backdropFilter: 'blur(8px)',
                 }}>
                     {/* Mobile logo - hidden on desktop */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}
@@ -257,9 +262,18 @@ export function LoginPage() {
                             type="submit"
                             className="btn btn-primary"
                             disabled={isLoading}
-                            style={{ width: '100%', height: '2.75rem', fontSize: '0.9375rem', marginTop: '0.5rem', background: '#4f46e5', borderRadius: '0.5rem' }}
+                            style={{ 
+                                width: '100%', 
+                                height: '3.25rem', 
+                                fontSize: '1rem', 
+                                marginTop: '1rem', 
+                                background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+                                borderRadius: 'var(--radius-lg)',
+                                fontWeight: 700,
+                                letterSpacing: '0.025em'
+                            }}
                         >
-                            {isLoading ? <Spinner size={18} /> : null}
+                            {isLoading ? <Spinner size={20} color="white" /> : null}
                             {isLoading ? 'Signing in...' : 'Sign in'}
                         </button>
                     </form>

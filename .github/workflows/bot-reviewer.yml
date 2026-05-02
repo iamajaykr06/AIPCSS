@@ -10,129 +10,116 @@ permissions:
   checks: read
 
 jobs:
-  review:
-    name: Automated PR Review
+  # -- Backend Job --
+  lint-backend:
+    name: Backend Quality
     runs-on: ubuntu-latest
+    outputs:
+      failed: ${{ steps.check.outputs.failed }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
+      - name: Install Tools
+        run: pip install flake8 bandit
+      - name: Run Checks
+        id: check
+        run: |
+          echo "## Backend Report" > backend_report.md
+          PY_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^backend/.*\.py$' || true)
+          if [ -n "$PY_FILES" ]; then
+            set +e
+            flake8 $PY_FILES --max-line-length=120 > f8.txt 2>&1
+            F8_EXIT=$?
+            bandit $PY_FILES -f txt > b.txt 2>&1
+            B_EXIT=$?
+            set -e
+            if [ $F8_EXIT -ne 0 ] || [ $B_EXIT -ne 0 ]; then
+              echo "failed=true" >> $GITHUB_OUTPUT
+              echo "### Issues Found" >> backend_report.md
+              [ $F8_EXIT -ne 0 ] && echo "#### Flake8" >> backend_report.md && echo "\`\`\`" >> backend_report.md && cat f8.txt >> backend_report.md && echo "\`\`\`" >> backend_report.md
+              [ $B_EXIT -ne 0 ] && echo "#### Bandit Security" >> backend_report.md && echo "\`\`\`" >> backend_report.md && cat b.txt >> backend_report.md && echo "\`\`\`" >> backend_report.md
+            else
+              echo "Passed: Backend quality checks passed." >> backend_report.md
+            fi
+          else
+            echo "No Python files changed." >> backend_report.md
+          fi
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-report
+          path: backend_report.md
 
-      - name: Set up Node.js
+  # -- Frontend Job --
+  lint-frontend:
+    name: Frontend Quality
+    runs-on: ubuntu-latest
+    outputs:
+      failed: ${{ steps.check.outputs.failed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
-
-      - name: Install backend lint tools
-        run: pip install flake8 bandit requests
-
-      - name: Install frontend lint tools
+      - name: Install
         working-directory: frontend
         run: npm ci
-
-      # -- Backend Checks --
-
-      - name: Run Flake8
-        id: flake8
+      - name: Run Checks
+        id: check
         run: |
-          echo "## Flake8 Lint Report" > flake8_report.md
-          PY_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^backend/.*\.py$' || true)
-          if [ -n "$PY_FILES" ]; then
-            set +e
-            flake8 $PY_FILES --max-line-length=120 > result.txt 2>&1
-            EXIT_CODE=$?
-            set -e
-            if [ $EXIT_CODE -ne 0 ]; then
-              echo "flake8_failed=true" >> $GITHUB_OUTPUT
-              echo "\`\`\`" >> flake8_report.md
-              cat result.txt >> flake8_report.md
-              echo "\`\`\`" >> flake8_report.md
-            else
-              echo "Passed: All Python files pass linting." >> flake8_report.md
-            fi
-          else
-            echo "No Python files changed." >> flake8_report.md
-          fi
-
-      - name: Run Bandit (Security)
-        id: bandit
-        run: |
-          echo "## Security Scan Report" > bandit_report.md
-          PY_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^backend/.*\.py$' || true)
-          if [ -n "$PY_FILES" ]; then
-            set +e
-            bandit $PY_FILES -f txt > result.txt 2>&1
-            EXIT_CODE=$?
-            set -e
-            if [ $EXIT_CODE -ne 0 ]; then
-              echo "bandit_failed=true" >> $GITHUB_OUTPUT
-              echo "\`\`\`" >> bandit_report.md
-              cat result.txt >> bandit_report.md
-              echo "\`\`\`" >> bandit_report.md
-            else
-              echo "Passed: No security issues found." >> bandit_report.md
-            fi
-          else
-            echo "No Python files changed." >> bandit_report.md
-          fi
-
-      # -- Frontend Checks --
-
-      - name: Run ESLint
-        id: eslint
-        run: |
-          echo "## ESLint Report" > eslint_report.md
+          echo "## Frontend Report" > frontend_report.md
           TS_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^frontend/src/.*\.\(ts\|tsx\)$' || true)
           if [ -n "$TS_FILES" ]; then
             set +e
-            npx eslint $TS_FILES > result.txt 2>&1
-            EXIT_CODE=$?
-            set -e
-            if [ $EXIT_CODE -ne 0 ]; then
-              echo "eslint_failed=true" >> $GITHUB_OUTPUT
-              echo "\`\`\`" >> eslint_report.md
-              cat result.txt >> eslint_report.md
-              echo "\`\`\`" >> eslint_report.md
-            else
-              echo "Passed: All TypeScript files pass ESLint." >> eslint_report.md
-            fi
-          else
-            echo "No TypeScript files changed." >> eslint_report.md
-          fi
-
-      - name: Run TypeScript check
-        id: tsc
-        run: |
-          echo "## TypeScript Check Report" > tsc_report.md
-          TS_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^frontend/src/.*\.\(ts\|tsx\)$' || true)
-          if [ -n "$TS_FILES" ]; then
-            set +e
-            cd frontend && npx tsc --noEmit > ../result.txt 2>&1
-            EXIT_CODE=$?
+            npx eslint $TS_FILES > es.txt 2>&1
+            ES_EXIT=$?
+            cd frontend && npx tsc --noEmit > ../tsc.txt 2>&1
+            TSC_EXIT=$?
             cd ..
             set -e
-            if [ $EXIT_CODE -ne 0 ]; then
-              echo "tsc_failed=true" >> $GITHUB_OUTPUT
-              echo "\`\`\`" >> tsc_report.md
-              cat result.txt >> tsc_report.md
-              echo "\`\`\`" >> tsc_report.md
+            if [ $ES_EXIT -ne 0 ] || [ $TSC_EXIT -ne 0 ]; then
+              echo "failed=true" >> $GITHUB_OUTPUT
+              echo "### Issues Found" >> frontend_report.md
+              [ $ES_EXIT -ne 0 ] && echo "#### ESLint" >> frontend_report.md && echo "\`\`\`" >> frontend_report.md && cat es.txt >> frontend_report.md && echo "\`\`\`" >> frontend_report.md
+              [ $TSC_EXIT -ne 0 ] && echo "#### TypeScript" >> frontend_report.md && echo "\`\`\`" >> frontend_report.md && cat tsc.txt >> frontend_report.md && echo "\`\`\`" >> frontend_report.md
             else
-              echo "Passed: TypeScript compilation successful." >> tsc_report.md
+              echo "Passed: Frontend quality checks passed." >> frontend_report.md
             fi
           else
-            echo "No TypeScript files changed." >> tsc_report.md
+            echo "No TypeScript files changed." >> frontend_report.md
           fi
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-report
+          path: frontend_report.md
 
-      # -- AI Logic Review --
-
+  # -- AI Review & Decision Job --
+  ai-review:
+    name: AI Review and Approval
+    needs: [lint-backend, lint-frontend]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download Reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*-report'
+          merge-multiple: true
       - name: Gemini AI Review
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -148,47 +135,32 @@ jobs:
               -d "{\"contents\": [{\"parts\":[{\"text\": \"Review this git diff for logic errors and performance. Respond in Markdown.\n\n$CLEAN_DIFF\"}]}]}")
             echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' >> ai_report.md
           fi
-
-      # -- Final Report Assembly --
-
-      - name: Generate review body
-        id: review_body
-        run: |
-          echo "## AIPCSS Bot Reviewer Report" > review.md
-          echo "" >> review.md
-          
-          if [ "${{ steps.flake8.outputs.flake8_failed }}" == "true" ] || \
-             [ "${{ steps.eslint.outputs.eslint_failed }}" == "true" ] || \
-             [ "${{ steps.tsc.outputs.tsc_failed }}" == "true" ] || \
-             [ "${{ steps.bandit.outputs.bandit_failed }}" == "true" ]; then
-            echo "### Status: Issues Found - Action Required" >> review.md
-          else
-            echo "### Status: All Quality Checks Passed" >> review.md
-          fi
-
-          echo "---" >> review.md
-          cat ai_report.md >> review.md
-          echo "---" >> review.md
-          cat flake8_report.md >> review.md
-          echo "---" >> review.md
-          cat bandit_report.md >> review.md
-          echo "---" >> review.md
-          cat eslint_report.md >> review.md
-          echo "---" >> review.md
-          cat tsc_report.md >> review.md
-
-      - name: Post PR review comment
+      - name: Post Decision
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const body = fs.readFileSync('review.md', 'utf8');
-            const { data: comments } = await github.rest.issues.listComments({
-              ...context.repo, issue_number: context.issue.number,
-            });
+            const backend = fs.existsSync('backend_report.md') ? fs.readFileSync('backend_report.md', 'utf8') : 'No backend changes.';
+            const frontend = fs.existsSync('frontend_report.md') ? fs.readFileSync('frontend_report.md', 'utf8') : 'No frontend changes.';
+            const ai = fs.existsSync('ai_report.md') ? fs.readFileSync('ai_report.md', 'utf8') : 'AI review skipped.';
+            
+            const hasFailed = '${{ needs.lint-backend.outputs.failed }}' === 'true' || '${{ needs.lint-frontend.outputs.failed }}' === 'true';
+            
+            const reportBody = `## AIPCSS Bot Reviewer Report\n\n### Status: ${hasFailed ? 'Issues Found - Action Required' : 'All Quality Checks Passed'}\n\n---\n${ai}\n---\n${backend}\n---\n${frontend}`;
+            
+            // 1. Post Comment
+            const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: context.issue.number });
             const botComment = comments.find(c => c.body.includes('AIPCSS Bot Reviewer Report'));
             if (botComment) {
-              await github.rest.issues.updateComment({ ...context.repo, comment_id: botComment.id, body });
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: botComment.id, body: reportBody });
             } else {
-              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body: reportBody });
             }
+            
+            // 2. Set PR Status (Approve or Request Changes)
+            await github.rest.pulls.createReview({
+              ...context.repo,
+              pull_number: context.issue.number,
+              event: hasFailed ? 'REQUEST_CHANGES' : 'APPROVE',
+              body: hasFailed ? 'Bot Reviewer: Please fix the issues mentioned in the report.' : 'Bot Reviewer: All checks passed. Approved!'
+            });

@@ -18,11 +18,11 @@ import React from 'react'
 
 // ── Spinner ───────────────────────────────────────────────────────────────────
 
-export function Spinner({ size = 20 }: { size?: number }) {
+export function Spinner({ size = 20, color = 'currentColor' }: { size?: number; color?: string }) {
     return (
         <div
             className="spinner"
-            style={{ width: size, height: size }}
+            style={{ width: size, height: size, borderTopColor: color }}
             role="status"
             aria-label="Loading"
         />

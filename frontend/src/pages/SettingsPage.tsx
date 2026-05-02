@@ -327,28 +327,52 @@ export function SettingsPage() {
       </div>
 
       {/* Modern Tab Navigation */}
-      <div className="flex flex-wrap gap-2 p-1.5 bg-surface-100/50 dark:bg-surface-800/50 rounded-2xl">
+      <div style={{ 
+          display: 'flex', 
+          flexWrap: 'wrap', 
+          gap: '0.5rem', 
+          padding: '0.375rem', 
+          background: 'var(--bg-main)', 
+          borderRadius: 'var(--radius-2xl)',
+          border: '1px solid var(--border)'
+      }}>
         {[
           { id: 'general', label: 'General', icon: Settings, desc: 'Days & basic config' },
           { id: 'breaks', label: 'Breaks', icon: Coffee, desc: 'Rest periods' },
           { id: 'timeslots', label: 'Time Slots', icon: Clock, desc: 'Class periods' },
           { id: 'preview', label: 'Preview', icon: LayoutGrid, desc: 'Visual overview' },
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as 'general' | 'timeslots' | 'breaks' | 'preview')}
-            className={`flex-1 min-w-[140px] flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${activeTab === tab.id
-              ? 'bg-white dark:bg-surface-800 shadow-elevated text-primary-600 dark:text-primary-400'
-              : 'hover:bg-white/50 dark:hover:bg-surface-800/50 text-surface-600 dark:text-surface-400'
+        ].map(tab => {
+          const isActive = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as 'general' | 'timeslots' | 'breaks' | 'preview')}
+              className={`flex-1 min-w-[140px] flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${
+                isActive
+                  ? 'shadow-md scale-[1.02]'
+                  : 'hover:bg-white/5 dark:hover:bg-black/5'
               }`}
-          >
-            <tab.icon size={18} className={activeTab === tab.id ? 'text-primary-500' : ''} />
-            <div className="text-left">
-              <p className="font-semibold text-sm">{tab.label}</p>
-              <p className="text-xs opacity-70">{tab.desc}</p>
-            </div>
-          </button>
-        ))}
+              style={{
+                background: isActive ? 'var(--bg-card)' : 'transparent',
+                border: isActive ? '1px solid var(--color-primary-500)' : '1px solid transparent',
+                color: isActive ? 'var(--color-primary-600)' : 'var(--text-secondary)',
+              }}
+            >
+              <tab.icon 
+                size={18} 
+                style={{ color: isActive ? 'var(--color-primary-500)' : 'var(--text-muted)' }} 
+              />
+              <div className="text-left">
+                <p className="font-bold text-sm" style={{ color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                    {tab.label}
+                </p>
+                <p className="text-xs opacity-70" style={{ color: 'var(--text-muted)' }}>
+                    {tab.desc}
+                </p>
+              </div>
+            </button>
+          )
+        })}
       </div>
 
       {/* Content */}

@@ -65,12 +65,12 @@ function StatCard({ icon, label, value, color, bgColor, path }: StatCardProps) {
 }
 
 const quickActions = [
-    { label: 'Departments', icon: <Building2 size={18} />, path: '/departments', color: '#4f46e5' },
-    { label: 'Teachers', icon: <Briefcase size={18} />, path: '/teachers', color: '#059669' },
-    { label: 'Timetable', icon: <CalendarDays size={18} />, path: '/timetable', color: '#d97706' },
-    { label: 'Programs', icon: <Layers size={18} />, path: '/programs', color: '#14b8a6' },
-    { label: 'Batches', icon: <GraduationCap size={18} />, path: '/batches', color: '#f43f5e' },
-    { label: 'Sections', icon: <Users size={18} />, path: '/sections', color: '#6366f1' },
+    { label: 'Departments', icon: <Building2 size={18} />, path: '/departments', color: 'var(--color-primary-500)' },
+    { label: 'Teachers', icon: <Briefcase size={18} />, path: '/teachers', color: 'var(--color-accent-emerald)' },
+    { label: 'Timetable', icon: <CalendarDays size={18} />, path: '/timetable', color: 'var(--color-accent-amber)' },
+    { label: 'Programs', icon: <Layers size={18} />, path: '/programs', color: 'var(--color-accent-teal)' },
+    { label: 'Batches', icon: <GraduationCap size={18} />, path: '/batches', color: 'var(--color-accent-rose)' },
+    { label: 'Sections', icon: <Users size={18} />, path: '/sections', color: 'var(--color-primary-400)' },
 ]
 
 export function DashboardPage() {
@@ -120,10 +120,10 @@ export function DashboardPage() {
     }, [])
 
     const chartData = [
-        { name: 'Depts', value: stats.departments, color: '#4f46e5' },
-        { name: 'Teachers', value: stats.teachers, color: '#059669' },
-        { name: 'Courses', value: stats.courses, color: '#7c3aed' },
-        { name: 'Rooms', value: stats.rooms, color: '#d97706' },
+        { name: 'Depts', value: stats.departments, color: 'var(--color-primary-500)' },
+        { name: 'Teachers', value: stats.teachers, color: 'var(--color-accent-emerald)' },
+        { name: 'Courses', value: stats.courses, color: 'var(--color-accent-violet)' },
+        { name: 'Rooms', value: stats.rooms, color: 'var(--color-accent-amber)' },
     ]
 
     const roomCapacityData = stats.room_dist && stats.room_dist.length > 0 ? stats.room_dist.map((r, i) => ({
@@ -142,10 +142,10 @@ export function DashboardPage() {
 
             {/* 1. Welcome Banner */}
             <div
-                className="card"
+                className="card glow-border"
                 style={{
-                    padding: '1.5rem 1.75rem',
-                    borderLeft: '4px solid #4f46e5',
+                    padding: '1.75rem 2rem',
+                    background: 'linear-gradient(to right, var(--bg-card), var(--bg-main))',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
@@ -182,13 +182,13 @@ export function DashboardPage() {
                 ) : (
                     <>
                         <StatCard icon={<Building2 size={20} />} label="Departments" value={stats.departments}
-                            color="#4f46e5" bgColor="rgba(79,70,229,0.12)" path="/departments" />
+                            color="var(--color-primary-500)" bgColor="rgba(99, 102, 241, 0.15)" path="/departments" />
                         <StatCard icon={<Briefcase size={20} />} label="Teachers" value={stats.teachers}
-                            color="#059669" bgColor="rgba(5,150,105,0.12)" path="/teachers" />
+                            color="var(--color-accent-emerald)" bgColor="rgba(16, 185, 129, 0.15)" path="/teachers" />
                         <StatCard icon={<BookOpen size={20} />} label="Courses" value={stats.courses}
-                            color="#7c3aed" bgColor="rgba(124,58,237,0.12)" path="/courses" />
+                            color="var(--color-accent-violet)" bgColor="rgba(124, 58, 237, 0.15)" path="/courses" />
                         <StatCard icon={<DoorOpen size={20} />} label="Rooms" value={stats.rooms}
-                            color="#d97706" bgColor="rgba(217,119,6,0.12)" path="/rooms" />
+                            color="var(--color-accent-amber)" bgColor="rgba(217, 119, 6, 0.15)" path="/rooms" />
                     </>
                 )}
             </div>

@@ -14,13 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-"""
-DataLoader - Loads scheduling data from SQLAlchemy models
-"""
-
 import re
 from typing import List, Optional, Dict, Set, Tuple, TYPE_CHECKING
-from datetime import datetime
 from collections import defaultdict
 from sqlalchemy.orm import joinedload
 from ..models import (
@@ -129,28 +124,6 @@ class DataLoader:
 
         # Fallback if model doesn't have the method yet
         return 2 if (course.course_type or "").lower() == "lab" else 3
-
-    @staticmethod
-    def _deduplicate_sections(sections: List[Section]) -> List[Section]:
-        """
-        Collapse exact duplicate section rows caused by repeated imports.
-
-        The live dataset currently contains multiple rows with the same
-        `(batch_id, name)` business identity, which makes the scheduler solve
-        the same academic section multiple times and inflates unscheduled
-        workload counts. Keep the lowest-id record as the canonical section.
-        """
-        deduplicated = []
-        seen_keys = set()
-
-        for section in sorted(sections, key=lambda item: item.id):
-            key = (section.batch_id, (section.name or "").strip().upper())
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
-            deduplicated.append(section)
-
-        return deduplicated
 
     def load_faculty(self, course_ids: Optional[Set[int]] = None) -> List[Faculty]:
         """Load all faculty from database"""
@@ -290,12 +263,16 @@ class DataLoader:
         allocations = WorkloadAllocation.query.filter(WorkloadAllocation.section_id.in_(section_ids)).all()
         return {(a.section_id, a.course_id): a.teacher_id for a in allocations}
 
-    def load_sections(self, course_map: Dict[int, SchedulerCourse]) -> Tuple[List[SchedulerSection], Dict[Tuple[int, int], int]]:
+    def load_sections(
+        self, course_map: Dict[int, SchedulerCourse]
+    ) -> Tuple[List[SchedulerSection], Dict[Tuple[int, int], int]]:
         """Load sections from database and their assigned workloads"""
         query = Section.query.options(joinedload(Section.batch).joinedload(Batch.program))
 
         if self.department_id:
-            query = query.join(Section.batch).join(Batch.program).filter(Program.department_id == self.department_id)
+            query = query.join(Section.batch).join(Batch.program).filter(
+                Program.department_id == self.department_id
+            )
 
         sections = self._deduplicate_sections(query.all())
         if not sections:
@@ -305,9 +282,6 @@ class DataLoader:
         workload_map = self.load_workloads(section_ids)
 
         section_list = []
-        now = datetime.now()
-        current_year = now.year
-        current_month = now.month
 
         for section in sections:
             batch = section.batch
@@ -331,10 +305,6 @@ class DataLoader:
             if not course_ids:
                 # If no courses are assigned for the current semester, skip it
                 continue
-
-            # ── 3. VALIDATE CAPACITY (PRE-SCHEDULING) ────────────────────
-            total_hours = sum(self._resolve_course_hours(course_map[cid]) for cid in course_ids if cid in course_map)
-            # Note: Hard rejection happens in the engine, but we prepare the data here.
 
             program = batch.program if batch else None
             program_code = program.code if program else "UNK"
@@ -369,7 +339,7 @@ class DataLoader:
                 b_end = b.get("end")
                 if b_start and b_end:
                     breaks_list.append((b_start, b_end))
-            except Exception:
+            except (AttributeError, TypeError):  # nosec B112 - Malformed break data should be skipped
                 continue
 
         def is_break(start, end):
@@ -432,7 +402,7 @@ class DataLoader:
 
         # ── 1. PRE-LOAD ALL COURSES ───────────────────────────────────
         # We need course metadata early to filter sections by semester.
-        all_courses = self.load_courses({}) # Load all department courses
+        all_courses = self.load_courses({})  # Load all department courses
         course_map = {c.id: c for c in all_courses}
 
         # ── 2. LOAD SECTIONS WITH SEMESTER FILTERING ──────────────────
@@ -443,7 +413,7 @@ class DataLoader:
         active_course_ids = set()
         for s in sections:
             active_course_ids.update(s.course_ids)
-        
+
         active_courses = [c for c in all_courses if c.id in active_course_ids]
 
         # Get all active course IDs for faculty filtering
@@ -458,7 +428,7 @@ class DataLoader:
         for s in sections:
             if s.program_id and s.current_semester:
                 active_section_semesters.add((s.program_id, s.current_semester))
-        
+
         for c in all_courses:
             if c.id not in active_course_ids:
                 if (c.program_id, self._resolve_course_semester(c)) in active_section_semesters:

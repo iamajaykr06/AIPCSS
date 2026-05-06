@@ -14,20 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-"""
-PDF Timetable Export - Generates printable timetables matching manual format.
-
-Produces landscape A4 PDFs with:
-- Department header with semester/season info
-- Multi-batch grid (days as columns, time periods as rows)
-- Cell format: FULL_COURSE_NAME (T/P) - (FACULTY_ABBR)  [word-wrapped]
-- LUNCH BREAK row
-- Course Details legend table: Code -> Full Name -> Type
-- Faculty Details legend table: Abbreviation -> Full Name
-- Signature line
-- Color-coded batch rows
-"""
-
 from flask import Blueprint, request, send_file
 from flask_jwt_extended import jwt_required
 from io import BytesIO
@@ -114,7 +100,7 @@ def _register_fonts():
                     registered[font_key] = font_key
                     found = True
                     break
-                except Exception:
+                except (OSError, IOError, ValueError):  # nosec B110 - Font loading failure is non-critical
                     pass
 
         if not found:

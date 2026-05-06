@@ -14,10 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-"""
-Greedy Timetable Scheduler - Fast heuristic approach
-Uses constraint-based greedy assignment with backtracking
-"""
+# Greedy Timetable Scheduler - Fast heuristic approach
+# Uses constraint-based greedy assignment with backtracking
+
 from collections import defaultdict
 from typing import List, Tuple, Optional, Callable, Set, Dict
 
@@ -58,7 +57,7 @@ class GreedySchedulerEngine:
         for h in range(1, 8):
             for i in range(num_timeslots):
                 if i + h <= num_timeslots:
-                    consecutive_slots = timeslot_list[i : i + h]
+                    consecutive_slots = timeslot_list[i:i + h]
                     valid = True
                     for j in range(h - 1):
                         if (

@@ -14,12 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-"""
-Hybrid Timetable Scheduler - Multi-pass with local search optimization
-Pass 1: Greedy assignment
-Pass 2: Local search to resolve conflicts
-"""
-
 from collections import defaultdict
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -75,11 +69,11 @@ class HybridSchedulerEngine:
             keywords = ["physics", "chemistry", "biology", "computer", "pharmacy", "mechanical", "electrical", "civil"]
             course_name_lower = course.name.lower()
             matched_keywords = [k for k in keywords if k in course_name_lower]
-            
+
             if matched_keywords:
                 # Filter candidates that match any of these keywords in their room name/type
                 specialized = [
-                    r for r in candidates 
+                    r for r in candidates
                     if any(k in (r.name or "").lower() or k in (r.room_type or "").lower() for k in matched_keywords)
                 ]
                 if specialized:
@@ -209,7 +203,7 @@ class HybridSchedulerEngine:
             )
             if progress_callback:
                 progress_callback(0, "Halted: Capacity Overflow Detected")
-            
+
             return ScheduleResult(
                 success=False,
                 schedule=[],
@@ -295,7 +289,7 @@ class HybridSchedulerEngine:
         for entry in schedule:
             course = self.problem.course_map.get(entry.course_id)
             if course and self._is_lab_course(course):
-                allocated_hours[(entry.section_id, entry.course_id)] += 2 # All labs are exactly 2 hours
+                allocated_hours[(entry.section_id, entry.course_id)] += 2  # All labs are exactly 2 hours
             else:
                 allocated_hours[(entry.section_id, entry.course_id)] += 1
 
@@ -342,7 +336,7 @@ class HybridSchedulerEngine:
                 if start_idx + hours > num_timeslots:
                     continue
 
-                consecutive_slots = timeslot_list[start_idx : start_idx + hours]
+                consecutive_slots = timeslot_list[start_idx:start_idx + hours]
                 is_valid = True
                 for offset in range(hours - 1):
                     current = consecutive_slots[offset]
@@ -414,12 +408,12 @@ class HybridSchedulerEngine:
             for start_idx in valid_starts.get(hours, []):
                 slots_needed = list(range(start_idx, start_idx + hours))
                 day = timeslot_list[start_idx].day
-                
+
                 # Zero-gap & Session Logic:
                 # Assuming 8 slots per day: 0-3 (Morning), 4-7 (Afternoon)
                 day_start_idx = day_slots[day][0]
                 relative_slots = [s - day_start_idx for s in slots_needed]
-                
+
                 is_morning = all(0 <= s <= 3 for s in relative_slots)
                 is_afternoon = all(4 <= s <= 7 for s in relative_slots)
 
@@ -437,7 +431,10 @@ class HybridSchedulerEngine:
                     continue
 
                 # Rule: Zero-gap back-to-back logic
-                session_range = range(day_start_idx, day_start_idx + 4) if is_morning else range(day_start_idx + 4, day_start_idx + 8)
+                if is_morning:
+                    session_range = range(day_start_idx, day_start_idx + 4)
+                else:
+                    session_range = range(day_start_idx + 4, day_start_idx + 8)
                 existing_in_session = [s for s in session_range if s in state["section_hours"][section_id]]
 
                 if existing_in_session:
@@ -576,7 +573,7 @@ class HybridSchedulerEngine:
             for start_idx in valid_starts.get(hours, []):
                 slots_needed = list(range(start_idx, start_idx + hours))
                 day = timeslot_list[start_idx].day
-                
+
                 day_start_idx = day_slots[day][0]
                 relative_slots = [s - day_start_idx for s in slots_needed]
                 is_morning = all(0 <= s <= 3 for s in relative_slots)
@@ -593,7 +590,10 @@ class HybridSchedulerEngine:
                     continue
 
                 # Zero-gap back-to-back logic
-                session_range = range(day_start_idx, day_start_idx + 4) if is_morning else range(day_start_idx + 4, day_start_idx + 8)
+                if is_morning:
+                    session_range = range(day_start_idx, day_start_idx + 4)
+                else:
+                    session_range = range(day_start_idx + 4, day_start_idx + 8)
                 existing_in_session = [s for s in session_range if s in state["section_hours"][section_id]]
 
                 if existing_in_session:
@@ -643,8 +643,10 @@ class HybridSchedulerEngine:
                         state["section_course_faculty"].setdefault(sc_key, faculty.id)
                         assigned = True
                         break
-                    if assigned: break
-                if assigned: break
+                    if assigned:
+                        break
+                if assigned:
+                    break
 
             if not assigned:
                 still_unassigned.append((class_idx, section_id, course_id, hours))

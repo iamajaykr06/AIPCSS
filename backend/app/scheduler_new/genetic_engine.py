@@ -114,7 +114,7 @@ class GeneticSchedulerEngine:
                 try:
                     idx = day_slots.index(t)
                     if idx + hours <= len(day_slots):
-                        consecutive = day_slots[idx : idx + hours]
+                        consecutive = day_slots[idx:idx + hours]
                         self.slot_keys_cache[(t, hours)] = [(s.day, s.start_time) for s in consecutive]
                     else:
                         self.slot_keys_cache[(t, hours)] = None

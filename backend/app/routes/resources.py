@@ -1095,8 +1095,6 @@ def bulk_import_batches():
         return jsonify({"error": "No file uploaded"}), 400
 
     try:
-        from datetime import datetime
-
         df = pd.read_excel(BytesIO(file.read()))
         success = 0
         errors = []

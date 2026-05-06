@@ -16,8 +16,10 @@ limitations under the License.
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
+from io import BytesIO
+import pandas as pd
 from .. import db
-from ..models import WorkloadAllocation, Section, Course, Teacher
+from ..models import WorkloadAllocation, Section, Course, Teacher, Batch
 from .auth import roles_required
 
 workload_bp = Blueprint("workload", __name__)
@@ -43,8 +45,8 @@ def get_section_workload(section_id):
     if program_id and semester:
         # 1. Try finding courses explicitly linked to this program
         courses = Course.query.filter_by(program_id=program_id, semester=semester).all()
-        
-        # 2. Fallback: If no courses linked to program, look for courses in the same department 
+
+        # 2. Fallback: If no courses linked to program, look for courses in the same department
         # that aren't linked to ANY program (department-wide courses)
         if not courses and section.batch and section.batch.program:
             dept_id = section.batch.program.department_id
@@ -156,11 +158,6 @@ def unassign_workload():
     return jsonify({"message": "No assignment found to remove"}), 200
 
 
-import pandas as pd
-from io import BytesIO
-from ..models import Batch
-
-
 @workload_bp.route("/import", methods=["POST"])
 @roles_required("admin")
 def bulk_import_workload():
@@ -244,10 +241,10 @@ def auto_assign_all_workload():
 
         program_id = section.batch.program_id
         semester = section.batch.current_semester
-        
+
         # 1. Try finding courses explicitly linked to this program
         courses = Course.query.filter_by(program_id=program_id, semester=semester).all()
-        
+
         # 2. Fallback: If no courses linked to program, look for courses in the same department
         # that aren't linked to ANY program (department-wide courses)
         if not courses and section.batch and section.batch.program:
@@ -292,7 +289,7 @@ def rebalance_all_workload():
 
         # 1. Try finding courses explicitly linked to this program
         courses = Course.query.filter_by(program_id=program_id, semester=semester).all()
-        
+
         # 2. Fallback: If no courses linked to program, look for courses in the same department
         # that aren't linked to ANY program (department-wide courses)
         if not courses and section.batch and section.batch.program:
@@ -310,6 +307,8 @@ def rebalance_all_workload():
 
     db.session.commit()
     return jsonify({"message": f"Successfully rebalanced {success_count} assignments for all batches"}), 200
+
+
 @workload_bp.route("/summary", methods=["GET"])
 @jwt_required()
 def get_workload_summary():
@@ -322,7 +321,7 @@ def get_workload_summary():
         course_count = len(allocations)
         # Calculate total hours (L+T+P)
         total_hours = sum(a.course.get_hours_needed() for a in allocations if a.course)
-        
+
         summary.append({
             "teacher_id": t.id,
             "teacher_name": t.name,

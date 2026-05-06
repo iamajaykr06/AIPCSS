@@ -575,7 +575,7 @@ def generate_with_greedy(dept, dept_id, strict_mode):
 
                             # Find consecutive slots for the needed duration
                             for i in range(len(TIMESLOTS) - needed + 1):
-                                block_slots = TIMESLOTS[i : i + needed]
+                                block_slots = TIMESLOTS[i:i + needed]
 
                                 # Check teacher availability
                                 if any(not is_teacher_available(teacher, day, s) for s in block_slots):

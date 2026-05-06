@@ -476,7 +476,7 @@ def get_batch_current_courses(batch_id):
 
     # 1. Try finding courses explicitly linked to this program
     courses = Course.query.filter_by(program_id=batch.program_id, semester=batch.current_semester).all()
-    
+
     # 2. Fallback: If no courses linked to program, look for courses in the same department
     # that aren't linked to ANY program (department-wide courses)
     if not courses and batch.program:

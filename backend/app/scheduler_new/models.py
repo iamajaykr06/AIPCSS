@@ -14,10 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-"""
-Production-grade Timetable Scheduling Engine
-Backtracking CSP solver with MRV, LCV, and Forward Checking
-"""
+# Production-grade Timetable Scheduling Engine
+# Backtracking CSP solver with MRV, LCV, and Forward Checking
 
 from dataclasses import dataclass, field
 from typing import List, Dict, Set, Optional, Tuple, Any

@@ -14,9 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-"""
-ConstraintEngine - Validates all scheduling constraints with O(1) lookups
-"""
+# ConstraintEngine - Validates all scheduling constraints with O(1) lookups
 
 from typing import List, Set, Dict, Tuple, Optional
 from collections import defaultdict

@@ -35,6 +35,7 @@ const batchSchema = z.object({
     code: z.string().min(1, 'Code is required'),
     academic_year: z.string().min(4, 'Academic year required'),
     program_id: z.coerce.number().min(1, 'Select a program'),
+    current_semester: z.coerce.number().min(1).max(10).default(1),
 })
 type BatchFormData = z.infer<typeof batchSchema>
 
@@ -140,7 +141,7 @@ function BatchesTab() {
     // ── actions ────────────────────────────────────────────────────────────────
     const openCreateBatch = () => {
         setEditBatch(null)
-        batchForm.reset({ name: '', code: '', academic_year: '', program_id: 0 })
+        batchForm.reset({ name: '', code: '', academic_year: '', program_id: 0, current_semester: 1 })
         setBatchModalOpen(true)
     }
     const openEditBatch = (b: Batch) => {
@@ -149,6 +150,7 @@ function BatchesTab() {
         batchForm.setValue('code', b.code)
         batchForm.setValue('academic_year', b.academic_year)
         batchForm.setValue('program_id', b.program_id)
+        batchForm.setValue('current_semester', b.current_semester)
         setBatchModalOpen(true)
     }
     const onBatchSubmit = async (data: BatchFormData) => {
@@ -231,6 +233,16 @@ function BatchesTab() {
                                 <span className="badge badge-gray">{String(row.program_code ?? '—')}</span>
                             )
                         },
+                        {
+                            key: 'current_semester', label: 'Semester', sortable: true, render: row => {
+                                const sem = row.current_semester ?? (row as any).currentSemester;
+                                return (
+                                    <span className="badge badge-violet">
+                                        {sem !== undefined && sem !== null ? String(sem) : '—'}
+                                    </span>
+                                );
+                            }
+                        },
                     ]}
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     data={batchTable.paginated as any}
@@ -291,6 +303,11 @@ function BatchesTab() {
                         </select>
                         {batchForm.formState.errors.program_id && <p className="error-msg">{batchForm.formState.errors.program_id.message}</p>}
                     </div>
+                    <div className="form-group">
+                        <label className="label">Current Semester</label>
+                        <input {...batchForm.register('current_semester')} type="number" min={1} max={10} className={`input ${batchForm.formState.errors.current_semester ? 'input-error' : ''}`} placeholder="e.g. 1" />
+                        {batchForm.formState.errors.current_semester && <p className="error-msg">{batchForm.formState.errors.current_semester.message}</p>}
+                    </div>
                 </form>
             </Modal>
 
@@ -307,13 +324,13 @@ function BatchesTab() {
                 isOpen={batchImportOpen}
                 onClose={() => setBatchImportOpen(false)}
                 resourceName="Batches"
-                headers={['Name', 'Code', 'Year', 'ProgramCode', 'AcademicYear']}
+                headers={['Name', 'Code', 'AcademicYear', 'ProgramCode', 'CurrentSemester']}
                 formatExamples={{
                     'Name': 'B.Tech Mining-2024',
-                    'Code': 'B.Tech Mining-2024',
-                    'Year': '2024',
-                    'ProgramCode': 'B.Tech Mining',
-                    'AcademicYear': '2024-2028'
+                    'Code': 'B24',
+                    'AcademicYear': '2024-2028',
+                    'ProgramCode': 'BT-MINING',
+                    'CurrentSemester': '1'
                 }}
                 onImport={(f) => batchService.bulkImport(f)}
                 onSuccess={load}
@@ -462,6 +479,13 @@ function SectionsTab() {
                                 const batch = batchMap[row.batch_id as number]
                                 const prog = batch ? progMap[batch.program_id] : '—'
                                 return <span className="badge badge-gray">{prog || '—'}</span>
+                            }
+                        },
+                        {
+                            key: 'semester', label: 'Semester', render: row => {
+                                const batch = batchMap[row.batch_id as number];
+                                const sem = batch?.current_semester ?? (batch as any)?.currentSemester;
+                                return <span className="badge badge-violet">{sem !== undefined && sem !== null ? String(sem) : '—'}</span>;
                             }
                         },
                     ]}

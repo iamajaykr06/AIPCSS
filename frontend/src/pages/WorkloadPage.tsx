@@ -15,8 +15,10 @@
  */
 
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
-import { Check, ClipboardList, Search, User, UserPlus, X, GraduationCap as BatchIcon, Filter, ArrowLeft, Upload, Zap, RefreshCw } from 'lucide-react'
-import { sectionService, workloadService, departmentService, teacherService } from '@/services/resources.service'
+import { Check, ClipboardList, Search, User, UserPlus, X, GraduationCap as BatchIcon, Filter, ArrowLeft, Upload, Zap, RefreshCw, BarChart3, LayoutGrid, Plus, BookOpen } from 'lucide-react'
+import { DataTable } from '@/components/common/DataTable'
+import { sectionService, workloadService, departmentService, teacherService, batchService } from '@/services/resources.service'
+import { useTable } from '@/hooks/useTable'
 import { useToast } from '@/context/useToast'
 import { PageLoader } from '@/components/ui/Loading'
 import { BulkImportModal } from '@/components/common/BulkImportModal'
@@ -41,40 +43,58 @@ interface SectionWorkloadResponse {
     section_id: number;
     section_name: string;
     batch_name: string;
+    current_semester?: number;
     courses: WorkloadItem[];
 }
 
 export function WorkloadPage() {
     const { toast } = useToast()
-    
+
     // Data states
     const [sections, setSections] = useState<Section[]>([])
     const [departments, setDepartments] = useState<Department[]>([])
     const [allTeachers, setAllTeachers] = useState<Teacher[]>([])
-    
+
     // UI states
     const [selectedDeptId, setSelectedDeptId] = useState<number | 'all'>('all')
     const [selectedSectionId, setSelectedSectionId] = useState<number | null>(null)
     const [workloadData, setWorkloadData] = useState<SectionWorkloadResponse | null>(null)
     const [viewMode, setViewMode] = useState<'selection' | 'mapping'>('selection')
-    
+
     const [loading, setLoading] = useState(true)
     const [loadingWorkload, setLoadingWorkload] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
     const [importModalOpen, setImportModalOpen] = useState(false)
+    const [activeTab, setActiveTab] = useState<'sections' | 'summary'>('sections')
+    const [summaryData, setSummaryData] = useState<any[]>([])
+    const [loadingSummary, setLoadingSummary] = useState(false)
+    const [quickAddOpen, setQuickAddOpen] = useState(false)
+    
+    const summaryTable = useTable({ data: summaryData as any, searchFields: ['teacher_name', 'teacher_email'] as any, defaultSortKey: 'teacher_name' })
+
+    // Manual Add State
+    const [allBatches, setAllBatches] = useState<any[]>([])
+    const [selectedBatchId, setSelectedBatchId] = useState<number | ''>('')
+    const [selectedSectionIdManual, setSelectedSectionIdManual] = useState<number | ''>('')
+    const [selectedCourseIdManual, setSelectedCourseIdManual] = useState<number | ''>('')
+    const [selectedTeacherIdManual, setSelectedTeacherIdManual] = useState<number | ''>('')
+    const [availableCourses, setAvailableCourses] = useState<any[]>([])
+    const [submitting, setSubmitting] = useState(false)
 
     // ── Load initial data ──────────────────────────────────────────────────────
     const loadResources = useCallback(async () => {
         setLoading(true)
         try {
-            const [secsRes, deptsRes, teachersRes] = await Promise.all([
+            const [secsRes, deptsRes, teachersRes, batchesRes] = await Promise.all([
                 sectionService.list(),
                 departmentService.list(),
-                teacherService.list()
+                teacherService.list(),
+                batchService.list()
             ])
             setSections(secsRes.data)
             setDepartments(deptsRes.data)
             setAllTeachers(teachersRes.data)
+            setAllBatches(batchesRes.data)
         } catch {
             toast('error', 'Failed to load resources')
         } finally {
@@ -85,6 +105,24 @@ export function WorkloadPage() {
     useEffect(() => {
         loadResources()
     }, [loadResources])
+
+    const loadSummary = useCallback(async () => {
+        setLoadingSummary(true)
+        try {
+            const data = await workloadService.getSummary()
+            setSummaryData(data)
+        } catch {
+            toast('error', 'Failed to load workload summary')
+        } finally {
+            setLoadingSummary(false)
+        }
+    }, [toast])
+
+    useEffect(() => {
+        if (activeTab === 'summary') {
+            loadSummary()
+        }
+    }, [activeTab, loadSummary])
 
     // ── Load workload for selected section ─────────────────────────────────────
     useEffect(() => {
@@ -116,14 +154,57 @@ export function WorkloadPage() {
             const matchesSearch = s.name.toLowerCase().includes(query) ||
                 (s.batch_name?.toLowerCase().includes(query)) ||
                 (s.program_name?.toLowerCase().includes(query));
-            
+
             const matchesDept = selectedDeptId === 'all' || s.department_id === selectedDeptId;
-            
+
             return matchesSearch && matchesDept;
         })
     }, [sections, searchQuery, selectedDeptId])
 
+    useEffect(() => {
+        if (!selectedBatchId || !selectedSectionIdManual) {
+            setAvailableCourses([])
+            return
+        }
+        async function fetchBatchCourses() {
+            try {
+                const res = await workloadService.getSectionWorkload(selectedSectionIdManual as number)
+                setAvailableCourses(res.courses)
+            } catch {
+                toast('error', 'Failed to fetch courses for this section')
+            }
+        }
+        fetchBatchCourses()
+    }, [selectedBatchId, selectedSectionIdManual, toast])
+
     // ── Handlers ───────────────────────────────────────────────────────────────
+    const handleManualAdd = async () => {
+        if (!selectedSectionIdManual || !selectedCourseIdManual || !selectedTeacherIdManual) {
+            toast('error', 'Please select all fields')
+            return
+        }
+        setSubmitting(true)
+        try {
+            await workloadService.assign(
+                selectedSectionIdManual as number,
+                selectedCourseIdManual as number,
+                selectedTeacherIdManual as number
+            )
+            toast('success', 'Workload added successfully')
+            setQuickAddOpen(false)
+            // Reset
+            setSelectedBatchId('')
+            setSelectedSectionIdManual('')
+            setSelectedCourseIdManual('')
+            setSelectedTeacherIdManual('')
+            loadResources()
+            if (activeTab === 'summary') loadSummary()
+        } catch {
+            toast('error', 'Failed to add workload')
+        } finally {
+            setSubmitting(false)
+        }
+    }
     const handleAssign = async (courseId: number, teacherId: number) => {
         if (!selectedSectionId) return
         try {
@@ -150,45 +231,18 @@ export function WorkloadPage() {
         }
     }
 
-    const handleAutoAssign = async () => {
-        if (!window.confirm("Auto-assign teachers for ALL batches & sections? (Only unassigned courses will be affected)")) return
-        setLoading(true)
-        try {
-            const res = await workloadService.autoAssignAll()
-            toast('success', res.message)
-            await loadResources()
-        } catch {
-            toast('error', 'Auto-assignment failed')
-        } finally {
-            setLoading(false)
-        }
-    }
-
-    const handleRebalance = async () => {
-        if (!window.confirm("🛑 CRITICAL ACTION: This will DELETE ALL current assignments (including those from Bulk Import!) and recreate them evenly across all faculty to solve teacher-overload issues. Is this what you want?")) return
-        setLoading(true)
-        try {
-            const res = await workloadService.rebalanceAll()
-            toast('success', res.message || 'Workload rebalanced successfully')
-            await loadResources()
-        } catch {
-            toast('error', 'Rebalance failed')
-        } finally {
-            setLoading(false)
-        }
-    }
 
     if (loading) return <PageLoader />
 
     return (
         <div style={{ padding: '0 1rem', maxWidth: '1400px', margin: '0 auto' }}>
-            
+
             {/* ── Page Title ── */}
-            <div className="page-header" style={{ marginBottom: '2rem' }}>
+            <div className="page-header" style={{ marginBottom: '1.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1 }}>
                     {viewMode === 'mapping' && (
-                        <button 
-                            className="btn btn-ghost btn-icon" 
+                        <button
+                            className="btn btn-ghost btn-icon"
                             onClick={() => setSelectedSectionId(null)}
                             style={{ borderRadius: '50%', background: 'var(--bg-card)', border: '1px solid var(--border)' }}
                         >
@@ -198,66 +252,74 @@ export function WorkloadPage() {
                     <div>
                         <h1 className="page-title">Workload Allocation</h1>
                         <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-                            Assign instructors to courses for class sections
+                            {viewMode === 'mapping' ? 'Assign instructors to courses' : 'Manage faculty teaching assignments'}
                         </p>
                     </div>
                 </div>
+
                 {viewMode === 'selection' && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-                        <button 
-                            className="btn" 
-                            onClick={handleRebalance}
-                            title="RESET & OPTIMIZE: This will DELETE ALL current assignments (including those from Bulk Import!) and recreate them evenly across all faculty to solve teacher-overload issues. Is this what you want?"
-                            style={{ 
-                                background: 'linear-gradient(135deg, #f97316 0%, #dc2626 100%)', 
-                                color: 'white',
-                                border: 'none',
-                                fontWeight: 700,
-                                boxShadow: '0 4px 12px rgba(220, 38, 38, 0.3)',
-                                padding: '0.75rem 1.25rem',
-                                borderRadius: '10px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.5rem',
-                                transition: 'transform 0.2s ease'
-                            }}
-                            onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-                            onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                        >
-                            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} /> 
-                            <span>Smart Rebalance (Reset All)</span>
-                        </button>
-                        <button 
-                            className="btn" 
-                            onClick={handleAutoAssign}
-                            style={{ 
-                                background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)', 
-                                color: 'white',
-                                border: 'none',
-                                fontWeight: 700,
-                                boxShadow: '0 4px 14px 0 rgba(234, 88, 12, 0.3)'
-                            }}
-                        >
-                            <Zap size={14} fill="white" /> Auto-Assign All
-                        </button>
                         <button className="btn btn-secondary" onClick={() => setImportModalOpen(true)}>
-                            <Upload size={14} /> Bulk Import Assignments
+                            <Upload size={14} /> Bulk Import
+                        </button>
+                        <button className="btn btn-primary" onClick={() => setQuickAddOpen(true)}>
+                            <Plus size={16} /> Add Workload
                         </button>
                     </div>
                 )}
             </div>
 
-            {/* ── SELECTION MODE: Grid of Sections ── */}
+            {/* ── Tab Switcher (Only in Selection Mode) ── */}
             {viewMode === 'selection' && (
+                <div className="tabs" style={{ marginBottom: '2rem', borderBottom: '1px solid var(--border)', display: 'flex', gap: '2rem' }}>
+                    <button
+                        className={`tab-item ${activeTab === 'sections' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('sections')}
+                        style={{
+                            padding: '0.75rem 0.5rem',
+                            fontSize: '0.9375rem',
+                            fontWeight: 600,
+                            color: activeTab === 'sections' ? 'var(--primary)' : 'var(--text-muted)',
+                            borderBottom: activeTab === 'sections' ? '2px solid var(--primary)' : '2px solid transparent',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.625rem',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        <LayoutGrid size={18} /> Section-wise Allocation
+                    </button>
+                    <button
+                        className={`tab-item ${activeTab === 'summary' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('summary')}
+                        style={{
+                            padding: '0.75rem 0.5rem',
+                            fontSize: '0.9375rem',
+                            fontWeight: 600,
+                            color: activeTab === 'summary' ? 'var(--primary)' : 'var(--text-muted)',
+                            borderBottom: activeTab === 'summary' ? '2px solid var(--primary)' : '2px solid transparent',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.625rem',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        <BarChart3 size={18} /> Teacher-wise Summary
+                    </button>
+                </div>
+            )}
+
+            {/* ── SELECTION MODE: Sections Grid ── */}
+            {viewMode === 'selection' && activeTab === 'sections' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                    
+
                     {/* Filters Bar */}
                     <div className="card" style={{ padding: '1.25rem', display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'center' }}>
                         <div style={{ flex: 1, minWidth: '300px' }}>
                             <label className="label" style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                 <Filter size={14} /> Filter by Department
                             </label>
-                            <select 
+                            <select
                                 className="input select"
                                 value={selectedDeptId}
                                 onChange={e => setSelectedDeptId(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
@@ -268,15 +330,15 @@ export function WorkloadPage() {
                                 ))}
                             </select>
                         </div>
-                        
+
                         <div style={{ flex: 2, minWidth: '300px' }}>
                             <label className="label" style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                 <Search size={14} /> Search Sections
                             </label>
                             <div className="input-group">
-                                <input 
-                                    className="input" 
-                                    placeholder="Search by section name, batch, or program..." 
+                                <input
+                                    className="input"
+                                    placeholder="Search by section name, batch, or program..."
                                     value={searchQuery}
                                     onChange={e => setSearchQuery(e.target.value)}
                                 />
@@ -287,12 +349,12 @@ export function WorkloadPage() {
                     {/* Sections Grid */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
                         {filteredSections.map(sec => (
-                            <div 
-                                key={sec.id} 
-                                className="card card-hover" 
+                            <div
+                                key={sec.id}
+                                className="card card-hover"
                                 onClick={() => setSelectedSectionId(sec.id)}
-                                style={{ 
-                                    padding: '1.5rem', 
+                                style={{
+                                    padding: '1.5rem',
                                     cursor: 'pointer',
                                     border: '1px solid var(--border)',
                                     display: 'flex',
@@ -303,11 +365,11 @@ export function WorkloadPage() {
                                 }}
                             >
                                 <div style={{ position: 'absolute', top: 0, right: 0, width: '4px', height: '100%', background: 'var(--primary)' }} />
-                                
+
                                 <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--primary)', letterSpacing: '0.05em' }}>
                                     {sec.program_name}
                                 </span>
-                                
+
                                 <div>
                                     <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>{sec.name}</h3>
                                     <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>{sec.batch_name}</p>
@@ -335,29 +397,103 @@ export function WorkloadPage() {
                 </div>
             )}
 
+            {/* ── SELECTION MODE: Summary View ── */}
+            {viewMode === 'selection' && activeTab === 'summary' && (
+                <div className="card" style={{ padding: '1.5rem' }}>
+                    <div style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h3 style={{ margin: 0, fontWeight: 700 }}>Faculty Workload Summary</h3>
+                        <button className="btn btn-ghost btn-sm" onClick={loadSummary} disabled={loadingSummary}>
+                            <RefreshCw size={14} className={loadingSummary ? 'animate-spin' : ''} style={{ marginRight: '0.5rem' }} /> Refresh Data
+                        </button>
+                    </div>
+
+                    <DataTable
+                        columns={[
+                            {
+                                key: 'teacher_name', label: 'Teacher', sortable: true, render: (row: any) => (
+                                    <div>
+                                        <div style={{ fontWeight: 600 }}>{row.teacher_name}</div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{row.teacher_email}</div>
+                                    </div>
+                                )
+                            },
+                            {
+                                key: 'departments', label: 'Departments', render: (row: any) => (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                                        {(row.departments || []).map((d: string) => <span key={d} className="badge badge-gray" style={{ fontSize: '0.7rem' }}>{d}</span>)}
+                                    </div>
+                                )
+                            },
+                            {
+                                key: 'course_count', label: 'Courses', sortable: true, render: (row: any) => (
+                                    <span className="badge badge-blue">{row.course_count} Courses</span>
+                                )
+                            },
+                            {
+                                key: 'total_hours', label: 'Total Hours', sortable: true, render: (row: any) => (
+                                    <span className="badge badge-violet">{row.total_hours} hrs / week</span>
+                                )
+                            },
+                            {
+                                key: 'assignments', label: 'Teaching Assignments', render: (row: any) => (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                        {(row.assignments || []).slice(0, 3).map((a: any) => (
+                                            <div key={a.id} style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                <BookOpen size={12} style={{ color: 'var(--text-muted)' }} />
+                                                <span style={{ fontWeight: 500 }}>{a.course_code}</span>
+                                                <span style={{ color: 'var(--text-muted)' }}>({a.section_name})</span>
+                                            </div>
+                                        ))}
+                                        {(row.assignments || []).length > 3 && (
+                                            <span style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 600 }}>+ {row.assignments.length - 3} more...</span>
+                                        )}
+                                    </div>
+                                )
+                            }
+                        ]}
+                        data={summaryTable.paginated as any}
+                        search={summaryTable.search}
+                        onSearch={summaryTable.setSearch}
+                        page={summaryTable.page}
+                        totalPages={summaryTable.totalPages}
+                        onPageChange={summaryTable.setPage}
+                        total={summaryTable.total}
+                        sortKey={summaryTable.sortKey as string}
+                        sortDir={summaryTable.sortDir}
+                        onSort={(k) => summaryTable.toggleSort(k as any)}
+                        emptyTitle="No workload data available"
+                    />
+                </div>
+            )}
+
             {/* ── MAPPING MODE: Allocation Cards ── */}
             {viewMode === 'mapping' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                    
+
                     {/* Header Info */}
                     <div className="card" style={{ padding: '1.5rem', background: 'var(--bg-glass)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
-                            <span className="badge badge-blue" style={{ marginBottom: '0.5rem' }}>{workloadData?.batch_name}</span>
+                            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                                <span className="badge badge-blue">{workloadData?.batch_name}</span>
+                                {workloadData?.current_semester && (
+                                    <span className="badge badge-violet">Semester {workloadData.current_semester}</span>
+                                )}
+                            </div>
                             <h2 style={{ fontSize: '1.75rem', fontWeight: 800 }}>Manage Workload: {workloadData?.section_name}</h2>
                         </div>
-                        
+
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }}>
-                                <div className="badge badge-primary" style={{ fontSize: '0.9rem', padding: '0.5rem 1rem' }}>
-                                    {workloadData?.courses.filter(c => c.teacher_id).length} / {workloadData?.courses.length} Assigned
-                                </div>
-                                <div style={{ width: '250px', height: '8px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
-                                    <div style={{ 
-                                        width: `${((workloadData?.courses.filter(c => c.teacher_id).length || 0) / (workloadData?.courses.length || 1)) * 100}%`, 
-                                        height: '100%', 
-                                        background: 'var(--primary)',
-                                        transition: 'width 0.5s ease-out'
-                                    }} />
-                                </div>
+                            <div className="badge badge-primary" style={{ fontSize: '0.9rem', padding: '0.5rem 1rem' }}>
+                                {workloadData?.courses.filter(c => c.teacher_id).length} / {workloadData?.courses.length} Assigned
+                            </div>
+                            <div style={{ width: '250px', height: '8px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
+                                <div style={{
+                                    width: `${((workloadData?.courses.filter(c => c.teacher_id).length || 0) / (workloadData?.courses.length || 1)) * 100}%`,
+                                    height: '100%',
+                                    background: 'var(--primary)',
+                                    transition: 'width 0.5s ease-out'
+                                }} />
+                            </div>
                         </div>
                     </div>
 
@@ -366,12 +502,12 @@ export function WorkloadPage() {
                     ) : (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '1.5rem' }}>
                             {workloadData?.courses.map(course => (
-                                <div key={course.course_id} className="card" style={{ 
-                                    padding: '1.5rem', 
+                                <div key={course.course_id} className="card" style={{
+                                    padding: '1.5rem',
                                     border: '1px solid var(--border)',
                                     background: course.teacher_id ? 'var(--bg-card)' : 'rgba(254, 243, 199, 0.2)'
                                 }}>
-                                    
+
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
                                         <div>
                                             <span className="badge badge-gray" style={{ marginBottom: '0.75rem' }}>{course.course_code}</span>
@@ -412,8 +548,8 @@ export function WorkloadPage() {
                                                 ))}
                                             </select>
                                             {course.teacher_id && (
-                                                <button 
-                                                    className="btn btn-ghost btn-icon" 
+                                                <button
+                                                    className="btn btn-ghost btn-icon"
                                                     style={{ color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)' }}
                                                     onClick={() => handleUnassign(course.course_id)}
                                                 >
@@ -462,6 +598,70 @@ export function WorkloadPage() {
                 onImport={(f) => workloadService.bulkImport(f)}
                 onSuccess={loadResources}
             />
+
+            {/* ── Quick Add Modal ── */}
+            {quickAddOpen && (
+                <div className="modal-overlay">
+                    <div className="modal-content" style={{ maxWidth: '500px' }}>
+                        <div className="modal-header">
+                            <h2 className="modal-title">Add Workload Assignment</h2>
+                            <button className="btn-icon" onClick={() => setQuickAddOpen(false)}><X size={20} /></button>
+                        </div>
+
+                        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                            <div>
+                                <label className="label">Select Batch</label>
+                                <select className="input select" value={selectedBatchId} onChange={e => {
+                                    setSelectedBatchId(e.target.value ? parseInt(e.target.value) : '')
+                                    setSelectedSectionIdManual('')
+                                    setSelectedCourseIdManual('')
+                                }}>
+                                    <option value="">Choose Batch...</option>
+                                    {allBatches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                                </select>
+                            </div>
+
+                            {selectedBatchId && (
+                                <div>
+                                    <label className="label">Select Section</label>
+                                    <select className="input select" value={selectedSectionIdManual} onChange={e => {
+                                        setSelectedSectionIdManual(e.target.value ? parseInt(e.target.value) : '')
+                                        setSelectedCourseIdManual('')
+                                    }}>
+                                        <option value="">Choose Section...</option>
+                                        {sections.filter(s => s.batch_id === selectedBatchId).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                    </select>
+                                </div>
+                            )}
+
+                            {selectedSectionIdManual && (
+                                <div>
+                                    <label className="label">Select Course</label>
+                                    <select className="input select" value={selectedCourseIdManual} onChange={e => setSelectedCourseIdManual(e.target.value ? parseInt(e.target.value) : '')}>
+                                        <option value="">Choose Course...</option>
+                                        {availableCourses.map(c => <option key={c.course_id} value={c.course_id}>{c.course_code} - {c.course_name}</option>)}
+                                    </select>
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="label">Select Faculty</label>
+                                <select className="input select" value={selectedTeacherIdManual} onChange={e => setSelectedTeacherIdManual(e.target.value ? parseInt(e.target.value) : '')}>
+                                    <option value="">Choose Teacher...</option>
+                                    {allTeachers.map(t => <option key={t.id} value={t.id}>{t.name} ({t.email})</option>)}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="modal-footer">
+                            <button className="btn btn-secondary" onClick={() => setQuickAddOpen(false)}>Cancel</button>
+                            <button className="btn btn-primary" onClick={handleManualAdd} disabled={submitting}>
+                                {submitting ? 'Saving...' : 'Save Assignment'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

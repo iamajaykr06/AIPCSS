@@ -94,6 +94,7 @@ export interface Batch {
     code: string;
     academic_year: string;
     program_id: number;
+    current_semester: number;
     program_code?: string;
     section_count?: number;
 }
@@ -103,6 +104,7 @@ export interface BatchPayload {
     code: string;
     academic_year: string;
     program_id: number;
+    current_semester: number;
 }
 
 // ── Section ───────────────────────────────────────────────────────────────

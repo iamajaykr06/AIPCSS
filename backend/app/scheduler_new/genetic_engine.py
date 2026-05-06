@@ -114,7 +114,7 @@ class GeneticSchedulerEngine:
                 try:
                     idx = day_slots.index(t)
                     if idx + hours <= len(day_slots):
-                        consecutive = day_slots[idx:idx + hours]
+                        consecutive = day_slots[idx : idx + hours]
                         self.slot_keys_cache[(t, hours)] = [(s.day, s.start_time) for s in consecutive]
                     else:
                         self.slot_keys_cache[(t, hours)] = None
@@ -160,7 +160,7 @@ class GeneticSchedulerEngine:
 
         samples = []
         for _ in range(max_samples):
-            opt = random.choice(domain)
+            opt = random.choice(domain)  # nosec B311
 
             if forced_teacher is not None:
                 # Only use this option if it contains the forced teacher
@@ -168,10 +168,12 @@ class GeneticSchedulerEngine:
                     continue
                 faculty_id = forced_teacher
             else:
-                faculty_id = random.choice(opt["faculties"])
+                faculty_id = random.choice(opt["faculties"])  # nosec B311
 
             samples.append(
-                DomainValue(faculty_id=faculty_id, room_id=random.choice(opt["rooms"]), timeslot=opt["timeslot"])
+                DomainValue(
+                    faculty_id=faculty_id, room_id=random.choice(opt["rooms"]), timeslot=opt["timeslot"]
+                )  # nosec B311
             )
 
         return samples
@@ -328,7 +330,9 @@ class GeneticSchedulerEngine:
                     if assigned_teacher in opt["faculties"]:
                         # Found a matching option - update to use correct teacher
                         fixed[i] = DomainValue(
-                            faculty_id=assigned_teacher, room_id=random.choice(opt["rooms"]), timeslot=opt["timeslot"]
+                            faculty_id=assigned_teacher,
+                            room_id=random.choice(opt["rooms"]),
+                            timeslot=opt["timeslot"],  # nosec B311
                         )
                         found = True
                         break
@@ -357,10 +361,12 @@ class GeneticSchedulerEngine:
                 # Use the already-assigned teacher for this (section, course)
                 valid_opts = [opt for opt in domain if assigned_teacher in opt["faculties"]]
                 if valid_opts:
-                    opt = random.choice(valid_opts)
+                    opt = random.choice(valid_opts)  # nosec B311
                     individual.append(
                         DomainValue(
-                            faculty_id=assigned_teacher, room_id=random.choice(opt["rooms"]), timeslot=opt["timeslot"]
+                            faculty_id=assigned_teacher,
+                            room_id=random.choice(opt["rooms"]),
+                            timeslot=opt["timeslot"],  # nosec B311
                         )
                     )
                 else:
@@ -368,11 +374,13 @@ class GeneticSchedulerEngine:
                     individual.append(None)
             else:
                 # First occurrence - randomly select and record teacher
-                opt = random.choice(domain)
-                teacher = random.choice(opt["faculties"])
+                opt = random.choice(domain)  # nosec B311
+                teacher = random.choice(opt["faculties"])  # nosec B311
                 section_course_faculty[sc_key] = teacher
                 individual.append(
-                    DomainValue(faculty_id=teacher, room_id=random.choice(opt["rooms"]), timeslot=opt["timeslot"])
+                    DomainValue(
+                        faculty_id=teacher, room_id=random.choice(opt["rooms"]), timeslot=opt["timeslot"]
+                    )  # nosec B311
                 )
 
         return individual
@@ -383,7 +391,7 @@ class GeneticSchedulerEngine:
         """Single-point crossover"""
         if len(self.variables) < 2:
             return list(parent1), list(parent2)
-        point = random.randint(1, len(self.variables) - 1)
+        point = random.randint(1, len(self.variables) - 1)  # nosec B311
         child1 = parent1[:point] + parent2[point:]
         child2 = parent2[:point] + parent1[point:]
         return child1, child2
@@ -394,8 +402,8 @@ class GeneticSchedulerEngine:
         """Two-point crossover"""
         if len(self.variables) < 3:
             return self._crossover_single_point(parent1, parent2)
-        point1 = random.randint(1, len(self.variables) - 2)
-        point2 = random.randint(point1 + 1, len(self.variables) - 1)
+        point1 = random.randint(1, len(self.variables) - 2)  # nosec B311
+        point2 = random.randint(point1 + 1, len(self.variables) - 1)  # nosec B311
         child1 = parent1[:point1] + parent2[point1:point2] + parent1[point2:]
         child2 = parent2[:point1] + parent1[point1:point2] + parent2[point2:]
         return child1, child2
@@ -407,7 +415,7 @@ class GeneticSchedulerEngine:
         child1 = []
         child2 = []
         for i in range(len(self.variables)):
-            if random.random() < 0.5:
+            if random.random() < 0.5:  # nosec B311
                 child1.append(parent1[i])
                 child2.append(parent2[i])
             else:
@@ -419,7 +427,7 @@ class GeneticSchedulerEngine:
         self, parent1: List[Optional[DomainValue]], parent2: List[Optional[DomainValue]]
     ) -> Tuple[List[Optional[DomainValue]], List[Optional[DomainValue]]]:
         """Adaptive crossover: randomly select operator"""
-        operator = random.choice(["single", "two_point", "uniform"])
+        operator = random.choice(["single", "two_point", "uniform"])  # nosec B311
         if operator == "single":
             return self._crossover_single_point(parent1, parent2)
         elif operator == "two_point":
@@ -441,19 +449,19 @@ class GeneticSchedulerEngine:
                     section_course_faculty[sc_key] = val.faculty_id
 
         for i, var in enumerate(self.variables):
-            if random.random() < self.current_mutation_rate:
+            if random.random() < self.current_mutation_rate:  # nosec B311
                 sc_key = (var.section_id, var.course_id)
                 assigned_teacher = section_course_faculty.get(sc_key)
 
                 sampled = self._get_random_domain_sample(var, 5, forced_teacher=assigned_teacher)
                 if sampled:
-                    if len(sampled) > 1 and random.random() < 0.5:
+                    if len(sampled) > 1 and random.random() < 0.5:  # nosec B311
                         current_val = mutated[i]
                         available = [d for d in sampled if d != current_val]
                         if available:
-                            mutated[i] = random.choice(available)
+                            mutated[i] = random.choice(available)  # nosec B311
                     else:
-                        mutated[i] = random.choice(sampled)
+                        mutated[i] = random.choice(sampled)  # nosec B311
 
         return mutated
 
@@ -721,15 +729,19 @@ class GeneticSchedulerEngine:
             for i in range(self.elite_size):
                 elite = fitness_scores[i][1]
                 # Apply local search to elite individuals
-                if self.use_local_search and random.random() < 0.3:
+                if self.use_local_search and random.random() < 0.3:  # nosec B311
                     elite = self._local_search_hill_climbing(elite, self.local_search_intensity // 2)
                 new_population.append(elite)
 
             # Generate rest of new population
             while len(new_population) < self.population_size:
                 # Tournament selection
-                tournament1 = random.sample(fitness_scores, min(self.tournament_size, len(fitness_scores)))
-                tournament2 = random.sample(fitness_scores, min(self.tournament_size, len(fitness_scores)))
+                tournament1 = random.sample(
+                    fitness_scores, min(self.tournament_size, len(fitness_scores))
+                )  # nosec B311
+                tournament2 = random.sample(
+                    fitness_scores, min(self.tournament_size, len(fitness_scores))
+                )  # nosec B311
 
                 parent1 = min(tournament1, key=lambda x: x[0])[1]
                 parent2 = min(tournament2, key=lambda x: x[0])[1]
@@ -740,9 +752,9 @@ class GeneticSchedulerEngine:
                 child2 = self._mutate(child2)
 
                 # Apply repair to offspring
-                if random.random() < 0.2:
+                if random.random() < 0.2:  # nosec B311
                     child1 = self._repair_individual(child1)
-                if random.random() < 0.2:
+                if random.random() < 0.2:  # nosec B311
                     child2 = self._repair_individual(child2)
 
                 new_population.append(child1)

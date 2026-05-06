@@ -15,7 +15,7 @@
  */
 
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
-import { Check, ClipboardList, Search, User, UserPlus, X, GraduationCap as BatchIcon, Filter, ArrowLeft, Upload, Zap, RefreshCw, BarChart3, LayoutGrid, Plus, BookOpen } from 'lucide-react'
+import { Check, ClipboardList, Search, User, UserPlus, X, GraduationCap as BatchIcon, Filter, ArrowLeft, Upload, RefreshCw, BarChart3, LayoutGrid, Plus, BookOpen } from 'lucide-react'
 import { DataTable } from '@/components/common/DataTable'
 import { sectionService, workloadService, departmentService, teacherService, batchService } from '@/services/resources.service'
 import { useTable } from '@/hooks/useTable'
@@ -66,19 +66,19 @@ export function WorkloadPage() {
     const [searchQuery, setSearchQuery] = useState('')
     const [importModalOpen, setImportModalOpen] = useState(false)
     const [activeTab, setActiveTab] = useState<'sections' | 'summary'>('sections')
-    const [summaryData, setSummaryData] = useState<any[]>([])
+    const [summaryData, setSummaryData] = useState<unknown[]>([])
     const [loadingSummary, setLoadingSummary] = useState(false)
     const [quickAddOpen, setQuickAddOpen] = useState(false)
     
-    const summaryTable = useTable({ data: summaryData as any, searchFields: ['teacher_name', 'teacher_email'] as any, defaultSortKey: 'teacher_name' })
+    const summaryTable = useTable({ data: summaryData as unknown[], searchFields: ['teacher_name', 'teacher_email'] as string[], defaultSortKey: 'teacher_name' })
 
     // Manual Add State
-    const [allBatches, setAllBatches] = useState<any[]>([])
+    const [allBatches, setAllBatches] = useState<unknown[]>([])
     const [selectedBatchId, setSelectedBatchId] = useState<number | ''>('')
     const [selectedSectionIdManual, setSelectedSectionIdManual] = useState<number | ''>('')
     const [selectedCourseIdManual, setSelectedCourseIdManual] = useState<number | ''>('')
     const [selectedTeacherIdManual, setSelectedTeacherIdManual] = useState<number | ''>('')
-    const [availableCourses, setAvailableCourses] = useState<any[]>([])
+    const [availableCourses, setAvailableCourses] = useState<unknown[]>([])
     const [submitting, setSubmitting] = useState(false)
 
     // ── Load initial data ──────────────────────────────────────────────────────
@@ -410,48 +410,51 @@ export function WorkloadPage() {
                     <DataTable
                         columns={[
                             {
-                                key: 'teacher_name', label: 'Teacher', sortable: true, render: (row: any) => (
+                                key: 'teacher_name', label: 'Teacher', sortable: true, render: (row: unknown) => (
                                     <div>
-                                        <div style={{ fontWeight: 600 }}>{row.teacher_name}</div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{row.teacher_email}</div>
+                                        <div style={{ fontWeight: 600 }}>{(row as Record<string, unknown>).teacher_name}</div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{(row as Record<string, unknown>).teacher_email}</div>
                                     </div>
                                 )
                             },
                             {
-                                key: 'departments', label: 'Departments', render: (row: any) => (
+                                key: 'departments', label: 'Departments', render: (row: unknown) => (
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
-                                        {(row.departments || []).map((d: string) => <span key={d} className="badge badge-gray" style={{ fontSize: '0.7rem' }}>{d}</span>)}
+                                        {((row as Record<string, unknown>).departments as string[] || []).map((d: string) => <span key={d} className="badge badge-gray" style={{ fontSize: '0.7rem' }}>{d}</span>)}
                                     </div>
                                 )
                             },
                             {
-                                key: 'course_count', label: 'Courses', sortable: true, render: (row: any) => (
-                                    <span className="badge badge-blue">{row.course_count} Courses</span>
+                                key: 'course_count', label: 'Courses', sortable: true, render: (row: unknown) => (
+                                    <span className="badge badge-blue">{(row as Record<string, unknown>).course_count} Courses</span>
                                 )
                             },
                             {
-                                key: 'total_hours', label: 'Total Hours', sortable: true, render: (row: any) => (
-                                    <span className="badge badge-violet">{row.total_hours} hrs / week</span>
+                                key: 'total_hours', label: 'Total Hours', sortable: true, render: (row: unknown) => (
+                                    <span className="badge badge-violet">{(row as Record<string, unknown>).total_hours} hrs / week</span>
                                 )
                             },
                             {
-                                key: 'assignments', label: 'Teaching Assignments', render: (row: any) => (
+                                key: 'assignments', label: 'Teaching Assignments', render: (row: unknown) => (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                        {(row.assignments || []).slice(0, 3).map((a: any) => (
-                                            <div key={a.id} style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                <BookOpen size={12} style={{ color: 'var(--text-muted)' }} />
-                                                <span style={{ fontWeight: 500 }}>{a.course_code}</span>
-                                                <span style={{ color: 'var(--text-muted)' }}>({a.section_name})</span>
-                                            </div>
-                                        ))}
-                                        {(row.assignments || []).length > 3 && (
-                                            <span style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 600 }}>+ {row.assignments.length - 3} more...</span>
+                                        {((row as Record<string, unknown>).assignments as unknown[] || []).slice(0, 3).map((a: unknown, idx: number) => {
+                                            const assignment = a as Record<string, unknown>;
+                                            return (
+                                                <div key={idx} style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                    <BookOpen size={12} style={{ color: 'var(--text-muted)' }} />
+                                                    <span style={{ fontWeight: 500 }}>{assignment.course_code}</span>
+                                                    <span style={{ color: 'var(--text-muted)' }}>({assignment.section_name})</span>
+                                                </div>
+                                            );
+                                        })}
+                                        {((row as Record<string, unknown>).assignments as unknown[] || []).length > 3 && (
+                                            <span style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 600 }}>+ {(row as Record<string, unknown>).assignments.length - 3} more...</span>
                                         )}
                                     </div>
                                 )
                             }
                         ]}
-                        data={summaryTable.paginated as any}
+                        data={summaryTable.paginated as unknown[]}
                         search={summaryTable.search}
                         onSearch={summaryTable.setSearch}
                         page={summaryTable.page}
@@ -460,7 +463,7 @@ export function WorkloadPage() {
                         total={summaryTable.total}
                         sortKey={summaryTable.sortKey as string}
                         sortDir={summaryTable.sortDir}
-                        onSort={(k) => summaryTable.toggleSort(k as any)}
+                        onSort={(k) => summaryTable.toggleSort(k as string)}
                         emptyTitle="No workload data available"
                     />
                 </div>

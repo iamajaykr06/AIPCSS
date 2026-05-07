@@ -73,7 +73,8 @@ class HybridSchedulerEngine:
             if matched_keywords:
                 # Filter candidates that match any of these keywords in their room name/type
                 specialized = [
-                    r for r in candidates
+                    r
+                    for r in candidates
                     if any(k in (r.name or "").lower() or k in (r.room_type or "").lower() for k in matched_keywords)
                 ]
                 if specialized:
@@ -84,7 +85,8 @@ class HybridSchedulerEngine:
             candidates = [
                 room
                 for room in self.problem.rooms
-                if room.can_accommodate(section.student_count) and room.can_be_used_by_program(None, section_dept_id)
+                if room.can_accommodate(section.student_count)
+                and room.can_be_used_by_program(None, section_dept_id)
                 and not ("lab" in (room.room_type or "").lower() if course_type_lower != "lab" else False)
             ]
 
@@ -191,9 +193,7 @@ class HybridSchedulerEngine:
             if demand > weekly_capacity:
                 section = self.problem.section_map.get(sid)
                 sname = section.get_full_name() if section else f"Section ID {sid}"
-                overloaded_reports.append(
-                    f"{sname}: {demand} weekly hours requested (Max {weekly_capacity} capacity)"
-                )
+                overloaded_reports.append(f"{sname}: {demand} weekly hours requested (Max {weekly_capacity} capacity)")
 
         if overloaded_reports:
             error_msg = (
@@ -336,7 +336,7 @@ class HybridSchedulerEngine:
                 if start_idx + hours > num_timeslots:
                     continue
 
-                consecutive_slots = timeslot_list[start_idx:start_idx + hours]
+                consecutive_slots = timeslot_list[start_idx : start_idx + hours]
                 is_valid = True
                 for offset in range(hours - 1):
                     current = consecutive_slots[offset]

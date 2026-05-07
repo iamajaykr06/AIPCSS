@@ -322,21 +322,25 @@ def get_workload_summary():
         # Calculate total hours (L+T+P)
         total_hours = sum(a.course.get_hours_needed() for a in allocations if a.course)
 
-        summary.append({
-            "teacher_id": t.id,
-            "teacher_name": t.name,
-            "teacher_email": t.email,
-            "course_count": course_count,
-            "total_hours": total_hours,
-            "departments": [d.name for d in t.departments],
-            "assignments": [
-                {
-                    "id": a.id,
-                    "course_code": a.course.code,
-                    "course_name": a.course.name,
-                    "section_name": a.section.name,
-                    "batch_name": a.section.batch.name if a.section.batch else "Unknown"
-                } for a in allocations if a.course and a.section
-            ]
-        })
+        summary.append(
+            {
+                "teacher_id": t.id,
+                "teacher_name": t.name,
+                "teacher_email": t.email,
+                "course_count": course_count,
+                "total_hours": total_hours,
+                "departments": [d.name for d in t.departments],
+                "assignments": [
+                    {
+                        "id": a.id,
+                        "course_code": a.course.code,
+                        "course_name": a.course.name,
+                        "section_name": a.section.name,
+                        "batch_name": a.section.batch.name if a.section.batch else "Unknown",
+                    }
+                    for a in allocations
+                    if a.course and a.section
+                ],
+            }
+        )
     return jsonify(summary), 200

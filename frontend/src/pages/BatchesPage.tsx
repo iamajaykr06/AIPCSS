@@ -235,7 +235,7 @@ function BatchesTab() {
                         },
                         {
                             key: 'current_semester', label: 'Semester', sortable: true, render: row => {
-                                const sem = row.current_semester ?? (row as any).currentSemester;
+                                const sem = row.current_semester ?? (row as Record<string, unknown>).currentSemester;
                                 return (
                                     <span className="badge badge-violet">
                                         {sem !== undefined && sem !== null ? String(sem) : '—'}
@@ -484,7 +484,7 @@ function SectionsTab() {
                         {
                             key: 'semester', label: 'Semester', render: row => {
                                 const batch = batchMap[row.batch_id as number];
-                                const sem = batch?.current_semester ?? (batch as any)?.currentSemester;
+                                const sem = batch?.current_semester ?? (batch as Record<string, unknown>)?.currentSemester;
                                 return <span className="badge badge-violet">{sem !== undefined && sem !== null ? String(sem) : '—'}</span>;
                             }
                         },

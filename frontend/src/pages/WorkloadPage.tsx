@@ -15,7 +15,7 @@
  */
 
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
-import { Check, ClipboardList, Search, User, UserPlus, X, GraduationCap as BatchIcon, Filter, ArrowLeft, Upload, Zap, RefreshCw, BarChart3, LayoutGrid, Plus, BookOpen } from 'lucide-react'
+import { Check, ClipboardList, Search, User, UserPlus, X, GraduationCap as BatchIcon, Filter, ArrowLeft, Upload,RefreshCw, BarChart3, LayoutGrid, Plus, BookOpen } from 'lucide-react'
 import { DataTable } from '@/components/common/DataTable'
 import { sectionService, workloadService, departmentService, teacherService, batchService } from '@/services/resources.service'
 import { useTable } from '@/hooks/useTable'
@@ -66,18 +66,22 @@ export function WorkloadPage() {
     const [searchQuery, setSearchQuery] = useState('')
     const [importModalOpen, setImportModalOpen] = useState(false)
     const [activeTab, setActiveTab] = useState<'sections' | 'summary'>('sections')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [summaryData, setSummaryData] = useState<any[]>([])
     const [loadingSummary, setLoadingSummary] = useState(false)
     const [quickAddOpen, setQuickAddOpen] = useState(false)
     
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const summaryTable = useTable({ data: summaryData as any, searchFields: ['teacher_name', 'teacher_email'] as any, defaultSortKey: 'teacher_name' })
 
     // Manual Add State
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [allBatches, setAllBatches] = useState<any[]>([])
     const [selectedBatchId, setSelectedBatchId] = useState<number | ''>('')
     const [selectedSectionIdManual, setSelectedSectionIdManual] = useState<number | ''>('')
     const [selectedCourseIdManual, setSelectedCourseIdManual] = useState<number | ''>('')
     const [selectedTeacherIdManual, setSelectedTeacherIdManual] = useState<number | ''>('')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [availableCourses, setAvailableCourses] = useState<any[]>([])
     const [submitting, setSubmitting] = useState(false)
 
@@ -410,6 +414,7 @@ export function WorkloadPage() {
                     <DataTable
                         columns={[
                             {
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 key: 'teacher_name', label: 'Teacher', sortable: true, render: (row: any) => (
                                     <div>
                                         <div style={{ fontWeight: 600 }}>{row.teacher_name}</div>
@@ -418,6 +423,7 @@ export function WorkloadPage() {
                                 )
                             },
                             {
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 key: 'departments', label: 'Departments', render: (row: any) => (
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
                                         {(row.departments || []).map((d: string) => <span key={d} className="badge badge-gray" style={{ fontSize: '0.7rem' }}>{d}</span>)}
@@ -425,18 +431,22 @@ export function WorkloadPage() {
                                 )
                             },
                             {
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 key: 'course_count', label: 'Courses', sortable: true, render: (row: any) => (
                                     <span className="badge badge-blue">{row.course_count} Courses</span>
                                 )
                             },
                             {
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 key: 'total_hours', label: 'Total Hours', sortable: true, render: (row: any) => (
                                     <span className="badge badge-violet">{row.total_hours} hrs / week</span>
                                 )
                             },
                             {
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 key: 'assignments', label: 'Teaching Assignments', render: (row: any) => (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                                         {(row.assignments || []).slice(0, 3).map((a: any) => (
                                             <div key={a.id} style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                                 <BookOpen size={12} style={{ color: 'var(--text-muted)' }} />
@@ -451,6 +461,7 @@ export function WorkloadPage() {
                                 )
                             }
                         ]}
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         data={summaryTable.paginated as any}
                         search={summaryTable.search}
                         onSearch={summaryTable.setSearch}
@@ -460,6 +471,7 @@ export function WorkloadPage() {
                         total={summaryTable.total}
                         sortKey={summaryTable.sortKey as string}
                         sortDir={summaryTable.sortDir}
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         onSort={(k) => summaryTable.toggleSort(k as any)}
                         emptyTitle="No workload data available"
                     />

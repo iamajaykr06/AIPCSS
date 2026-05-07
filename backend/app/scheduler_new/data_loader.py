@@ -270,9 +270,7 @@ class DataLoader:
         query = Section.query.options(joinedload(Section.batch).joinedload(Batch.program))
 
         if self.department_id:
-            query = query.join(Section.batch).join(Batch.program).filter(
-                Program.department_id == self.department_id
-            )
+            query = query.join(Section.batch).join(Batch.program).filter(Program.department_id == self.department_id)
 
         sections = self._deduplicate_sections(query.all())
         if not sections:
@@ -432,13 +430,15 @@ class DataLoader:
         for c in all_courses:
             if c.id not in active_course_ids:
                 if (c.program_id, self._resolve_course_semester(c)) in active_section_semesters:
-                    unassigned_curriculum.append({
-                        "id": c.id,
-                        "code": c.code,
-                        "name": c.name,
-                        "type": c.course_type,
-                        "reason": "Missing from Workload Page"
-                    })
+                    unassigned_curriculum.append(
+                        {
+                            "id": c.id,
+                            "code": c.code,
+                            "name": c.name,
+                            "type": c.course_type,
+                            "reason": "Missing from Workload Page",
+                        }
+                    )
 
         return SchedulingProblem(
             sections=sections,

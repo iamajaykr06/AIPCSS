@@ -14,10 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-"""
-Production-grade Timetable Scheduling Engine
-Backtracking CSP solver with MRV, LCV, and Forward Checking
-"""
+# Production-grade Timetable Scheduling Engine
+# Backtracking CSP solver with MRV, LCV, and Forward Checking
 
 from dataclasses import dataclass, field
 from typing import List, Dict, Set, Optional, Tuple, Any
@@ -85,9 +83,28 @@ class Room:
     department_id: Optional[int] = None
     program_id: Optional[int] = None
 
-    def can_accommodate(self, section_size: int) -> bool:
-        """Check if room can accommodate section"""
-        return self.capacity >= section_size
+    def can_accommodate(self, section_size: int, tolerance_percent: float = 10.0) -> bool:
+        """Check if room can accommodate section with tolerance.
+
+        Rules:
+        - Labs: Strict capacity check (no tolerance) - can't add extra lab stations
+        - Theory/Lecture: Allow 10% over-capacity tolerance for extra chairs/standing room
+
+        Args:
+            section_size: Number of students in the section
+            tolerance_percent: Allowed over-capacity percentage for theory rooms (default 10%)
+                              Real-world example: 45 capacity + 10% = 49.5 → allows 50 students
+        """
+        room_type_lower = (self.room_type or "Classroom").lower().strip()
+        is_lab_room = "lab" in room_type_lower
+
+        if is_lab_room:
+            # Labs: Strict check - you can't magically create extra lab workstations
+            return self.capacity >= section_size
+        else:
+            # Theory/Lecture rooms: Allow tolerance for extra chairs/standing room
+            effective_capacity = self.capacity * (1 + tolerance_percent / 100)
+            return effective_capacity >= section_size
 
     def is_suitable_for(self, course_type: str) -> bool:
         """Check if room is suitable for course type"""
@@ -151,6 +168,7 @@ class Course:
     program_code: Optional[str] = None
     program_id: Optional[int] = None
     department_id: Optional[int] = None
+    semester: Optional[int] = None
 
     def is_lab(self) -> bool:
         """Return True when this course must be scheduled as a lab block."""
@@ -257,6 +275,7 @@ class ScheduleResult:
             "error": self.error_message,
             "conflicts": self.conflicts,
             "stats": self.stats,
+            "unassigned_curriculum": self.stats.get("unassigned_curriculum", []),
         }
 
 
@@ -272,6 +291,9 @@ class SchedulingProblem:
 
     # Explicit Workload Allocation: (section_id, course_id) -> teacher_id
     workload_map: Dict[Tuple[int, int], int] = field(default_factory=dict)
+
+    # Rule: Track curriculum courses that were skipped because they had no workload allocation
+    unassigned_curriculum: List[Dict] = field(default_factory=list)
 
     # Lookup maps for O(1) access
     section_map: Dict[int, Section] = field(init=False)
@@ -297,8 +319,8 @@ class SchedulingProblem:
                 course = self.course_map.get(course_id)
                 if course:
                     if course.is_lab():
-                        # Each lab course is scheduled once per week as one 2-slot block.
-                        instances.append((section.id, course_id, course.get_hours_needed()))
+                        # Rule: Each lab course is scheduled once per week as exactly ONE 2-slot block.
+                        instances.append((section.id, course_id, 2))
                     else:
                         # Theory courses are scheduled as distinct 1-hour slots individually.
                         for _ in range(course.get_hours_needed()):

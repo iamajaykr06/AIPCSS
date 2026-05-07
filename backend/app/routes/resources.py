@@ -232,6 +232,7 @@ def get_batches():
             "academic_year": b.academic_year,
             "program_id": b.program_id,
             "program_code": b.program.code if b.program else None,
+            "current_semester": b.current_semester,
             "section_count": len(b.sections),
         }
         for b in result.items
@@ -254,6 +255,7 @@ def get_batch(batch_id):
                 "academic_year": b.academic_year,
                 "program_id": b.program_id,
                 "program_code": b.program.code if b.program else None,
+                "current_semester": b.current_semester,
                 "section_count": len(b.sections),
             }
         ),
@@ -291,6 +293,7 @@ def add_batch():
         code=data["code"].strip(),
         academic_year=data["academic_year"].strip(),
         program_id=data["program_id"],
+        current_semester=data.get("current_semester", 1),
     )
     db.session.add(b)
     db.session.commit()
@@ -318,6 +321,8 @@ def update_batch(batch_id):
         if not db.session.get(Program, data["program_id"]):
             return jsonify({"error": "Program not found"}), 404
         b.program_id = data["program_id"]
+    if "current_semester" in data:
+        b.current_semester = data["current_semester"]
 
     db.session.commit()
     return jsonify({"message": "Batch updated", "id": b.id}), 200
@@ -1090,8 +1095,6 @@ def bulk_import_batches():
         return jsonify({"error": "No file uploaded"}), 400
 
     try:
-        from datetime import datetime
-
         df = pd.read_excel(BytesIO(file.read()))
         success = 0
         errors = []
@@ -1114,19 +1117,14 @@ def bulk_import_batches():
                 if not prog:
                     raise Exception(f"Program not found with code='{program_code}'")
 
-                # Compute current_semester from Year column if available
-                current_semester = None
-                year_val = row.get("Year")
+                # Use CurrentSemester from Excel if provided, otherwise default to 1
+                current_semester = 1
                 sem_val = row.get("CurrentSemester")
                 if pd.notna(sem_val):
-                    current_semester = int(sem_val)
-                elif pd.notna(year_val):
-                    now = datetime.utcnow()
-                    start_year = int(year_val)
-                    start_half = 1
-                    current_year_half = 0 if now.month <= 6 else 1
-                    elapsed_halves = ((now.year - start_year) * 2) + (current_year_half - start_half)
-                    current_semester = max(1, min(8, elapsed_halves + 1))
+                    try:
+                        current_semester = int(sem_val)
+                    except (ValueError, TypeError):
+                        pass
 
                 batch = Batch(
                     name=str(name).strip(),

@@ -16,8 +16,10 @@ limitations under the License.
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
+from io import BytesIO
+import pandas as pd
 from .. import db
-from ..models import WorkloadAllocation, Section, Course, Teacher
+from ..models import WorkloadAllocation, Section, Course, Teacher, Batch
 from .auth import roles_required
 
 workload_bp = Blueprint("workload", __name__)
@@ -41,7 +43,14 @@ def get_section_workload(section_id):
 
     courses = []
     if program_id and semester:
+        # 1. Try finding courses explicitly linked to this program
         courses = Course.query.filter_by(program_id=program_id, semester=semester).all()
+
+        # 2. Fallback: If no courses linked to program, look for courses in the same department
+        # that aren't linked to ANY program (department-wide courses)
+        if not courses and section.batch and section.batch.program:
+            dept_id = section.batch.program.department_id
+            courses = Course.query.filter_by(department_id=dept_id, semester=semester, program_id=None).all()
 
     # 2. Get existing workload assignments
     assignments = WorkloadAllocation.query.filter_by(section_id=section_id).all()
@@ -73,6 +82,7 @@ def get_section_workload(section_id):
                 "section_id": section_id,
                 "section_name": section.name,
                 "batch_name": section.batch.name if section.batch else "Unknown",
+                "current_semester": section.batch.current_semester if section.batch else None,
                 "courses": result,
             }
         ),
@@ -146,11 +156,6 @@ def unassign_workload():
         return jsonify({"message": "Assignment removed"}), 200
 
     return jsonify({"message": "No assignment found to remove"}), 200
-
-
-import pandas as pd
-from io import BytesIO
-from ..models import Batch
 
 
 @workload_bp.route("/import", methods=["POST"])
@@ -236,7 +241,15 @@ def auto_assign_all_workload():
 
         program_id = section.batch.program_id
         semester = section.batch.current_semester
+
+        # 1. Try finding courses explicitly linked to this program
         courses = Course.query.filter_by(program_id=program_id, semester=semester).all()
+
+        # 2. Fallback: If no courses linked to program, look for courses in the same department
+        # that aren't linked to ANY program (department-wide courses)
+        if not courses and section.batch and section.batch.program:
+            dept_id = section.batch.program.department_id
+            courses = Course.query.filter_by(department_id=dept_id, semester=semester, program_id=None).all()
 
         for course in courses:
             # Check if already assigned
@@ -274,8 +287,14 @@ def rebalance_all_workload():
         program_id = section.batch.program_id
         semester = section.batch.current_semester
 
-        # Get courses for this batch's program and semester
+        # 1. Try finding courses explicitly linked to this program
         courses = Course.query.filter_by(program_id=program_id, semester=semester).all()
+
+        # 2. Fallback: If no courses linked to program, look for courses in the same department
+        # that aren't linked to ANY program (department-wide courses)
+        if not courses and section.batch and section.batch.program:
+            dept_id = section.batch.program.department_id
+            courses = Course.query.filter_by(department_id=dept_id, semester=semester, program_id=None).all()
 
         for course in courses:
             qualified = course.qualified_teachers.all()
@@ -288,3 +307,40 @@ def rebalance_all_workload():
 
     db.session.commit()
     return jsonify({"message": f"Successfully rebalanced {success_count} assignments for all batches"}), 200
+
+
+@workload_bp.route("/summary", methods=["GET"])
+@jwt_required()
+def get_workload_summary():
+    """Get total workload (course counts/hours) for all teachers."""
+    teachers = Teacher.query.all()
+    summary = []
+    for t in teachers:
+        allocations = WorkloadAllocation.query.filter_by(teacher_id=t.id).all()
+        # Count courses
+        course_count = len(allocations)
+        # Calculate total hours (L+T+P)
+        total_hours = sum(a.course.get_hours_needed() for a in allocations if a.course)
+
+        summary.append(
+            {
+                "teacher_id": t.id,
+                "teacher_name": t.name,
+                "teacher_email": t.email,
+                "course_count": course_count,
+                "total_hours": total_hours,
+                "departments": [d.name for d in t.departments],
+                "assignments": [
+                    {
+                        "id": a.id,
+                        "course_code": a.course.code,
+                        "course_name": a.course.name,
+                        "section_name": a.section.name,
+                        "batch_name": a.section.batch.name if a.section.batch else "Unknown",
+                    }
+                    for a in allocations
+                    if a.course and a.section
+                ],
+            }
+        )
+    return jsonify(summary), 200

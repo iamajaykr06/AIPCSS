@@ -14,20 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-"""
-PDF Timetable Export - Generates printable timetables matching manual format.
-
-Produces landscape A4 PDFs with:
-- Department header with semester/season info
-- Multi-batch grid (days as columns, time periods as rows)
-- Cell format: FULL_COURSE_NAME (T/P) - (FACULTY_ABBR)  [word-wrapped]
-- LUNCH BREAK row
-- Course Details legend table: Code -> Full Name -> Type
-- Faculty Details legend table: Abbreviation -> Full Name
-- Signature line
-- Color-coded batch rows
-"""
-
 from flask import Blueprint, request, send_file
 from flask_jwt_extended import jwt_required
 from io import BytesIO
@@ -114,7 +100,7 @@ def _register_fonts():
                     registered[font_key] = font_key
                     found = True
                     break
-                except Exception:
+                except (OSError, IOError, ValueError):  # nosec B110 - Font loading failure is non-critical
                     pass
 
         if not found:
@@ -678,21 +664,21 @@ def _render_pdf(data, semester_label=""):
     elements.append(Paragraph(f"Department of {dept.name}", styles["subtitle"]))
 
     # ── Table Construction (Image-matching structure) ────────────────────
-    # Columns: [BATCH, SLOT1, SLOT2, ...]
     header_row = [Paragraph("<b>BATCH / TIME</b>", styles["day_header"])]
+    period_count = 0
     for slot in all_slots:
         time_str = f"{slot['start']}-{slot['end']}"
         label = slot["label"]
 
         if slot["is_break"]:
-            # For breaks, just show the label (e.g. LUNCH) and time
-            display_label = label.upper()
-            slot_label = f"<b>{display_label}</b><br/><font size='7' color='#475569'>{time_str}</font>"
+            display_label = label.upper() if label.upper() != "BREAK" else "LUNCH"
+            slot_label = f"<b>{display_label} {time_str}</b>"
         else:
-            # For periods, show "SLOT X" and time
-            # Convert "Period 1" to "SLOT 1" if needed
+            period_count += 1
             display_label = label.upper().replace("PERIOD", "SLOT")
-            slot_label = f"<b>{display_label}</b><br/><font size='7' color='#475569'>{time_str}</font>"
+            if "SLOT" not in display_label:
+                display_label = f"SLOT {period_count}"
+            slot_label = f"<b>{display_label} {time_str}</b>"
 
         header_row.append(Paragraph(slot_label, styles["day_header"]))
 
@@ -785,28 +771,23 @@ def _render_pdf(data, semester_label=""):
                     continue
 
                 entry = entries_list[0]
-                # Highlighting logic for PDF export - if scheduled in a break, use a red tint
                 is_illegal = is_break
                 course_name = entry["course"].name if entry["course"] else "Course"
-                teacher_abbr = (
-                    entry["teacher"].abbreviation or _auto_abbreviation(entry["teacher"].name)
-                    if entry["teacher"]
-                    else "?"
-                )
+                teacher_name = entry["teacher"].name if entry["teacher"] else "?"
+                room_name = entry["room"].name if entry["room"] else "?"
                 ctype = "P" if entry["is_lab"] else "T"
 
-                cell_txt = f"<b>{course_name}</b> ({ctype})<br/>({teacher_abbr})"
+                # Rule: Subject Name (T/P) (Faculty) Room/Lab
+                if ctype == "P":
+                    lab_suffix = " Lab" if "lab" not in course_name.lower() else ""
+                    cell_txt = f"<b>{course_name}{lab_suffix} ({ctype})</b><br/>({teacher_name})<br/>{room_name}"
+                else:
+                    cell_txt = f"<b>{course_name} ({ctype})</b><br/>({teacher_name})<br/>{room_name}"
 
                 if is_illegal:
                     # Explicitly show that this is a break conflict
                     l_txt = slot_info["label"].upper() if slot_info["label"].upper() != "BREAK" else "LUNCH"
                     cell_txt = f"<font color='#b91c1c' size='5'><b>{l_txt} CONFLICT</b></font><br/>{cell_txt}"
-
-                # Rule: Lab room always shows in cell. Theory room only shows if it differs from batch header room.
-                if entry["is_lab"] and entry["room"]:
-                    cell_txt += f"<br/><font color='#b91c1c'>{entry['room'].name}</font>"
-                elif entry["room"] and entry["room"].name != day_theory_room:
-                    cell_txt += f"<br/>{entry['room'].name}"
 
                 row.append(Paragraph(cell_txt, styles["cell"]))
 
@@ -976,15 +957,20 @@ def _build_department_table(data, page_w, normal_font="Helvetica", bold_font="He
 
     # Header Row
     header_row = [Paragraph("<b>BATCH</b>", styles["day_header"])]
+    period_count = 0
     for slot in all_slots:
         time_str = f"{slot['start']}-{slot['end']}"
         label = slot["label"]
         if slot["is_break"]:
-            display_label = label.upper()
+            display_label = label.upper() if label.upper() != "BREAK" else "LUNCH"
+            slot_label = f"<b>{display_label} {time_str}</b>"
         else:
+            period_count += 1
             display_label = label.upper().replace("PERIOD", "SLOT")
+            if "SLOT" not in display_label:
+                display_label = f"SLOT {period_count}"
+            slot_label = f"<b>{display_label} {time_str}</b>"
 
-        slot_label = f"<b>{display_label}</b><br/><font size='5' color='#475569'>{time_str}</font>"
         header_row.append(Paragraph(slot_label, styles["day_header"]))
 
     table_data = [header_row]
@@ -1069,25 +1055,21 @@ def _build_department_table(data, page_w, normal_font="Helvetica", bold_font="He
                 entry = entries[0]
                 is_illegal = is_break
                 course_name = entry["course"].name if entry["course"] else "Course"
-                teacher_abbr = (
-                    entry["teacher"].abbreviation or _auto_abbreviation(entry["teacher"].name)
-                    if entry["teacher"]
-                    else "?"
-                )
+                teacher_name = entry["teacher"].name if entry["teacher"] else "?"
+                room_name = entry["room"].name if entry["room"] else "?"
                 ctype = "P" if entry["is_lab"] else "T"
 
-                cell_txt = f"<b>{course_name}</b> ({ctype})<br/>({teacher_abbr})"
+                # Rule: Subject Name (T/P) (Faculty) Room/Lab
+                if ctype == "P":
+                    lab_suffix = " Lab" if "lab" not in course_name.lower() else ""
+                    cell_txt = f"<b>{course_name}{lab_suffix} ({ctype})</b><br/>({teacher_name})<br/>{room_name}"
+                else:
+                    cell_txt = f"<b>{course_name} ({ctype})</b><br/>({teacher_name})<br/>{room_name}"
 
                 if is_illegal:
                     # Explicitly show that this is a break conflict
                     l_txt = slot_info["label"].upper() if slot_info["label"].upper() != "BREAK" else "LUNCH"
                     cell_txt = f"<font color='#b91c1c' size='5'><b>{l_txt} CONFLICT</b></font><br/>{cell_txt}"
-
-                # Rule: Lab room always shows in cell. Theory room only shows if it differs from batch header room.
-                if entry["is_lab"] and entry["room"]:
-                    cell_txt += f"<br/><font color='#b91c1c'>{entry['room'].name}</font>"
-                elif entry["room"] and entry["room"].name != day_theory_room:
-                    cell_txt += f"<br/>{entry['room'].name}"
 
                 row.append(Paragraph(cell_txt, styles["cell"]))
 

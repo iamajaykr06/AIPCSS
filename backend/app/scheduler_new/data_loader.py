@@ -14,10 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-"""
-DataLoader - Loads scheduling data from SQLAlchemy models
-"""
-
 import re
 from typing import List, Optional, Dict, Set, Tuple, TYPE_CHECKING
 from collections import defaultdict
@@ -91,10 +87,11 @@ class DataLoader:
         if course.semester is not None:
             return course.semester
 
-        if not course.semester_name:
+        sem_name = getattr(course, "semester_name", None)
+        if not sem_name:
             return None
 
-        digits = re.findall(r"\d+", str(course.semester_name))
+        digits = re.findall(r"\d+", str(sem_name))
         if digits:
             return int(digits[0])
 
@@ -108,7 +105,7 @@ class DataLoader:
             "VII": 7,
             "VIII": 8,
         }
-        sem_upper = str(course.semester_name).strip().upper().replace("SEMESTER", "").strip()
+        sem_upper = str(sem_name).strip().upper().replace("SEMESTER", "").strip()
         return roman_map.get(sem_upper)
 
     @staticmethod
@@ -127,28 +124,6 @@ class DataLoader:
 
         # Fallback if model doesn't have the method yet
         return 2 if (course.course_type or "").lower() == "lab" else 3
-
-    @staticmethod
-    def _deduplicate_sections(sections: List[Section]) -> List[Section]:
-        """
-        Collapse exact duplicate section rows caused by repeated imports.
-
-        The live dataset currently contains multiple rows with the same
-        `(batch_id, name)` business identity, which makes the scheduler solve
-        the same academic section multiple times and inflates unscheduled
-        workload counts. Keep the lowest-id record as the canonical section.
-        """
-        deduplicated = []
-        seen_keys = set()
-
-        for section in sorted(sections, key=lambda item: item.id):
-            key = (section.batch_id, (section.name or "").strip().upper())
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
-            deduplicated.append(section)
-
-        return deduplicated
 
     def load_faculty(self, course_ids: Optional[Set[int]] = None) -> List[Faculty]:
         """Load all faculty from database"""
@@ -274,6 +249,7 @@ class DataLoader:
                     program_code=course.program_code,
                     program_id=getattr(course, "program_id", None),
                     department_id=course.department_id,
+                    semester=self._resolve_course_semester(course),
                 )
             )
 
@@ -287,7 +263,9 @@ class DataLoader:
         allocations = WorkloadAllocation.query.filter(WorkloadAllocation.section_id.in_(section_ids)).all()
         return {(a.section_id, a.course_id): a.teacher_id for a in allocations}
 
-    def load_sections(self) -> Tuple[List[SchedulerSection], Dict[Tuple[int, int], int]]:
+    def load_sections(
+        self, course_map: Dict[int, SchedulerCourse]
+    ) -> Tuple[List[SchedulerSection], Dict[Tuple[int, int], int]]:
         """Load sections from database and their assigned workloads"""
         query = Section.query.options(joinedload(Section.batch).joinedload(Batch.program))
 
@@ -301,24 +279,34 @@ class DataLoader:
         section_ids = [s.id for s in sections]
         workload_map = self.load_workloads(section_ids)
 
-        # Group workload by section for quick lookup
-        workload_by_section = defaultdict(list)
-        for (sec_id, crs_id), teacher_id in workload_map.items():
-            workload_by_section[sec_id].append(crs_id)
-
         section_list = []
-        for section in sections:
-            program = section.batch.program if section.batch else None
-            # If no program metadata, we still process the section if it has workloads
-            program_code = program.code if program else "UNK"
-            program_id = program.id if program else None
 
-            # The heart of the change: We ONLY schedule courses that have a workload entry.
-            course_ids = list(set(workload_by_section.get(section.id, [])))
+        for section in sections:
+            batch = section.batch
+            if not batch:
+                continue
+
+            # Use current_semester from Batch model directly (manual control)
+            active_sem = batch.current_semester or 1
+
+            # ── 2. FILTER WORKLOAD TO ACTIVE CURRICULUM ──────────────────
+            valid_course_ids = []
+            for (sec_id, crs_id), _ in workload_map.items():
+                if sec_id != section.id:
+                    continue
+                course = course_map.get(crs_id)
+                if course and self._resolve_course_semester(course) == active_sem:
+                    valid_course_ids.append(crs_id)
+
+            course_ids = list(set(valid_course_ids))
 
             if not course_ids:
-                # If no courses are assigned to this section, skip it from scheduling
+                # If no courses are assigned for the current semester, skip it
                 continue
+
+            program = batch.program if batch else None
+            program_code = program.code if program else "UNK"
+            program_id = program.id if program else None
 
             section_list.append(
                 SchedulerSection(
@@ -329,8 +317,8 @@ class DataLoader:
                     program_code=program_code,
                     program_id=program_id,
                     department_id=program.department_id if program else None,
-                    current_semester=section.batch.current_semester if section.batch else None,
-                    batch_code=section.batch.code if section.batch else None,
+                    current_semester=active_sem,  # Use the calculated semester
+                    batch_code=batch.code if batch else None,
                     course_ids=course_ids,
                 )
             )
@@ -349,7 +337,7 @@ class DataLoader:
                 b_end = b.get("end")
                 if b_start and b_end:
                     breaks_list.append((b_start, b_end))
-            except Exception:
+            except (AttributeError, TypeError):  # nosec B112 - Malformed break data should be skipped
                 continue
 
         def is_break(start, end):
@@ -396,31 +384,68 @@ class DataLoader:
 
         return timeslots
 
+    def _deduplicate_sections(self, db_sections: List[Section]) -> List[Section]:
+        """Ensure each section ID is unique in the list."""
+        seen = set()
+        deduped = []
+        for s in db_sections:
+            if s.id not in seen:
+                deduped.append(s)
+                seen.add(s.id)
+        return deduped
+
     def load_problem(self) -> "SchedulingProblem":
         """Load complete scheduling problem"""
         from .models import SchedulingProblem  # Keep local import for runtime to avoid circularity
 
-        sections, workload_map = self.load_sections()
+        # ── 1. PRE-LOAD ALL COURSES ───────────────────────────────────
+        # We need course metadata early to filter sections by semester.
+        all_courses = self.load_courses({})  # Load all department courses
+        course_map = {c.id: c for c in all_courses}
 
-        # Build program map for course loading
-        section_program_map = {}
-        for section in sections:
-            section_program_map[section.id] = section.program_code
+        # ── 2. LOAD SECTIONS WITH SEMESTER FILTERING ──────────────────
+        sections, workload_map = self.load_sections(course_map)
 
-        courses = self.load_courses(section_program_map)
+        # ── 3. FILTER COURSES TO ACTIVE ONES ─────────────────────────
+        # Only keep courses that are actually used in the filtered sections.
+        active_course_ids = set()
+        for s in sections:
+            active_course_ids.update(s.course_ids)
 
-        # Get all course IDs for faculty filtering
-        all_course_ids = {c.id for c in courses}
-        faculty = self.load_faculty(course_ids=all_course_ids)
+        active_courses = [c for c in all_courses if c.id in active_course_ids]
+
+        # Get all active course IDs for faculty filtering
+        faculty = self.load_faculty(course_ids=active_course_ids)
 
         rooms = self.load_rooms()
         timeslots = self.load_timeslots()
 
+        # ── 4. CURRICULUM GAP DETECTION ──────────────────────────────
+        unassigned_curriculum = []
+        active_section_semesters = set()
+        for s in sections:
+            if s.program_id and s.current_semester:
+                active_section_semesters.add((s.program_id, s.current_semester))
+
+        for c in all_courses:
+            if c.id not in active_course_ids:
+                if (c.program_id, self._resolve_course_semester(c)) in active_section_semesters:
+                    unassigned_curriculum.append(
+                        {
+                            "id": c.id,
+                            "code": c.code,
+                            "name": c.name,
+                            "type": c.course_type,
+                            "reason": "Missing from Workload Page",
+                        }
+                    )
+
         return SchedulingProblem(
             sections=sections,
-            courses=courses,
+            courses=active_courses,
             faculty=faculty,
             rooms=rooms,
             timeslots=timeslots,
             workload_map=workload_map,
+            unassigned_curriculum=unassigned_curriculum,
         )

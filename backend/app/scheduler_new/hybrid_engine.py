@@ -14,12 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-"""
-Hybrid Timetable Scheduler - Multi-pass with local search optimization
-Pass 1: Greedy assignment
-Pass 2: Local search to resolve conflicts
-"""
-
 from collections import defaultdict
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -38,16 +32,17 @@ class HybridSchedulerEngine:
         self._timeslot_index: Dict[Tuple[str, str], int] = {}
 
     def _get_faculty_candidates(self, section, course):
-        """Cache valid faculty per section-course pair (uses explicit workload assignment)."""
+        """Cache valid faculty per section-course pair (ABSOLUTE SOURCE OF TRUTH)."""
         cache_key = (section.id, course.id)
         if cache_key not in self._faculty_candidates:
-            # Use explicit workload assignment
+            # Use explicit workload assignment from the workload map (GROUND TRUTH)
             assigned_id = self.problem.workload_map.get(cache_key)
             if assigned_id:
                 candidates = [f for f in self.problem.faculty if f.id == assigned_id]
             else:
-                # Fallback: any available faculty
-                candidates = list(self.problem.faculty)
+                # If no workload is assigned, we should NOT auto-assign random faculty
+                # as per user requirement: "DO NOT auto-assign or override"
+                candidates = []
             self._faculty_candidates[cache_key] = candidates
         return self._faculty_candidates[cache_key]
 
@@ -65,58 +60,77 @@ class HybridSchedulerEngine:
             room
             for room in self.problem.rooms
             if room.can_accommodate(section.student_count)
-            and room.can_be_used_by_program(None, section_dept_id)
+            and room.can_be_used_by_program(section.program_id, section_dept_id)
             and room.is_suitable_for(course.course_type)
         ]
 
-        # C2: Pass 2: Fallback for Labs/Moot if no specialized rooms are available
+        # Rule: If course requires specific lab type, assign only from eligible pool
+        if course_type_lower == "lab":
+            keywords = ["physics", "chemistry", "biology", "computer", "pharmacy", "mechanical", "electrical", "civil"]
+            course_name_lower = course.name.lower()
+            matched_keywords = [k for k in keywords if k in course_name_lower]
+
+            if matched_keywords:
+                # Filter candidates that match any of these keywords in their room name/type
+                specialized = [
+                    r
+                    for r in candidates
+                    if any(k in (r.name or "").lower() or k in (r.room_type or "").lower() for k in matched_keywords)
+                ]
+                if specialized:
+                    candidates = specialized
+
+        # Pass 2: Fallback for specialized types if no specialized rooms fit
         if not candidates and course_type_lower in ["lab", "moot court", "moot"]:
-            if self.debug:
-                print(f"DEBUG: No specialized rooms for {course.course_type}. Falling back to general rooms.")
             candidates = [
                 room
                 for room in self.problem.rooms
-                if room.can_accommodate(section.student_count) and room.can_be_used_by_program(None, section_dept_id)
-                # Allow fallback to regular classrooms for labs if no labs fit
+                if room.can_accommodate(section.student_count)
+                and room.can_be_used_by_program(None, section_dept_id)
+                and not ("lab" in (room.room_type or "").lower() if course_type_lower != "lab" else False)
             ]
 
         self._room_candidates[cache_key] = candidates
         return candidates
 
     def _new_schedule_state(self):
-        """Keep occupancy in direct lookup sets so conflict checks stay O(1).
-
-        Pre-populates room_slots from cross-department TimetableEntry records
-        to prevent double-booking shared rooms across departments.
-        """
+        """Keep occupancy in direct lookup sets so conflict checks stay O(1)."""
         state = {
             "section_hours": defaultdict(set),
-            "batch_hours": defaultdict(set),  # C6
+            "batch_hours": defaultdict(set),
             "faculty_hours": defaultdict(int),
             "faculty_daily_hours": defaultdict(lambda: defaultdict(int)),
             "faculty_slots": defaultdict(set),
             "room_slots": defaultdict(set),
             "section_course_days": defaultdict(set),
+            "batch_lab_days": defaultdict(set),  # Rule: Max 1 lab per day per batch
             "faculty_program_day_sessions": defaultdict(int),
             "section_course_faculty": {},
         }
 
         # ── Pre-populate room_slots from cross-department bookings ──────
-        # Rooms carry `global_busy_slots` (set by DataLoader) that map
-        # day -> set of timeslot labels already taken by other departments.
-        # We convert these labels into timeslot indices so the engine's
-        # O(1) conflict check works automatically.
         for room in self.problem.rooms:
             global_busy = getattr(room, "global_busy_slots", None)
             if not global_busy:
                 continue
             for day, busy_labels in global_busy.items():
                 for label in busy_labels:
-                    # label is "HH:MM-HH:MM" — extract start time as slot key
                     start = label.split("-")[0] if "-" in label else label
                     slot_idx = self._timeslot_index.get((day, start))
                     if slot_idx is not None:
                         state["room_slots"][room.id].add(slot_idx)
+
+        # ── Pre-populate faculty_slots from cross-department bookings ──────
+        for faculty in self.problem.faculty:
+            global_busy = getattr(faculty, "global_busy_slots", None)
+            if not global_busy:
+                continue
+            for day, busy_labels in global_busy.items():
+                for label in busy_labels:
+                    start = label.split("-")[0] if "-" in label else label
+                    slot_idx = self._timeslot_index.get((day, start))
+                    if slot_idx is not None:
+                        state["faculty_slots"][faculty.id].add(slot_idx)
 
         return state
 
@@ -127,13 +141,15 @@ class HybridSchedulerEngine:
         """Apply one accepted assignment block to all trackers."""
         for slot_idx in slots_needed:
             state["section_hours"][section_id].add(slot_idx)
-            state["batch_hours"][batch_id].add(slot_idx)  # C6
+            state["batch_hours"][batch_id].add(slot_idx)
             state["faculty_slots"][faculty_id].add(slot_idx)
             state["room_slots"][room_id].add(slot_idx)
 
         state["faculty_hours"][faculty_id] += hours
         state["faculty_daily_hours"][faculty_id][day] += hours
-        if not is_lab:
+        if is_lab:
+            state["batch_lab_days"][batch_id].add(day)
+        else:
             state["section_course_days"][(section_id, course_id)].add(day)
             state["faculty_program_day_sessions"][(faculty_id, program_code, day)] += 1
 
@@ -164,6 +180,40 @@ class HybridSchedulerEngine:
 
         valid_starts = self._compute_valid_starts(timeslot_list)
         classes = self.problem.get_section_courses()
+
+        # ── CAPACITY & WORKLOAD VALIDATION (HARD RULE) ──────────────────
+        # Check if any section is overloaded BEFORE starting the solver.
+        weekly_capacity = len(timeslot_list)
+        section_demand = defaultdict(int)
+        for section_id, course_id, hours in classes:
+            section_demand[section_id] += hours
+
+        overloaded_reports = []
+        for sid, demand in section_demand.items():
+            if demand > weekly_capacity:
+                section = self.problem.section_map.get(sid)
+                sname = section.get_full_name() if section else f"Section ID {sid}"
+                overloaded_reports.append(f"{sname}: {demand} weekly hours requested (Max {weekly_capacity} capacity)")
+
+        if overloaded_reports:
+            error_msg = (
+                "INVALID WORKLOAD: Scheduling halted. The following sections exceed "
+                "the weekly time slot capacity (40 hours). Please reduce their workload mapping.\n\n"
+                + "\n".join(overloaded_reports)
+            )
+            if progress_callback:
+                progress_callback(0, "Halted: Capacity Overflow Detected")
+
+            return ScheduleResult(
+                success=False,
+                schedule=[],
+                error_message=error_msg,
+                stats={
+                    "error_type": "CAPACITY_OVERFLOW",
+                    "overloaded_sections": overloaded_reports,
+                    "total_classes": len(classes),
+                },
+            )
 
         if progress_callback:
             progress_callback(20, f"Pass 1: Greedy scheduling {len(classes)} classes...")
@@ -204,6 +254,7 @@ class HybridSchedulerEngine:
                 "failed_details": failed_details,
                 "failed_workloads": len(failed_details),
                 "success_rate": f"{success_rate * 100:.1f}%",
+                "unassigned_curriculum": self.problem.unassigned_curriculum,
             },
         )
 
@@ -237,9 +288,10 @@ class HybridSchedulerEngine:
 
         for entry in schedule:
             course = self.problem.course_map.get(entry.course_id)
-            allocated_hours[(entry.section_id, entry.course_id)] += (
-                course.get_hours_needed() if course and self._is_lab_course(course) else 1
-            )
+            if course and self._is_lab_course(course):
+                allocated_hours[(entry.section_id, entry.course_id)] += 2  # All labs are exactly 2 hours
+            else:
+                allocated_hours[(entry.section_id, entry.course_id)] += 1
 
         for _, section_id, course_id, hours in unassigned:
             missing_hours[(section_id, course_id)] += hours
@@ -284,7 +336,7 @@ class HybridSchedulerEngine:
                 if start_idx + hours > num_timeslots:
                     continue
 
-                consecutive_slots = timeslot_list[start_idx : start_idx + hours]
+                consecutive_slots = timeslot_list[start_idx : start_idx + hours]  # noqa: E203
                 is_valid = True
                 for offset in range(hours - 1):
                     current = consecutive_slots[offset]
@@ -325,15 +377,21 @@ class HybridSchedulerEngine:
         return [(item[0], item[5], item[2], item[3], item[4]) for item in ranked]
 
     def _greedy_assign(self, classes, valid_starts, timeslot_list):
-        """First pass: greedy assignment with constrained-class ordering."""
+        """First pass: greedy assignment with session-isolation and zero-gap logic."""
         class_order = self._build_class_order(classes, valid_starts)
         schedule = []
         state = self._new_schedule_state()
         unassigned = []
 
+        # Identify slot boundaries for each day
+        day_slots = defaultdict(list)
+        for idx, ts in enumerate(timeslot_list):
+            day_slots[ts.day].append(idx)
+
         for _, class_idx, section_id, course_id, hours in class_order:
             course = self.problem.course_map[course_id]
             section = self.problem.section_map[section_id]
+            batch_id = section.batch_id
             is_lab = self._is_lab_course(course)
             program_code = section.program_code or "__unknown_program__"
             sc_key = (section_id, course_id)
@@ -341,22 +399,49 @@ class HybridSchedulerEngine:
             possible_faculty = self._get_faculty_candidates(section, course)
             possible_rooms = self._get_room_candidates(section, course)
 
-            # --- Teacher-course-section consistency (greedy pass) ---
-            # If a teacher has already been assigned to this (section, course)
-            # pair on a previous slot, lock all future slots to the same teacher.
             locked_fid = state["section_course_faculty"].get(sc_key)
             if locked_fid is not None:
                 possible_faculty = [f for f in possible_faculty if f.id == locked_fid]
 
+            assigned = False
             all_candidates = []
             for start_idx in valid_starts.get(hours, []):
                 slots_needed = list(range(start_idx, start_idx + hours))
                 day = timeslot_list[start_idx].day
 
+                # Zero-gap & Session Logic:
+                # Assuming 8 slots per day: 0-3 (Morning), 4-7 (Afternoon)
+                day_start_idx = day_slots[day][0]
+                relative_slots = [s - day_start_idx for s in slots_needed]
+
+                is_morning = all(0 <= s <= 3 for s in relative_slots)
+                is_afternoon = all(4 <= s <= 7 for s in relative_slots)
+
+                # Rule: Must be entirely within Morning or entirely within Afternoon session
+                if not (is_morning or is_afternoon):
+                    continue
+
                 if any(slot_idx in state["section_hours"][section_id] for slot_idx in slots_needed):
+                    continue
+
+                # Rule: Lab scheduling logic (Max 1 lab per day per batch)
+                if is_lab and day in state["batch_lab_days"][batch_id]:
                     continue
                 if not is_lab and day in state["section_course_days"][(section_id, course_id)]:
                     continue
+
+                # Rule: Zero-gap back-to-back logic
+                if is_morning:
+                    session_range = range(day_start_idx, day_start_idx + 4)
+                else:
+                    session_range = range(day_start_idx + 4, day_start_idx + 8)
+                existing_in_session = [s for s in session_range if s in state["section_hours"][section_id]]
+
+                if existing_in_session:
+                    min_e = min(existing_in_session)
+                    max_e = max(existing_in_session)
+                    if not (max(slots_needed) == min_e - 1 or min(slots_needed) == max_e + 1):
+                        continue
 
                 for faculty in possible_faculty:
                     if state["faculty_hours"][faculty.id] + hours > faculty.max_hours_per_week:
@@ -374,14 +459,19 @@ class HybridSchedulerEngine:
                         if any(slot_idx in state["room_slots"][room.id] for slot_idx in slots_needed):
                             continue
 
-                        # E4: Score candidate based on daily load balance and gap penalty
-                        # Prefer days where the faculty has fewer hours
+                        # Scoring: Session preferences + faculty balance
+                        session_score = 0
+                        if is_lab:
+                            session_score += 20 if is_afternoon else 5
+                        else:
+                            session_score += 20 if is_morning else 5
+
                         fac_day_load = state["faculty_daily_hours"][faculty.id][day]
                         balance_score = 10 - fac_day_load
 
                         all_candidates.append(
                             {
-                                "score": balance_score,
+                                "score": session_score + balance_score,
                                 "start_idx": start_idx,
                                 "faculty_id": faculty.id,
                                 "room_id": room.id,
@@ -391,14 +481,13 @@ class HybridSchedulerEngine:
                         )
 
             if all_candidates:
-                # E4: Sort by score descending
                 all_candidates.sort(key=lambda x: x["score"], reverse=True)
                 best = all_candidates[0]
 
                 self._occupy_assignment(
                     state,
                     section_id,
-                    section.batch_id,
+                    batch_id,
                     course_id,
                     best["faculty_id"],
                     best["room_id"],
@@ -426,9 +515,14 @@ class HybridSchedulerEngine:
         return schedule, unassigned
 
     def _local_search_optimize(self, schedule, unassigned, classes, valid_starts, timeslot_list):
-        """Second pass: try to fit remaining classes into the free gaps."""
+        """Second pass: try to fit remaining classes into the free gaps while maintaining session rules."""
         state = self._new_schedule_state()
         class_hours = {(section_id, course_id): hours for section_id, course_id, hours in classes}
+
+        # Identify slot boundaries for each day
+        day_slots = defaultdict(list)
+        for idx, ts in enumerate(timeslot_list):
+            day_slots[ts.day].append(idx)
 
         for entry in schedule:
             hours = class_hours.get((entry.section_id, entry.course_id), 1)
@@ -454,7 +548,6 @@ class HybridSchedulerEngine:
                 hours,
                 is_lab,
             )
-            # Rebuild teacher-course-section lock from already-scheduled entries
             sc_key = (entry.section_id, entry.course_id)
             state["section_course_faculty"].setdefault(sc_key, entry.faculty_id)
 
@@ -463,6 +556,7 @@ class HybridSchedulerEngine:
         for class_idx, section_id, course_id, hours in unassigned:
             course = self.problem.course_map[course_id]
             section = self.problem.section_map[section_id]
+            batch_id = section.batch_id
             is_lab = self._is_lab_course(course)
             program_code = section.program_code or "__unknown_program__"
             sc_key = (section_id, course_id)
@@ -470,7 +564,6 @@ class HybridSchedulerEngine:
             possible_faculty = self._get_faculty_candidates(section, course)
             possible_rooms = self._get_room_candidates(section, course)
 
-            # --- Teacher-course-section consistency (local-search pass) ---
             locked_fid = state["section_course_faculty"].get(sc_key)
             if locked_fid is not None:
                 possible_faculty = [f for f in possible_faculty if f.id == locked_fid]
@@ -481,10 +574,33 @@ class HybridSchedulerEngine:
                 slots_needed = list(range(start_idx, start_idx + hours))
                 day = timeslot_list[start_idx].day
 
+                day_start_idx = day_slots[day][0]
+                relative_slots = [s - day_start_idx for s in slots_needed]
+                is_morning = all(0 <= s <= 3 for s in relative_slots)
+                is_afternoon = all(4 <= s <= 7 for s in relative_slots)
+
+                if not (is_morning or is_afternoon):
+                    continue
+
                 if any(slot_idx in state["section_hours"][section_id] for slot_idx in slots_needed):
+                    continue
+                if is_lab and day in state["batch_lab_days"][batch_id]:
                     continue
                 if not is_lab and day in state["section_course_days"][(section_id, course_id)]:
                     continue
+
+                # Zero-gap back-to-back logic
+                if is_morning:
+                    session_range = range(day_start_idx, day_start_idx + 4)
+                else:
+                    session_range = range(day_start_idx + 4, day_start_idx + 8)
+                existing_in_session = [s for s in session_range if s in state["section_hours"][section_id]]
+
+                if existing_in_session:
+                    min_e = min(existing_in_session)
+                    max_e = max(existing_in_session)
+                    if not (max(slots_needed) == min_e - 1 or min(slots_needed) == max_e + 1):
+                        continue
 
                 for faculty in possible_faculty:
                     if state["faculty_hours"][faculty.id] + hours > faculty.max_hours_per_week:
@@ -505,7 +621,7 @@ class HybridSchedulerEngine:
                         self._occupy_assignment(
                             state,
                             section_id,
-                            section.batch_id,
+                            batch_id,
                             course_id,
                             faculty.id,
                             room.id,
@@ -527,10 +643,8 @@ class HybridSchedulerEngine:
                         state["section_course_faculty"].setdefault(sc_key, faculty.id)
                         assigned = True
                         break
-
                     if assigned:
                         break
-
                 if assigned:
                     break
 

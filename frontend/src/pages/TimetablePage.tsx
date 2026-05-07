@@ -308,8 +308,8 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                         {slot.isBreak ? 'BREAK' : `SLOT ${slot.periodNumber}`}
                                     </div>
                                     <div style={{ fontSize: '0.75rem', fontWeight: 800, color: slot.isBreak ? '#ef4444' : 'var(--text-primary)' }}>
-                                        {slot.isBreak 
-                                            ? (slot.label && slot.label !== slot.key ? slot.label : 'LUNCH') 
+                                        {slot.isBreak
+                                            ? (slot.label && slot.label !== slot.key ? slot.label : 'LUNCH')
                                             : `Period ${slot.periodNumber}`}
                                     </div>
                                     <div style={{ fontSize: '0.625rem', fontWeight: 600, opacity: 0.9, marginTop: '3px', color: 'var(--primary)' }}>
@@ -426,7 +426,7 @@ function BatchTimetableView({ timetable, batches, sections, teachers, workingDay
                                                     </td>
                                                 )
                                             }
-                                            
+
                                             // Highlight illegal entries in break slots
                                             const isIllegalBreakAssignment = isBreakSlot && entry;
 
@@ -750,6 +750,14 @@ export function TimetablePage() {
             }
 
             setReadiness(nextReadiness)
+            
+            // Sync top-level states so the grid and legends can render immediately
+            setSections(sectionData)
+            setBatches(sectionResult.batches)
+            setTeachers(allTeachers)
+            setRooms(deptRooms)
+            setCourses(deptCourses)
+
             return nextReadiness
         } catch (err) {
             const fallback = {

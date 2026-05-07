@@ -48,7 +48,7 @@ export const schedulingService = {
 
     async generateAllTimetables(payload: Partial<GenerateSchedulePayload>): Promise<GenerateScheduleResult[]> {
         const res = await api.post('/scheduling/generate/all', payload)
-        return res.data
+        return res.data.results || []
     },
 
     // Timetable viewing

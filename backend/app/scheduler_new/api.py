@@ -14,9 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-"""
-Flask API integration for the scheduling engine
-"""
+# Flask API integration for the scheduling engine
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required

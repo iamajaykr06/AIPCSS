@@ -272,6 +272,10 @@ export const roomService = {
 // ── Workload ────────────────────────────────────────────────────────────────
 
 export const workloadService = {
+    async getSummary() {
+        const res = await api.get('/workload/summary')
+        return res.data
+    },
     async getSectionWorkload(sectionId: number) {
         const res = await api.get(`/workload/sections/${sectionId}`)
         return res.data
@@ -291,13 +295,5 @@ export const workloadService = {
             headers: { 'Content-Type': 'multipart/form-data' },
         })
         return res.data
-    },
-    async autoAssignAll() {
-        const response = await api.post('/workload/auto-assign-all')
-        return response.data
-    },
-    async rebalanceAll() {
-        const response = await api.post('/workload/rebalance-all')
-        return response.data
     }
 }

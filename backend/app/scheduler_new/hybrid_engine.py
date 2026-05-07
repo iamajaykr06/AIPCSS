@@ -336,7 +336,7 @@ class HybridSchedulerEngine:
                 if start_idx + hours > num_timeslots:
                     continue
 
-                consecutive_slots = timeslot_list[start_idx : start_idx + hours]
+                consecutive_slots = timeslot_list[start_idx : start_idx + hours]  # noqa: E203
                 is_valid = True
                 for offset in range(hours - 1):
                     current = consecutive_slots[offset]

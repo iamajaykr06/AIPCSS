@@ -194,7 +194,7 @@ class SchedulerEngine:
             if start_idx + hours_needed > len(day_slots):
                 return None
 
-            consecutive = day_slots[start_idx : start_idx + hours_needed]
+            consecutive = day_slots[start_idx : start_idx + hours_needed]  # noqa: E203
             # Verify they're consecutive
             for i in range(len(consecutive) - 1):
                 if consecutive[i].end_time != consecutive[i + 1].start_time:

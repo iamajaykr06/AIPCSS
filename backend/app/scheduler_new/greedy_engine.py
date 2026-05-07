@@ -57,7 +57,7 @@ class GreedySchedulerEngine:
         for h in range(1, 8):
             for i in range(num_timeslots):
                 if i + h <= num_timeslots:
-                    consecutive_slots = timeslot_list[i : i + h]
+                    consecutive_slots = timeslot_list[i : i + h]  # noqa: E203
                     valid = True
                     for j in range(h - 1):
                         if (

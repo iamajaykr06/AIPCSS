@@ -160,10 +160,14 @@ class OrtoolsSchedulerEngine:
                         f_per_slot = max(1, min_per_faculty // len(f_slots))
                         f_selected = []
                         for ts_idx in f_slots:
-                            f_selected.extend(random.sample(f_by_slot[ts_idx], min(len(f_by_slot[ts_idx]), f_per_slot)))  # nosec B311  # noqa: E501
+                            f_selected.extend(
+                                random.sample(f_by_slot[ts_idx], min(len(f_by_slot[ts_idx]), f_per_slot))  # nosec B311
+                            )
                         if len(f_selected) < min_per_faculty:
                             rem = [c for c in f_combos if c not in f_selected]
-                            f_selected.extend(random.sample(rem, min(len(rem), min_per_faculty - len(f_selected))))  # nosec B311  # noqa: E501
+                            f_selected.extend(
+                                random.sample(rem, min(len(rem), min_per_faculty - len(f_selected)))  # nosec B311
+                            )
                         selected.extend(f_selected)
 
                 if len(selected) > MAX_COMBINATIONS_PER_CLASS:

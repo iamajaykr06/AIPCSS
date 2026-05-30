@@ -18,13 +18,17 @@ limitations under the License.
 # werkzeug's scrypt password hashing (check_password_hash fails under eventlet).
 # Using threading mode for SocketIO instead.
 
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from app import create_app, socketio
 
-app = create_app()
+app = create_app(env=os.environ.get("FLASK_ENV", "production"))
+
+# For production with gunicorn, the app object is used directly as a WSGI application.
+# For development, run: socketio.run(app, host="0.0.0.0", port=5000, debug=True)
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=5000, debug=False, allow_unsafe_werkzeug=True)

@@ -1,3 +1,4 @@
+gunicorn==23.0.0
 absl-py==2.4.0
 alembic==1.18.3
 bidict==0.23.1

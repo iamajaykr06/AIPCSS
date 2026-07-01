@@ -57,6 +57,7 @@ def create_app(env=None):
     # login will crash with "no such table". Auto-create missing tables.
     with app.app_context():
         from . import models  # noqa: F401
+
         try:
             db.create_all()
         except Exception as e:

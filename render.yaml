@@ -19,6 +19,6 @@ services:
       - key: CORS_ORIGINS
         value: "*"
 
-  - type: psql
-    name: aipcss-db
+databases:
+  - name: aipcss-db
     plan: free

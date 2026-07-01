@@ -54,16 +54,13 @@ def create_app(env=None):
 
     # ── Development safety: ensure base tables exist ───────────────────────
     # If a local DB is created in a partially migrated state, endpoints like
-    # login will crash with "no such table". For development only, auto-create
-    # tables when the critical `users` table is missing.
-    if env in ("development", "testing"):
-        with app.app_context():
-            from . import models  # noqa: F401
-
-            try:
-                db.create_all()
-            except Exception as e:
-                app.logger.error(f"Auto-migration failed: {str(e)}")
+    # login will crash with "no such table". Auto-create missing tables.
+    with app.app_context():
+        from . import models  # noqa: F401
+        try:
+            db.create_all()
+        except Exception as e:
+            app.logger.error(f"Auto-migration failed: {str(e)}")
 
     # ── Blueprints ────────────────────────────────────────────────────────────
     from .routes.auth import auth_bp
